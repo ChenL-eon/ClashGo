@@ -1,0 +1,42 @@
+Clash Go — Flutter refactor
+Copyright (C) 2026 Clash Go contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+details. The full license text is included in LICENSE.
+
+Upstream projects and assets
+----------------------------
+
+1. ClashGo
+   https://github.com/Chen-L-eon/ClashGo
+   Original Android application. This project is a Flutter reimplementation of
+   its feature set and uses its brand identity, application icon and UI design
+   inspiration. ClashGo is licensed under GPL-3.0.
+
+2. Mishka
+   https://github.com/YuKongA/Mishka
+   Design reference credited by the original ClashGo project.
+
+3. mihomo
+   https://github.com/MetaCubeX/mihomo
+   Proxy core bundled for Windows as core/mihomo.exe (v1.19.33), together with
+   GeoIP/GeoSite data files under core/geodata/. mihomo is licensed under
+   GPL-3.0. Its source code is available from the upstream repository.
+
+4. Flutter and Dart packages
+   This application is built with Flutter (BSD-3-Clause) and the packages
+   listed in pubspec.yaml / pubspec.lock, each distributed under its own
+   license. License texts for these packages are available from their
+   respective repositories and are included in the Flutter build output.
+
+Trademarks
+----------
+
+All product names, logos and brands are property of their respective owners.
+This project is not affiliated with or endorsed by ClashGo, Mishka, mihomo,
+MetaCubeX or the Flutter team.
