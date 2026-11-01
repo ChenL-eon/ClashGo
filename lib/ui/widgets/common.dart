@@ -29,7 +29,7 @@ class PageContainer extends StatelessWidget {
     final horizontal = width >= appCompactBreakpoint ? 28.0 : 18.0;
     final bottom = desktop ? 36.0 : (floatingNav ? 96.0 : 28.0) + MediaQuery.viewPaddingOf(context).bottom;
     return SingleChildScrollView(
-      padding: padding ?? EdgeInsets.fromLTRB(horizontal, desktop ? 30 : 18, horizontal, bottom),
+      padding: padding ?? EdgeInsets.fromLTRB(horizontal, desktop ? 16 : 18, horizontal, bottom),
       child: Center(
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: maxWidth),
@@ -65,7 +65,7 @@ class PageFrame extends StatelessWidget {
     final horizontal = width >= appCompactBreakpoint ? 28.0 : 18.0;
     final bottom = (desktop ? 36.0 : (floatingNav ? 96.0 : 28.0)) + MediaQuery.viewPaddingOf(context).bottom;
     return Padding(
-      padding: EdgeInsets.fromLTRB(horizontal, desktop ? 30 : 18, horizontal, bottom),
+      padding: EdgeInsets.fromLTRB(horizontal, desktop ? 16 : 18, horizontal, bottom),
       child: Center(
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: maxWidth),

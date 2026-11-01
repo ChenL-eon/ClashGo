@@ -13,6 +13,7 @@ import 'package:clash_go/ui/shell/navigation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'support/fake_startup.dart';
 
 /// 可见性节流的回归用例：用一个进程内的假 mihomo 控制面，把"通道有没有连着"
 /// 变成可以直接断言的东西（服务器侧活着的 WebSocket 数量 + 推进去的帧有没有落到
@@ -35,7 +36,7 @@ void main() {
     proxy = await _ProbeProxy.start();
     support = await Directory.systemTemp.createTemp('clashgo_visibility_');
     PathProviderPlatform.instance = _TempPathProvider(support.path);
-    controller = AppController(await AppPaths.create());
+    controller = AppController(await AppPaths.create(), startupService: FakeStartupService());
     await controller.initialize();
     controller.settings = controller.settings.copyWith(apiPort: port, secret: core.secret, mixedPort: proxy.port);
     await controller.store.saveSettings(controller.settings);

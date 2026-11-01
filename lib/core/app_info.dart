@@ -1,8 +1,9 @@
 class AppInfo {
   AppInfo._();
 
-  static const name = 'Clash Go';
-  static const version = '1.0.0';
+  static const name = 'ClashGo';
+  // 必须与 pubspec.yaml 的 version 前段一致，test/version_consistency_test.dart 守着。
+  static const version = '1.2.0';
   static const repository = 'https://github.com/ChenL-eon/ClashGo';
   static const mihomoRepository = 'https://github.com/MetaCubeX/mihomo';
   static const license = 'GPL-3.0';

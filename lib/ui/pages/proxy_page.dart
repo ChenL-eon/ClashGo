@@ -135,8 +135,7 @@ class _ProxyPageState extends State<ProxyPage> {
   String? _offlineKey;
   ProxiesSnapshot? _offlineSnapshot;
   Map<String, OfflineEndpoint> _offlineEndpoints = const {};
-  final Map<String, int> _offlineDelays = {};
-  final Set<String> _offlineTimeout = {};
+  // 延迟结果不放这里：页面 State 会随窗口跨断点重建，结果统一记在控制器里。
   final Set<String> _offlineTesting = {};
   bool _offlineBulkTesting = false;
   bool _offlineLoading = false;
@@ -202,8 +201,6 @@ class _ProxyPageState extends State<ProxyPage> {
         _offlineKey = null;
         _offlineSnapshot = null;
         _offlineEndpoints = const {};
-        _offlineDelays.clear();
-        _offlineTimeout.clear();
         _offlineTesting.clear();
         _offlineLoading = false;
         _offlineError = false;
@@ -219,8 +216,6 @@ class _ProxyPageState extends State<ProxyPage> {
     _offlineNoProfile = false;
     _offlineSnapshot = null;
     _offlineEndpoints = const {};
-    _offlineDelays.clear();
-    _offlineTimeout.clear();
     _offlineTesting.clear();
     final selections = controller.activeSelections;
     controller.store.readProfile(subscription.id).then((content) {
@@ -243,24 +238,20 @@ class _ProxyPageState extends State<ProxyPage> {
     });
   }
 
-  int? _offlineDelay(String name) => _offlineDelays[name];
-
   Future<void> _probeOfflineNode(String name) async {
     final endpoint = _offlineEndpoints[name];
     if (endpoint == null || _offlineTesting.contains(name)) return;
-    setState(() {
-      _offlineTesting.add(name);
-      _offlineDelays.remove(name);
-      _offlineTimeout.remove(name);
-    });
+    final controller = context.read<AppController>();
+    final subscriptionId = controller.activeId;
+    setState(() => _offlineTesting.add(name));
     final delay = await OfflineLatency.probe(endpoint);
+    // 探测期间切了订阅，这条结果已经不属于当前页面；丢弃而不是写错订阅。
+    if (controller.activeId != subscriptionId) return;
+    // probe 只会给出正数或 -1；-1 在卡片上显示为超时。页面 State 可能已经
+    // 因为跨断点重建而消失，结果仍要记进控制器，否则又退回未测速。
+    controller.recordTestedDelay(name, delay ?? -1);
     if (!mounted) return;
-    setState(() {
-      _offlineTesting.remove(name);
-      if (delay != null) _offlineDelays[name] = delay;
-      // 离线握手失败给出 -1，完全没有回执时是 null，两者都算超时。
-      if (delay == null || delay < 0) _offlineTimeout.add(name);
-    });
+    setState(() => _offlineTesting.remove(name));
   }
 
   Future<void> _probeOfflineGroup(ProxyInfo group) async {
@@ -296,8 +287,6 @@ class _ProxyPageState extends State<ProxyPage> {
       _offlineKey = null;
       _offlineSnapshot = null;
       _offlineEndpoints = const {};
-      _offlineDelays.clear();
-      _offlineTimeout.clear();
       _offlineTesting.clear();
       _offlineBulkTesting = false;
       _offlineLoading = false;
@@ -350,12 +339,13 @@ class _ProxyPageState extends State<ProxyPage> {
     String name, {
     required bool offline,
   }) {
-    if (offline) return _offlineTimeout.contains(name);
-    final info = snapshot.proxies[name];
-    if (info != null && !info.alive) return true;
+    // 内核把超时节点的 delay 报成 0，ProxyInfo 统一记为 -1；离线 TCP 握手
+    // 失败也写 -1，两种模式可以用同一个判断。
     final delay = controller.displayDelay(name);
-    // 内核把超时节点的 delay 报成 0，ProxyInfo 统一记为 -1。
-    return delay != null && delay < 0;
+    if (delay != null && delay < 0) return true;
+    if (offline) return false;
+    final info = snapshot.proxies[name];
+    return info != null && !info.alive;
   }
 
   /// 搜索 + 隐藏超时 + 排序，桌面与移动共用一套结果。
@@ -374,11 +364,10 @@ class _ProxyPageState extends State<ProxyPage> {
       return true;
     }).toList();
     if (sort != NodeSort.original) {
-      int? delayOf(String name) => offline ? _offlineDelay(name) : controller.displayDelay(name);
       int weight(int? value) => value == null || value < 0 ? 1 << 30 : value;
       nodes.sort((a, b) => sort == NodeSort.name
           ? a.toLowerCase().compareTo(b.toLowerCase())
-          : weight(delayOf(a)).compareTo(weight(delayOf(b))));
+          : weight(controller.displayDelay(a)).compareTo(weight(controller.displayDelay(b))));
     }
     return nodes;
   }
@@ -882,7 +871,7 @@ class _ProxyPageState extends State<ProxyPage> {
                           name: name,
                           type: snapshot.proxies[name]?.type ?? '',
                           selected: group!.now == name,
-                          delay: offline ? _offlineDelay(name) : controller.displayDelay(name),
+                          delay: controller.displayDelay(name),
                           testing: offline
                               ? _offlineTesting.contains(name)
                               : controller.testingNodes.contains(name),
@@ -965,7 +954,7 @@ class _ProxyPageState extends State<ProxyPage> {
         break;
       }
     }
-    int? delayOf(String name) => offline ? _offlineDelay(name) : controller.displayDelay(name);
+    int? delayOf(String name) => controller.displayDelay(name);
     final nowDelay = now.isEmpty ? null : delayOf(now);
     final tested = group.all.where((name) {
       final delay = delayOf(name);
@@ -1289,11 +1278,8 @@ class _ProxyPageState extends State<ProxyPage> {
     final palette = AppPalette.of(context);
     final query = _search.text.trim().toLowerCase();
     final nodes = view.nodes;
-    final testing = offline
-        ? _offlineTesting.contains(group.name)
-        : controller.testingGroups.contains(group.name);
     final now = group.now;
-    final nowDelay = now.isEmpty ? null : (offline ? _offlineDelay(now) : controller.displayDelay(now));
+    final nowDelay = now.isEmpty ? null : controller.displayDelay(now);
     return SurfaceCard(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -1343,16 +1329,6 @@ class _ProxyPageState extends State<ProxyPage> {
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                onPressed: testing
-                    ? null
-                    : () => offline ? _probeOfflineGroup(group) : controller.testGroup(group),
-                icon: testing
-                    ? const SizedBox(width: 13, height: 13, child: CircularProgressIndicator(strokeWidth: 1.8))
-                    : const AppIcon('lightning-line', size: 14),
-                label: Text(l10n.get('proxy.testGroup')),
               ),
             ],
           ),
@@ -1439,7 +1415,7 @@ class _ProxyPageState extends State<ProxyPage> {
                           name: name,
                           type: snapshot.proxies[name]?.type ?? '',
                           selected: now == name,
-                          delay: offline ? _offlineDelay(name) : controller.displayDelay(name),
+                          delay: controller.displayDelay(name),
                           testing:
                               offline ? _offlineTesting.contains(name) : controller.testingNodes.contains(name),
                           scale: view.scale,

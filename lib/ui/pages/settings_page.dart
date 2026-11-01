@@ -331,26 +331,17 @@ class _SettingsPageState extends State<SettingsPage> {
         titleKey: 'settings.systemProxy',
         subtitleKey: 'settings.systemProxyHint',
       ),
-      const _SettingEntry(
-        view: _SettingsView.clash,
-        groupKey: 'settings.group.clash',
-        titleKey: 'settings.coreVersion',
-      ),
-      const _SettingEntry(
-        view: _SettingsView.clash,
-        groupKey: 'settings.group.clash',
-        titleKey: 'settings.coreBinary',
-      ),
+      if (Platform.isWindows)
+        const _SettingEntry(
+          view: _SettingsView.clash,
+          groupKey: 'settings.group.clash',
+          titleKey: 'settings.proxyBypass',
+          subtitleKey: 'settings.proxyBypassHint',
+        ),
       const _SettingEntry(
         view: _SettingsView.clash,
         groupKey: 'settings.group.clash',
         titleKey: 'settings.runtimeDir',
-      ),
-      const _SettingEntry(
-        view: _SettingsView.clash,
-        groupKey: 'settings.group.clash',
-        titleKey: 'settings.restartCore',
-        subtitleKey: 'settings.restartHint',
       ),
       const _SettingEntry(
         view: _SettingsView.behavior,
@@ -370,6 +361,20 @@ class _SettingsPageState extends State<SettingsPage> {
         titleKey: 'settings.autoUpdateSubs',
         subtitleKey: 'settings.autoUpdateSubsHint',
       ),
+      if (Platform.isWindows) ...[
+        const _SettingEntry(
+          view: _SettingsView.behavior,
+          groupKey: 'settings.group.app',
+          titleKey: 'settings.launchAtStartup',
+          subtitleKey: 'settings.launchAtStartupHint',
+        ),
+        const _SettingEntry(
+          view: _SettingsView.behavior,
+          groupKey: 'settings.group.app',
+          titleKey: 'settings.closeToTray',
+          subtitleKey: 'settings.closeToTrayHint',
+        ),
+      ],
       const _SettingEntry(
         view: _SettingsView.about,
         groupKey: 'settings.group.app',
@@ -394,6 +399,16 @@ class _SettingsPageState extends State<SettingsPage> {
         groupKey: 'settings.group.app',
         titleKey: 'settings.checkUpdatesOnStartup',
         subtitleKey: 'settings.checkUpdatesOnStartupHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.about,
+        groupKey: 'settings.group.app',
+        titleKey: 'settings.coreVersion',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.about,
+        groupKey: 'settings.group.app',
+        titleKey: 'settings.coreBinary',
       ),
       const _SettingEntry(
         view: _SettingsView.about,
@@ -632,6 +647,16 @@ class _SettingsPageState extends State<SettingsPage> {
                 enabled: SystemProxyService.supported,
                 onChanged: (value) => _toggleSystemProxy(context, controller, value),
               ),
+              if (Platform.isWindows)
+                _ValueRow(
+                  title: l10n.get('settings.proxyBypass'),
+                  subtitle: l10n.get('settings.proxyBypassHint'),
+                  value: l10n.get(
+                    'settings.proxyBypassCount',
+                    [_bypassCount(settings.proxyBypass)],
+                  ),
+                  onTap: () => _showBypassDialog(context, controller),
+                ),
             ],
           ),
           const SizedBox(height: 22),
@@ -641,18 +666,8 @@ class _SettingsPageState extends State<SettingsPage> {
             title: l10n.get('settings.core'),
             trailing: CoreStatusBadge(controller: controller, dense: true),
             children: [
-              _ValueRow(
-                title: l10n.get('settings.coreVersion'),
-                value: controller.coreVersion ?? '—',
-                onTap: null,
-              ),
-              _ValueRow(
-                title: l10n.get('settings.coreBinary'),
-                value: controller.coreBinary,
-                onTap: () => copyToClipboard(context, controller.coreBinary),
-                trailingIcon: 'copy-line',
-                monospace: true,
-              ),
+              // 内核版本/路径移到了「关于」页的只读区；启停与重载统一走主页、
+              // 代理页和状态胶囊上的开关，这里只留排障要用的运行目录。
               _ValueRow(
                 title: l10n.get('settings.runtimeDir'),
                 value: controller.core.runtimeDir,
@@ -661,15 +676,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     : () => _openFolder(context, controller.core.runtimeDir, l10n.get('settings.openFailed')),
                 trailingIcon: Platform.isWindows ? 'folder-line' : 'copy-line',
                 monospace: true,
-              ),
-              SettingRow(
-                title: l10n.get('settings.restartCore'),
-                subtitle: l10n.get('settings.restartHint'),
-                trailing: FilledButton(
-                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10)),
-                  onPressed: controller.isRunning ? () => _restartCore(context, controller) : null,
-                  child: Text(l10n.get('common.restart')),
-                ),
               ),
             ],
           ),
@@ -701,28 +707,32 @@ class _SettingsPageState extends State<SettingsPage> {
                 value: settings.autoUpdateSubscriptions,
                 onChanged: (value) => _apply(context, controller, settings.copyWith(autoUpdateSubscriptions: value)),
               ),
+              if (Platform.isWindows) ...[
+                _SwitchRow(
+                  title: l10n.get('settings.launchAtStartup'),
+                  subtitle: l10n.get('settings.launchAtStartupHint'),
+                  value: settings.launchAtStartup,
+                  onChanged: (value) => _apply(context, controller, settings.copyWith(launchAtStartup: value)),
+                ),
+                _SwitchRow(
+                  title: l10n.get('settings.closeToTray'),
+                  subtitle: l10n.get('settings.closeToTrayHint'),
+                  value: settings.closeToTray,
+                  onChanged: (value) => _apply(context, controller, settings.copyWith(closeToTray: value)),
+                ),
+              ],
             ],
           ),
         ];
       case _SettingsView.about:
         return [
+          _aboutHero(context, controller, mobile: mobile),
+          SizedBox(height: mobile ? 24 : 28),
           _section(
             context,
             mobile: mobile,
             title: l10n.get('settings.updateSection'),
             children: [
-              SettingRow(
-                title: l10n.get('settings.checkUpdates'),
-                subtitle: l10n.get('settings.checkUpdatesHint'),
-                trailing: _checkingUpdate
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : chevron(),
-                onTap: _checkingUpdate ? null : () => _checkUpdates(controller),
-              ),
               AppDropdown<String>(
                 options: [
                   AppDropdownOption(
@@ -757,24 +767,47 @@ class _SettingsPageState extends State<SettingsPage> {
           _section(
             context,
             mobile: mobile,
-            title: l10n.get('settings.about'),
+            title: l10n.get('settings.core'),
+            trailing: CoreStatusBadge(controller: controller, dense: true),
             children: [
               SettingRow(
+                title: l10n.get('settings.coreVersion'),
+                subtitle: controller.isRunning && controller.coreVersion != null
+                    ? 'Mihomo ${controller.coreVersion}'
+                    : l10n.get('about.coreStopped'),
+              ),
+              _ValueRow(
+                title: l10n.get('settings.coreBinary'),
+                value: controller.coreBinary,
+                onTap: () => copyToClipboard(context, controller.coreBinary),
+                trailingIcon: 'copy-line',
+                monospace: true,
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          _section(
+            context,
+            mobile: mobile,
+            title: l10n.get('settings.more'),
+            children: [
+              _AboutLinkRow(
+                icon: 'link-line',
                 title: l10n.get('settings.github'),
                 subtitle: AppInfo.repository,
-                trailing: chevron(),
                 onTap: () => _openUrl(context, AppInfo.repository, l10n.get('settings.openFailed')),
               ),
-              SettingRow(
-                title: l10n.get('about.mihomo'),
+              _AboutLinkRow(
+                icon: 'chip-line',
+                title: l10n.get('settings.core'),
                 subtitle: AppInfo.mihomoRepository,
-                trailing: chevron(),
                 onTap: () => _openUrl(context, AppInfo.mihomoRepository, l10n.get('settings.openFailed')),
               ),
-              SettingRow(
+              _AboutLinkRow(
+                icon: 'shield-shape-line',
                 title: l10n.get('settings.license'),
                 subtitle: AppInfo.license,
-                trailing: chevron(),
+                trailingIcon: 'right-small-line',
                 onTap: () => showMessageDialog(
                   context,
                   title: l10n.get('settings.license'),
@@ -783,10 +816,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   icon: 'file-line',
                 ),
               ),
-              SettingRow(
+              _AboutLinkRow(
+                icon: 'file-line',
                 title: l10n.get('settings.diagnostics'),
                 subtitle: l10n.get('settings.copyDiagnostics'),
-                trailing: AppIcon('copy-line', size: 15, color: palette.muted),
+                trailingIcon: 'copy-line',
                 onTap: () => copyToClipboard(context, controller.diagnostics()),
               ),
             ],
@@ -852,6 +886,63 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Column(children: children),
         ),
       ],
+    );
+  }
+
+  Widget _aboutHero(BuildContext context, AppController controller, {required bool mobile}) {
+    final l10n = context.l10n;
+    final palette = AppPalette.of(context);
+    return Padding(
+      padding: EdgeInsets.only(top: mobile ? 6 : 10, bottom: 2),
+      child: Column(
+        children: [
+          BrandMark(size: mobile ? 76 : 92, radius: mobile ? 20 : 24),
+          SizedBox(height: mobile ? 14 : 18),
+          Text(
+            AppInfo.name,
+            style: TextStyle(
+              fontSize: mobile ? 22 : 24,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3,
+              color: palette.text,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _AboutPill(text: 'v${AppInfo.version}', filled: true),
+              const SizedBox(width: 8),
+              _AboutPill(text: AppInfo.license),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Text(
+              l10n.get('about.tagline'),
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, height: 1.6, color: palette.strongMuted),
+            ),
+          ),
+          const SizedBox(height: 18),
+          OutlinedButton.icon(
+            onPressed: _checkingUpdate ? null : () => _checkUpdates(controller),
+            icon: _checkingUpdate
+                ? const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2))
+                : const AppIcon('refresh-2-line', size: 15),
+            label: Text(l10n.get('settings.checkUpdates')),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: palette.text,
+              backgroundColor: palette.card,
+              side: BorderSide(color: palette.border),
+              shape: const StadiumBorder(),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              textStyle: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1094,6 +1185,104 @@ class _SwitchRow extends StatelessWidget {
   }
 }
 
+int _bypassCount(String value) {
+  final normalized = AppSettings.normalizeProxyBypass(value);
+  return normalized.isEmpty ? 0 : normalized.split(';').length;
+}
+
+Future<void> _showBypassDialog(BuildContext context, AppController controller) async {
+  final l10n = context.l10n;
+  final field = TextEditingController(
+    text: AppSettings.normalizeProxyBypass(controller.settings.proxyBypass).replaceAll(';', '\n'),
+  )..selection = const TextSelection.collapsed(offset: 0);
+  await showAppDialog<void>(
+    context,
+    maxWidth: 460,
+    builder: (dialogContext) {
+      var error = '';
+      var saving = false;
+      return StatefulBuilder(
+        builder: (context, setState) {
+          Future<void> save() async {
+            final normalized = AppSettings.normalizeProxyBypass(field.text);
+            if (normalized.isEmpty) {
+              setState(() => error = l10n.get('settings.proxyBypassEmpty'));
+              return;
+            }
+            setState(() {
+              saving = true;
+              error = '';
+            });
+            try {
+              await controller.applySettings(
+                controller.settings.copyWith(proxyBypass: normalized),
+                announce: true,
+              );
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+            } catch (applyError) {
+              setState(() {
+                saving = false;
+                error = errorFrom(applyError).localized(l10n);
+              });
+            }
+          }
+
+          return AppDialog(
+            title: l10n.get('settings.proxyBypassTitle'),
+            subtitle: l10n.get('settings.proxyBypassHint'),
+            icon: 'shield-shape-line',
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: field,
+                  autofocus: true,
+                  enabled: !saving,
+                  minLines: 6,
+                  maxLines: 10,
+                  style: const TextStyle(fontSize: 13, fontFamily: 'Consolas', height: 1.5),
+                  decoration: const InputDecoration(hintText: 'localhost\n127.*\n192.168.*'),
+                ),
+                if (error.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  InfoBanner(message: error, color: AppPalette.of(dialogContext).danger, dense: true),
+                ],
+                const SizedBox(height: 10),
+                Text(
+                  l10n.get('settings.proxyBypassMessage'),
+                  style: TextStyle(fontSize: 11, height: 1.5, color: AppPalette.of(dialogContext).muted),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving
+                    ? null
+                    : () => setState(() {
+                          field.text = AppSettings.defaultProxyBypass.replaceAll(';', '\n');
+                          error = '';
+                        }),
+                child: Text(dialogContext.t('settings.proxyBypassReset')),
+              ),
+              TextButton(
+                onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+                child: Text(dialogContext.t('common.cancel')),
+              ),
+              FilledButton(
+                onPressed: saving ? null : save,
+                child: saving
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : Text(dialogContext.t('common.save')),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+  field.dispose();
+}
+
 Future<void> _showPortDialog(BuildContext context, AppController controller, {required bool apiPort}) async {
   final l10n = context.l10n;
   final settings = controller.settings;
@@ -1220,24 +1409,6 @@ Future<void> _toggleSystemProxy(BuildContext context, AppController controller, 
   }
 }
 
-Future<void> _restartCore(BuildContext context, AppController controller) async {
-  final l10n = context.l10n;
-  final confirmed = await showConfirmDialog(
-    context,
-    title: l10n.get('settings.restartConfirm'),
-    message: l10n.get('settings.restartConfirmMessage'),
-    confirmText: l10n.get('common.restart'),
-    icon: 'refresh-2-line',
-  );
-  if (!confirmed || !context.mounted) return;
-  try {
-    await controller.restartCore();
-  } catch (error) {
-    if (!context.mounted) return;
-    showAppToast(context, errorFrom(error).localized(l10n), error: true);
-  }
-}
-
 Future<void> _resetSettings(BuildContext context, AppController controller) async {
   final l10n = context.l10n;
   final confirmed = await showConfirmDialog(
@@ -1272,5 +1443,98 @@ Future<void> _openUrl(BuildContext context, String url, String failureMessage) a
   } catch (_) {
     if (!context.mounted) return;
     showAppToast(context, failureMessage, error: true);
+  }
+}
+
+class _AboutPill extends StatelessWidget {
+  const _AboutPill({required this.text, this.filled = false});
+
+  final String text;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: filled ? Theme.of(context).colorScheme.primary : Colors.transparent,
+        borderRadius: BorderRadius.circular(7),
+        border: filled ? null : Border.all(color: palette.border),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          height: 1.2,
+          color: filled ? palette.onAccent : palette.strongMuted,
+        ),
+      ),
+    );
+  }
+}
+
+class _AboutLinkRow extends StatelessWidget {
+  const _AboutLinkRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.trailingIcon = 'link-line',
+  });
+
+  final String icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final String trailingIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    final mobile = MediaQuery.sizeOf(context).width < appDesktopBreakpoint;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        hoverColor: palette.hover,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: mobile ? 16 : 18, vertical: mobile ? 13 : 12),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: palette.cardAlt, borderRadius: BorderRadius.circular(11)),
+                child: AppIcon(icon, size: 16, color: palette.strongMuted),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(fontSize: mobile ? 15 : 13.5, fontWeight: FontWeight.w600, color: palette.text),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: mobile ? 12.5 : 12, color: palette.muted),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              AppIcon(trailingIcon, size: 14, color: palette.muted),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

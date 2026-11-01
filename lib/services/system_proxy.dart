@@ -61,7 +61,7 @@ class SystemProxyService {
 
   static String serverFor(int port) => '127.0.0.1:$port';
 
-  Future<bool> enable(int port) async {
+  Future<bool> enable(int port, {required String bypass}) async {
     if (!supported) throw const AppError('unsupportedPlatform');
     if (port <= 0 || port > 65535) throw AppError('systemProxy', detail: 'Invalid port $port');
     final current = _readSettings();
@@ -71,7 +71,7 @@ class SystemProxyService {
       _withKey((arena, key) {
         _writeDword(key, arena, _proxyEnable, 1);
         _writeString(key, arena, _proxyServer, serverFor(port));
-        _writeString(key, arena, _proxyOverride, 'localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>');
+        _writeString(key, arena, _proxyOverride, bypass);
       });
     } catch (_) {
       await _restoreBackup();

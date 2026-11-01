@@ -6,6 +6,7 @@ import 'package:clash_go/core/app_paths.dart';
 import 'package:clash_go/models/app_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'support/fake_startup.dart';
 
 /// TUN 开关的三条纪律：改设置要落盘、和系统代理互斥、内核没在跑时不许起提权进程。
 /// 最后一条尤其要紧——这条路径真的会去碰 UAC，测试里绝不能在内核跑着的时候调它，
@@ -20,7 +21,7 @@ void main() {
     HttpOverrides.global = null;
     support = await Directory.systemTemp.createTemp('clashgo_tun_toggle_');
     PathProviderPlatform.instance = _TempPathProvider(support.path);
-    controller = AppController(await AppPaths.create());
+    controller = AppController(await AppPaths.create(), startupService: FakeStartupService());
     await controller.initialize();
     controller.settings = AppSettings.defaults().copyWith(systemProxy: false, tun: false);
     await controller.store.saveSettings(controller.settings);
@@ -103,7 +104,7 @@ void main() {
     controller.settings = controller.settings.copyWith(tun: true, systemProxy: true);
     await controller.store.saveSettings(controller.settings);
 
-    final reopened = AppController(await AppPaths.create());
+    final reopened = AppController(await AppPaths.create(), startupService: FakeStartupService());
     await reopened.initialize();
     addTearDown(reopened.dispose);
 

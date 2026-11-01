@@ -117,6 +117,33 @@ class LocalStore {
     await _writeJson(paths.selectionsFile, selections);
   }
 
+  Future<Map<String, Map<String, int>>> loadTestedDelays() async {
+    try {
+      if (!await paths.testedDelaysFile.exists()) return {};
+      final decoded = jsonDecode(await paths.testedDelaysFile.readAsString());
+      if (decoded is! Map) return {};
+      final result = <String, Map<String, int>>{};
+      decoded.forEach((key, value) {
+        if (value is! Map) return;
+        final entries = <String, int>{};
+        value.forEach((node, delay) {
+          if (delay is num) entries[node.toString()] = delay.toInt();
+        });
+        if (entries.isNotEmpty) result[key.toString()] = entries;
+      });
+      return result;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> saveTestedDelays(Map<String, Map<String, int>> delays) async {
+    await _writeJson(paths.testedDelaysFile, {
+      for (final entry in delays.entries)
+        if (entry.value.isNotEmpty) entry.key: entry.value,
+    });
+  }
+
   Future<String?> readProfile(String id) async {
     final file = paths.profileFile(id);
     if (!await file.exists()) return null;

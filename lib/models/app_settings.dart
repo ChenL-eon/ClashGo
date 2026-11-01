@@ -23,6 +23,9 @@ class AppSettings {
     this.hideTimeoutProxies = false,
     this.updateChannel = channelStable,
     this.checkUpdatesOnStartup = false,
+    this.launchAtStartup = false,
+    this.closeToTray = true,
+    this.proxyBypass = defaultProxyBypass,
   });
 
   factory AppSettings.defaults({bool zh = true, bool systemProxy = true}) {
@@ -70,6 +73,9 @@ class AppSettings {
       hideTimeoutProxies: json['hideTimeoutProxies'] as bool? ?? false,
       updateChannel: json['updateChannel'] as String? ?? channelStable,
       checkUpdatesOnStartup: json['checkUpdatesOnStartup'] as bool? ?? false,
+      launchAtStartup: json['launchAtStartup'] as bool? ?? false,
+      closeToTray: json['closeToTray'] as bool? ?? true,
+      proxyBypass: json['proxyBypass'] as String? ?? defaultProxyBypass,
     );
   }
 
@@ -103,10 +109,34 @@ class AppSettings {
   String updateChannel;
   bool checkUpdatesOnStartup;
 
+  /// Windows 专用：登录系统后由注册表 Run 项自动启动，并且启动参数让它直接收进托盘。
+  bool launchAtStartup;
+
+  /// Windows 专用：点窗口关闭按钮时隐藏到托盘，而不是退出并停内核。
+  bool closeToTray;
+
+  /// Windows 系统代理的 ProxyOverride，分号分隔，支持 `*` 与 `<local>`。
+  String proxyBypass;
+
   bool get isZh => language == 'zh';
 
   static const String channelStable = 'stable';
   static const String channelPreview = 'preview';
+
+  static const String defaultProxyBypass =
+      'localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>';
+
+  /// 用户在对话框里可以用换行代替分号；空项与重复项直接丢掉。
+  static String normalizeProxyBypass(String value) {
+    final seen = <String>{};
+    final entries = <String>[];
+    for (final part in value.split(RegExp(r'[;\r\n]+'))) {
+      final item = part.trim();
+      if (item.isEmpty || !seen.add(item)) continue;
+      entries.add(item);
+    }
+    return entries.join(';');
+  }
 
   static const String styleTabs = 'tabs';
   static const String styleList = 'list';
@@ -144,6 +174,9 @@ class AppSettings {
     bool? hideTimeoutProxies,
     String? updateChannel,
     bool? checkUpdatesOnStartup,
+    bool? launchAtStartup,
+    bool? closeToTray,
+    String? proxyBypass,
   }) {
     return AppSettings(
       language: language ?? this.language,
@@ -167,6 +200,9 @@ class AppSettings {
       hideTimeoutProxies: hideTimeoutProxies ?? this.hideTimeoutProxies,
       updateChannel: updateChannel ?? this.updateChannel,
       checkUpdatesOnStartup: checkUpdatesOnStartup ?? this.checkUpdatesOnStartup,
+      launchAtStartup: launchAtStartup ?? this.launchAtStartup,
+      closeToTray: closeToTray ?? this.closeToTray,
+      proxyBypass: proxyBypass ?? this.proxyBypass,
     );
   }
 
@@ -192,6 +228,9 @@ class AppSettings {
         'hideTimeoutProxies': hideTimeoutProxies,
         'updateChannel': updateChannel,
         'checkUpdatesOnStartup': checkUpdatesOnStartup,
+        'launchAtStartup': launchAtStartup,
+        'closeToTray': closeToTray,
+        'proxyBypass': proxyBypass,
       };
 
   static String generateSecret() {

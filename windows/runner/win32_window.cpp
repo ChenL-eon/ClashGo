@@ -146,6 +146,23 @@ bool Win32Window::Create(const std::wstring& title,
 
   UpdateTheme(window);
 
+  // The runner paints the whole client area itself, so DWM no longer sees a
+  // caption and leaves the corners square. Ask for the Windows 11 rounded
+  // corners explicitly; the call fails harmlessly on older builds.
+  constexpr DWORD kWindowCornerPreference = 33;  // DWMWA_WINDOW_CORNER_PREFERENCE
+  constexpr DWORD kCornerRound = 2;              // DWMWCP_ROUND
+  const DWORD corner = kCornerRound;
+  DwmSetWindowAttribute(window, kWindowCornerPreference, &corner,
+                        sizeof(corner));
+
+  // DWM colors this outline from the *system* theme, while the app carries its
+  // own light/dark setting. Drop the border so a dark window never gets a
+  // bright frame (the drop shadow is unaffected).
+  constexpr DWORD kWindowBorderColor = 34;  // DWMWA_BORDER_COLOR
+  constexpr DWORD kColorNone = 0xFFFFFFFE;  // DWMWA_COLOR_NONE
+  const DWORD border = kColorNone;
+  DwmSetWindowAttribute(window, kWindowBorderColor, &border, sizeof(border));
+
   return OnCreate();
 }
 

@@ -35,6 +35,8 @@ class _AddSubscriptionDialog extends StatefulWidget {
 class _AddSubscriptionDialogState extends State<_AddSubscriptionDialog> {
   final _nameController = TextEditingController();
   final _urlController = TextEditingController();
+  final _minutesController = TextEditingController(text: '1440');
+  bool _autoUpdate = true;
   bool _busy = false;
   String? _error;
 
@@ -42,6 +44,7 @@ class _AddSubscriptionDialogState extends State<_AddSubscriptionDialog> {
   void dispose() {
     _nameController.dispose();
     _urlController.dispose();
+    _minutesController.dispose();
     super.dispose();
   }
 
@@ -51,12 +54,22 @@ class _AddSubscriptionDialogState extends State<_AddSubscriptionDialog> {
       setState(() => _error = context.t('subscriptions.invalidUrl'));
       return;
     }
+    final minutes = int.tryParse(_minutesController.text.trim()) ?? 0;
+    if (_autoUpdate && (minutes < 60 || minutes > 43200)) {
+      setState(() => _error = context.t('subscriptions.intervalInvalid'));
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      await widget.controller.addSubscription(url: url, name: _nameController.text.trim());
+      await widget.controller.addSubscription(
+        url: url,
+        name: _nameController.text.trim(),
+        autoUpdate: _autoUpdate,
+        updateIntervalMinutes: minutes <= 0 ? 1440 : minutes,
+      );
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (error) {
@@ -106,6 +119,43 @@ class _AddSubscriptionDialogState extends State<_AddSubscriptionDialog> {
               ),
             ),
           ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      context.t('subscriptions.autoUpdate'),
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      context.t('subscriptions.autoUpdateHint'),
+                      style: TextStyle(fontSize: 11.5, color: palette.muted),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: _autoUpdate,
+                onChanged: _busy ? null : (value) => setState(() => _autoUpdate = value),
+              ),
+            ],
+          ),
+          if (_autoUpdate) ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: _minutesController,
+              enabled: !_busy,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: context.t('subscriptions.interval'),
+                suffixText: context.t('subscriptions.intervalMinutes', ['']).trim(),
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           if (_error != null) ...[
             InfoBanner(message: _error!, color: palette.danger, icon: 'close-circle-line'),
@@ -163,7 +213,7 @@ class _EditSubscriptionDialog extends StatefulWidget {
 class _EditSubscriptionDialogState extends State<_EditSubscriptionDialog> {
   late final TextEditingController _nameController;
   late final TextEditingController _urlController;
-  late final TextEditingController _hoursController;
+  late final TextEditingController _minutesController;
   late bool _autoUpdate;
   String? _error;
 
@@ -173,8 +223,8 @@ class _EditSubscriptionDialogState extends State<_EditSubscriptionDialog> {
     final subscription = widget.subscription;
     _nameController = TextEditingController(text: subscription.name);
     _urlController = TextEditingController(text: subscription.url);
-    _hoursController = TextEditingController(
-      text: (subscription.updateIntervalMinutes <= 0 ? 24 : (subscription.updateIntervalMinutes / 60).round()).toString(),
+    _minutesController = TextEditingController(
+      text: (subscription.updateIntervalMinutes <= 0 ? 1440 : subscription.updateIntervalMinutes).toString(),
     );
     _autoUpdate = subscription.autoUpdate && !subscription.isLocal;
   }
@@ -183,13 +233,13 @@ class _EditSubscriptionDialogState extends State<_EditSubscriptionDialog> {
   void dispose() {
     _nameController.dispose();
     _urlController.dispose();
-    _hoursController.dispose();
+    _minutesController.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
-    final hours = int.tryParse(_hoursController.text.trim()) ?? 0;
-    if (!widget.subscription.isLocal && _autoUpdate && (hours < 1 || hours > 720)) {
+    final minutes = int.tryParse(_minutesController.text.trim()) ?? 0;
+    if (!widget.subscription.isLocal && _autoUpdate && (minutes < 60 || minutes > 43200)) {
       setState(() => _error = context.t('subscriptions.intervalInvalid'));
       return;
     }
@@ -202,7 +252,7 @@ class _EditSubscriptionDialogState extends State<_EditSubscriptionDialog> {
       name: _nameController.text,
       url: _urlController.text,
       autoUpdate: _autoUpdate,
-      updateIntervalMinutes: (hours <= 0 ? 24 : hours) * 60,
+      updateIntervalMinutes: minutes <= 0 ? 1440 : minutes,
     );
     if (!mounted) return;
     Navigator.of(context).pop(true);
@@ -279,11 +329,11 @@ class _EditSubscriptionDialogState extends State<_EditSubscriptionDialog> {
             if (_autoUpdate) ...[
               const SizedBox(height: 10),
               TextField(
-                controller: _hoursController,
+                controller: _minutesController,
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
                   labelText: context.t('subscriptions.interval'),
-                  suffixText: context.t('subscriptions.intervalHours', ['']).trim(),
+                  suffixText: context.t('subscriptions.intervalMinutes', ['']).trim(),
                 ),
               ),
             ],

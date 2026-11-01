@@ -44,9 +44,13 @@ Widget _actionMenuRow({
     children: [
       AppIcon(icon, size: 16, color: color),
       const SizedBox(width: 10),
-      Text(
-        label,
-        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: color),
+      Flexible(
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: color),
+        ),
       ),
     ],
   );
@@ -191,15 +195,39 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
     } catch (_) {}
   }
 
+  Future<void> _reorder() async {
+    final controller = context.read<AppController>();
+    final ordered = await showAppDialog<List<String>>(
+      context,
+      maxWidth: 440,
+      builder: (_) => _ReorderSubscriptionsDialog(subscriptions: controller.subscriptions),
+    );
+    if (ordered == null || !mounted) return;
+    await controller.reorderSubscriptions(ordered);
+  }
+
+  Widget _sortButton(BuildContext context, {required bool desktop}) {
+    return AppIconButton(
+      icon: 'sort-ascending-line',
+      size: desktop ? 18 : 20,
+      padding: desktop ? 9 : 7,
+      background: desktop ? AppPalette.of(context).cardAlt : null,
+      tooltip: context.l10n.get('subscriptions.sort'),
+      onTap: _reorder,
+    );
+  }
+
   String _intervalLabel(BuildContext context, Subscription subscription) {
     final l10n = context.l10n;
-    if (!subscription.autoUpdate) return l10n.get('subscriptions.intervalOff');
     final minutes = subscription.updateIntervalMinutes;
+    if (!subscription.autoUpdate || minutes <= 0) return l10n.get('subscriptions.intervalOff');
     if (minutes >= 1440 && minutes % 1440 == 0) {
       return l10n.get('subscriptions.intervalDays', [minutes ~/ 1440]);
     }
-    final hours = (minutes / 60).round().clamp(1, 720);
-    return l10n.get('subscriptions.intervalHours', [hours]);
+    if (minutes >= 60 && minutes % 60 == 0) {
+      return l10n.get('subscriptions.intervalHours', [minutes ~/ 60]);
+    }
+    return l10n.get('subscriptions.intervalMinutes', [minutes]);
   }
 
   Widget _buildMobile(BuildContext context, AppController controller) {
@@ -210,6 +238,10 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
         MobilePageHeader(
           title: l10n.get('subscriptions.title'),
           actions: [
+            if (subscriptions.length > 1) ...[
+              _sortButton(context, desktop: false),
+              const SizedBox(width: 8),
+            ],
             if (controller.updatingAll)
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 8, vertical: 7),
@@ -257,6 +289,7 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
     final l10n = context.l10n;
+    final palette = AppPalette.of(context);
     final subscriptions = controller.subscriptions;
     if (MediaQuery.sizeOf(context).width < appDesktopBreakpoint) {
       return _buildMobile(context, controller);
@@ -267,14 +300,25 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
           title: l10n.get('nav.subscriptions'),
           subtitle: l10n.get('subscriptions.subtitle'),
           actions: [
+            if (subscriptions.length > 1) ...[
+              _sortButton(context, desktop: true),
+              const SizedBox(width: 8),
+            ],
             if (subscriptions.isNotEmpty) ...[
-              OutlinedButton.icon(
-                onPressed: controller.updatingAll ? null : controller.updateAllSubscriptions,
-                icon: controller.updatingAll
-                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const AppIcon('refresh-2-line', size: 15),
-                label: Text(controller.updatingAll ? l10n.get('subscriptions.updatingAll') : l10n.get('subscriptions.updateAll')),
-              ),
+              if (controller.updatingAll)
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 9, vertical: 9),
+                  child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                )
+              else
+                AppIconButton(
+                  icon: 'refresh-2-line',
+                  size: 18,
+                  padding: 9,
+                  background: palette.cardAlt,
+                  tooltip: l10n.get('subscriptions.updateAll'),
+                  onTap: controller.updateAllSubscriptions,
+                ),
               const SizedBox(width: 8),
             ],
             _addMenuButton(context, controller, desktop: true),
@@ -322,7 +366,105 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
   }
 }
 
-class _MobileSubscriptionCard extends StatelessWidget {
+/// 手动排序：本地列表一改一存，取消则原样返回。
+class _ReorderSubscriptionsDialog extends StatefulWidget {
+  const _ReorderSubscriptionsDialog({required this.subscriptions});
+
+  final List<Subscription> subscriptions;
+
+  @override
+  State<_ReorderSubscriptionsDialog> createState() => _ReorderSubscriptionsDialogState();
+}
+
+class _ReorderSubscriptionsDialogState extends State<_ReorderSubscriptionsDialog> {
+  late final List<Subscription> _order = List<Subscription>.of(widget.subscriptions);
+
+  void _move(int index, int delta) {
+    final target = index + delta;
+    if (target < 0 || target >= _order.length) return;
+    setState(() {
+      final item = _order.removeAt(index);
+      _order.insert(target, item);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    final l10n = context.l10n;
+    return AppDialog(
+      title: l10n.get('subscriptions.sortTitle'),
+      subtitle: l10n.get('subscriptions.sortHint'),
+      icon: 'sort-ascending-line',
+      maxWidth: 440,
+      content: Column(
+        children: [
+          for (var i = 0; i < _order.length; i++)
+            Padding(
+              padding: EdgeInsets.only(bottom: i == _order.length - 1 ? 0 : 8),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+                decoration: BoxDecoration(
+                  color: palette.cardAlt,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: palette.border),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 22,
+                      child: Text(
+                        '${i + 1}',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: palette.muted),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _order[i].name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500, color: palette.text),
+                      ),
+                    ),
+                    AppIconButton(
+                      key: ValueKey('reorder-up-${_order[i].id}'),
+                      icon: 'up-small-line',
+                      size: 16,
+                      padding: 7,
+                      tooltip: l10n.get('subscriptions.moveUp'),
+                      onTap: i == 0 ? null : () => _move(i, -1),
+                    ),
+                    AppIconButton(
+                      key: ValueKey('reorder-down-${_order[i].id}'),
+                      icon: 'down-small-line',
+                      size: 16,
+                      padding: 7,
+                      tooltip: l10n.get('subscriptions.moveDown'),
+                      onTap: i == _order.length - 1 ? null : () => _move(i, 1),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.get('common.cancel')),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_order.map((sub) => sub.id).toList()),
+          child: Text(l10n.get('common.save')),
+        ),
+      ],
+    );
+  }
+}
+
+class _MobileSubscriptionCard extends StatefulWidget {
   const _MobileSubscriptionCard({
     required this.subscription,
     required this.active,
@@ -342,13 +484,27 @@ class _MobileSubscriptionCard extends StatelessWidget {
   final VoidCallback onEdit;
 
   @override
+  State<_MobileSubscriptionCard> createState() => _MobileSubscriptionCardState();
+}
+
+class _MobileSubscriptionCardState extends State<_MobileSubscriptionCard> {
+  final _menu = MenuController();
+
+  @override
   Widget build(BuildContext context) {
+    final subscription = widget.subscription;
+    final active = widget.active;
+    final updating = widget.updating;
+    final onUse = widget.onUse;
+    final onUpdate = widget.onUpdate;
+    final onDelete = widget.onDelete;
+    final onEdit = widget.onEdit;
     final palette = AppPalette.of(context);
     final l10n = context.l10n;
     final accent = Theme.of(context).colorScheme.primary;
     final ratio = subscription.usageRatio;
     final quotaColor = ratio >= 0.9 ? palette.danger : ratio >= 0.7 ? palette.warning : accent;
-    return SurfaceCard(
+    final card = SurfaceCard(
       padding: const EdgeInsets.fromLTRB(18, 15, 16, 15),
       radius: 20,
       // 切换订阅只点卡片：头部不再放“使用”按钮，整张卡就是入口。
@@ -451,6 +607,7 @@ class _MobileSubscriptionCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   MenuAnchor(
+                    controller: _menu,
                     alignmentOffset: const Offset(-(_cardMenuWidth + 8), 6),
                     style: appMenuStyle(palette).copyWith(
                       alignment: AlignmentDirectional.bottomEnd,
@@ -488,6 +645,14 @@ class _MobileSubscriptionCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+    // 右键整卡等同点「更多」：菜单仍锚在按钮旁，不额外做浮层定位。
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onSecondaryTapUp: (_) {
+        if (!_menu.isOpen) _menu.open();
+      },
+      child: card,
     );
   }
 }
@@ -531,7 +696,7 @@ class _CircleAction extends StatelessWidget {
   }
 }
 
-class _SubscriptionCard extends StatelessWidget {
+class _SubscriptionCard extends StatefulWidget {
   const _SubscriptionCard({
     required this.subscription,
     required this.active,
@@ -553,7 +718,22 @@ class _SubscriptionCard extends StatelessWidget {
   final VoidCallback onDelete;
 
   @override
+  State<_SubscriptionCard> createState() => _SubscriptionCardState();
+}
+
+class _SubscriptionCardState extends State<_SubscriptionCard> {
+  final _menu = MenuController();
+
+  @override
   Widget build(BuildContext context) {
+    final subscription = widget.subscription;
+    final active = widget.active;
+    final updating = widget.updating;
+    final intervalLabel = widget.intervalLabel;
+    final onUse = widget.onUse;
+    final onUpdate = widget.onUpdate;
+    final onEdit = widget.onEdit;
+    final onDelete = widget.onDelete;
     final palette = AppPalette.of(context);
     final l10n = context.l10n;
     final accent = Theme.of(context).colorScheme.primary;
@@ -563,7 +743,7 @@ class _SubscriptionCard extends StatelessWidget {
             ? palette.warning
             : accent;
     final updated = subscription.lastUpdatedAt;
-    return SurfaceCard(
+    final card = SurfaceCard(
       padding: const EdgeInsets.fromLTRB(14, 13, 10, 12),
       radius: 18,
       border: active ? Border.all(color: accent.withValues(alpha: 0.38)) : null,
@@ -646,6 +826,7 @@ class _SubscriptionCard extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               MenuAnchor(
+                controller: _menu,
                 reservedPadding: const EdgeInsets.all(16),
                 // 与设置页下拉一致：菜单在按钮下方、右缘内收 8。
                 alignmentOffset: const Offset(-(_cardMenuWidth + 8), 6),
@@ -778,6 +959,14 @@ class _SubscriptionCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+    // 右键整卡等同点「更多」：菜单仍锚在按钮旁，不额外做浮层定位。
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onSecondaryTapUp: (_) {
+        if (!_menu.isOpen) _menu.open();
+      },
+      child: card,
     );
   }
 }

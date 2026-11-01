@@ -9,11 +9,12 @@ import 'package:clash_go/ui/widgets/common.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'support/fake_startup.dart';
 
 /// 手机宽度下订阅页的布局回归：
 /// 1. 卡片高度必须一致（有没有到期日期、有没有流量信息都不能改变外框高度）；
 /// 2. 切换订阅只靠点卡片，头部不再有“使用”按钮；
-/// 3. 底部胶囊导航按参考图收窄到 280×50（360dp 宽屏幕）。
+/// 3. 底部胶囊导航按参考图收窄到 280×56（360dp 宽屏幕）。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -24,7 +25,7 @@ void main() {
   setUp(() async {
     support = await Directory.systemTemp.createTemp('clashgo_subs_mobile_');
     PathProviderPlatform.instance = _Temp(support.path);
-    controller = AppController(await AppPaths.create());
+    controller = AppController(await AppPaths.create(), startupService: FakeStartupService());
     await controller.initialize();
     l10n = controller.l10n;
     final now = DateTime(2026, 11, 1, 9, 50);
@@ -158,7 +159,7 @@ void main() {
     );
     expect(pill, findsOneWidget);
     final size = tester.getSize(pill);
-    expect(size, const Size(280, 50));
+    expect(size, const Size(280, 56));
   });
 }
 

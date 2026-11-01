@@ -20,6 +20,7 @@ import 'package:clash_go/core/app_paths.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'support/fake_startup.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -30,7 +31,7 @@ void main() {
   setUp(() async {
     support = await Directory.systemTemp.createTemp('clashgo_overflow_');
     PathProviderPlatform.instance = _Temp(support.path);
-    controller = AppController(await AppPaths.create());
+    controller = AppController(await AppPaths.create(), startupService: FakeStartupService());
     await controller.initialize();
   });
 

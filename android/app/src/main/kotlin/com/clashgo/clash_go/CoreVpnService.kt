@@ -37,7 +37,7 @@ class CoreVpnService : VpnService() {
 
     private var logPath: String? = null
     private var apiSecret = ""
-    private var notificationTitle = "Clash Go"
+    private var notificationTitle = "ClashGo"
     private var notificationText = "VPN"
     private var notificationStop = "Stop"
 
@@ -46,7 +46,7 @@ class CoreVpnService : VpnService() {
         CoreVpnState.serviceRunning = true
         createChannel()
         try {
-            startForeground(NOTIFICATION_ID, buildNotification("Clash Go", "VPN", "Stop"))
+            startForeground(NOTIFICATION_ID, buildNotification("ClashGo", "VPN", "Stop"))
         } catch (t: Throwable) {
             CoreVpnState.state = "error"
             CoreVpnState.error = "Foreground service failed: ${t.message}"
@@ -75,7 +75,7 @@ class CoreVpnService : VpnService() {
         val allowIpv6 = intent.getBooleanExtra(EXTRA_IPV6, false)
         val bypassPrivate = intent.getBooleanExtra(EXTRA_BYPASS_PRIVATE, true)
         val tunMtu = intent.getIntExtra(EXTRA_MTU, 0)
-        notificationTitle = intent.getStringExtra(EXTRA_NOTIFICATION_TITLE) ?: "Clash Go"
+        notificationTitle = intent.getStringExtra(EXTRA_NOTIFICATION_TITLE) ?: "ClashGo"
         notificationText = intent.getStringExtra(EXTRA_NOTIFICATION_TEXT) ?: "VPN connected"
         notificationStop = intent.getStringExtra(EXTRA_NOTIFICATION_STOP) ?: "Stop"
         apiSecret = intent.getStringExtra(EXTRA_API_SECRET) ?: ""
@@ -506,7 +506,7 @@ class CoreVpnService : VpnService() {
                             val frame = JSONObject(line)
                             val up = frame.optLong("up", 0L)
                             val down = frame.optLong("down", 0L)
-                            val title = if (node.isNullOrEmpty()) notificationTitle else "Clash Go · $node"
+                            val title = if (node.isNullOrEmpty()) notificationTitle else "ClashGo · $node"
                             updateNotification(title, "↑ ${formatRate(up)}   ↓ ${formatRate(down)}")
                             if (System.currentTimeMillis() >= nextNodeFetch) {
                                 fetchActiveNode(port)?.let { node = it }
@@ -595,7 +595,7 @@ class CoreVpnService : VpnService() {
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < 26) return
         val manager = getSystemService(NotificationManager::class.java)
-        val channel = NotificationChannel(CHANNEL_ID, "Clash Go VPN", NotificationManager.IMPORTANCE_LOW).apply {
+        val channel = NotificationChannel(CHANNEL_ID, "ClashGo VPN", NotificationManager.IMPORTANCE_LOW).apply {
             description = "VPN connection status"
             setShowBadge(false)
         }

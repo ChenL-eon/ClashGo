@@ -23,6 +23,7 @@ import '../services/core_manager.dart';
 import '../services/json_socket.dart';
 import '../services/mihomo_api.dart';
 import '../services/network.dart';
+import '../services/startup_service.dart';
 import '../services/subscription_fetcher.dart';
 import '../services/system_proxy.dart';
 import '../services/update_service.dart';
@@ -37,11 +38,12 @@ class AppNotice {
 }
 
 class AppController extends ChangeNotifier {
-  AppController(this.paths)
+  AppController(this.paths, {StartupService? startupService})
       : store = LocalStore(paths),
         api = MihomoApi(),
         fetcher = SubscriptionFetcher(),
         systemProxy = SystemProxyService(paths),
+        startup = startupService ?? StartupService(),
         core = CoreManager(paths, CoreLog(paths.coreLogFile)) {
     core.onExit = _handleCoreExit;
     core.onExternalStop = _handleExternalStop;
@@ -52,6 +54,7 @@ class AppController extends ChangeNotifier {
   final MihomoApi api;
   final SubscriptionFetcher fetcher;
   final SystemProxyService systemProxy;
+  final StartupService startup;
   final CoreManager core;
   final ConfigGenerator _configGenerator = const ConfigGenerator();
   final StreamController<AppNotice> _notices = StreamController<AppNotice>.broadcast();
@@ -72,7 +75,11 @@ class AppController extends ChangeNotifier {
   AppError? proxyError;
   final Set<String> testingGroups = {};
   final Set<String> testingNodes = {};
-  final Map<String, int> testedDelays = {};
+
+  /// 测速结果按订阅分开存：切换订阅时各自保留，切回来不会回到未测速状态。
+  /// 当前订阅的结果由 [testedDelays] 暴露，离线预览与在线测速共用这一份。
+  final Map<String, Map<String, int>> _delaysBySubscription = {};
+  final Map<String, int> _orphanDelays = {};
   bool bulkTesting = false;
 
   ConnectionsSnapshot connectionsSnapshot = const ConnectionsSnapshot(connections: [], uploadTotal: 0, downloadTotal: 0);
@@ -113,6 +120,7 @@ class AppController extends ChangeNotifier {
   Timer? _autoUpdateKick;
   Timer? _latencyDebounce;
   Timer? _startupUpdateTimer;
+  Timer? _delaySaveTimer;
   bool _autoUpdating = false;
   bool _disposed = false;
   bool _systemProxyApplied = false;
@@ -137,6 +145,12 @@ class AppController extends ChangeNotifier {
   }
 
   Map<String, String> get activeSelections => activeId == null ? const {} : (selections[activeId!] ?? const {});
+
+  Map<String, int> get testedDelays {
+    final id = activeId;
+    if (id == null) return _orphanDelays;
+    return _delaysBySubscription.putIfAbsent(id, () => <String, int>{});
+  }
 
   bool get isRunning => phase == CorePhase.running;
   bool get isBusy => phase == CorePhase.starting || phase == CorePhase.stopping;
@@ -171,7 +185,12 @@ class AppController extends ChangeNotifier {
       activeId = subscriptions.isEmpty ? null : subscriptions.first.id;
     }
     selections = await store.loadSelections();
-    await store.ensureCleanProfiles(subscriptions.map((sub) => sub.id).toSet());
+    final validIds = subscriptions.map((sub) => sub.id).toSet();
+    final storedDelays = await store.loadTestedDelays();
+    _delaysBySubscription
+      ..clear()
+      ..addEntries(storedDelays.entries.where((entry) => validIds.contains(entry.key)));
+    await store.ensureCleanProfiles(validIds);
     api.configure(port: settings.apiPort, secret: settings.secret);
     try {
       await core.initializePlatform();
@@ -180,6 +199,9 @@ class AppController extends ChangeNotifier {
     await store.saveActiveId(activeId);
     try {
       await systemProxy.recoverIfStale(mixedPort: settings.mixedPort);
+    } catch (_) {}
+    try {
+      startup.reconcile(settings.launchAtStartup);
     } catch (_) {}
 
     if (Platform.isAndroid) {
@@ -260,7 +282,10 @@ class AppController extends ChangeNotifier {
     final previous = settings;
     // 改端口/主题/订阅这类保存走的是文件里现存的接管状态，不兜一下就会把"两个都开"
     // 重新写回盘上，把启动时刚归一化的结果又覆盖掉。
-    next = _oneTakeover(next);
+    next = _oneTakeover(next).copyWith(
+      proxyBypass: AppSettings.normalizeProxyBypass(next.proxyBypass),
+    );
+    final bypassChanged = previous.proxyBypass != next.proxyBypass;
     final coreFieldsChanged = previous.mixedPort != next.mixedPort ||
         previous.apiPort != next.apiPort ||
         previous.secret != next.secret ||
@@ -271,11 +296,22 @@ class AppController extends ChangeNotifier {
     api.configure(port: next.apiPort, secret: next.secret);
     await store.saveSettings(settings);
     _notify();
+    if (previous.launchAtStartup != next.launchAtStartup) {
+      try {
+        startup.apply(next.launchAtStartup);
+      } catch (error) {
+        settings = settings.copyWith(launchAtStartup: previous.launchAtStartup);
+        await store.saveSettings(settings);
+        _notify();
+        _notice(errorFrom(error).localized(l10n), error: true);
+        rethrow;
+      }
+    }
     if (previous.systemProxy != next.systemProxy) {
       if (next.systemProxy) {
         if (phase == CorePhase.running) {
           try {
-            await systemProxy.enable(next.mixedPort);
+            await systemProxy.enable(next.mixedPort, bypass: next.proxyBypass);
             _systemProxyApplied = true;
           } catch (error) {
             settings = settings.copyWith(systemProxy: false);
@@ -288,6 +324,13 @@ class AppController extends ChangeNotifier {
       } else {
         await systemProxy.disable();
         _systemProxyApplied = false;
+      }
+    } else if (bypassChanged && _systemProxyApplied) {
+      // 绕过列表就是 ProxyOverride：系统代理正生效时改它要立刻重写。
+      try {
+        await systemProxy.enable(next.mixedPort, bypass: next.proxyBypass);
+      } catch (error) {
+        _notice(errorFrom(error).localized(l10n), error: true);
       }
     }
     if (coreFieldsChanged && phase == CorePhase.running) {
@@ -321,6 +364,9 @@ class AppController extends ChangeNotifier {
     settings = AppSettings.defaults(zh: settings.isZh, systemProxy: Platform.isWindows);
     api.configure(port: settings.apiPort, secret: settings.secret);
     await store.saveSettings(settings);
+    try {
+      startup.apply(false);
+    } catch (_) {}
     _notify();
     _notice(l10n.get('settings.resetDone'));
   }
@@ -329,6 +375,7 @@ class AppController extends ChangeNotifier {
     selections.clear();
     testedDelays.clear();
     await store.saveSelections(selections);
+    await _persistTestedDelays();
     _notify();
   }
 
@@ -352,7 +399,7 @@ class AppController extends ChangeNotifier {
     try {
       if (enabled) {
         if (phase == CorePhase.running) {
-          await systemProxy.enable(settings.mixedPort);
+          await systemProxy.enable(settings.mixedPort, bypass: settings.proxyBypass);
           _systemProxyApplied = true;
         }
       } else {
@@ -408,7 +455,7 @@ class AppController extends ChangeNotifier {
     if (Platform.isWindows && settings.tun) return;
     if (!settings.systemProxy || !SystemProxyService.supported) return;
     try {
-      await systemProxy.enable(settings.mixedPort);
+      await systemProxy.enable(settings.mixedPort, bypass: settings.proxyBypass);
       _systemProxyApplied = true;
     } catch (error) {
       _systemProxyApplied = false;
@@ -477,7 +524,8 @@ class AppController extends ChangeNotifier {
     memoryInUse = 0;
     testingNodes.clear();
     testingGroups.clear();
-    testedDelays.clear();
+    // 测速结果不随内核重启清空：更新订阅/改端口/改 TUN 都会重启一次，
+    // 那不该把用户刚测出来的一屏延迟退回“—”。
     latency.updateAll((key, value) => null);
     _notify();
 
@@ -868,9 +916,9 @@ class AppController extends ChangeNotifier {
     _notify();
     try {
       final delay = await api.proxyDelay(name, url: AppInfo.defaultTestUrl);
-      testedDelays[name] = delay;
+      _recordDelays({name: delay});
     } catch (_) {
-      testedDelays[name] = -1;
+      _recordDelays({name: -1});
     } finally {
       testingNodes.remove(name);
       _notify();
@@ -884,11 +932,10 @@ class AppController extends ChangeNotifier {
     try {
       final results = await api.groupDelay(group.name, url: AppInfo.defaultTestUrl);
       if (results.isEmpty) {
-        for (final name in group.all) {
-          testedDelays.putIfAbsent(name, () => -1);
-        }
+        // 整组超时：每个节点都应反映这次结果，而不是留着上一轮的旧数字。
+        _recordDelays({for (final name in group.all) name: -1});
       } else {
-        testedDelays.addAll(results);
+        _recordDelays(results);
       }
     } catch (error) {
       _notice(errorFrom(error).localized(l10n), error: true);
@@ -908,17 +955,45 @@ class AppController extends ChangeNotifier {
     for (final group in proxySnapshot.groups) {
       try {
         final results = await api.groupDelay(group.name, url: AppInfo.defaultTestUrl);
-        testedDelays.addAll(results);
+        _recordDelays(results);
       } catch (_) {
-        for (final name in group.all) {
-          testedDelays[name] = -1;
-        }
+        _recordDelays({for (final name in group.all) name: -1});
       }
       testingGroups.remove(group.name);
       _notify();
     }
     bulkTesting = false;
     _notify();
+  }
+
+  /// 离线预览页自己发起 TCP 测速，没有内核 API；结果同样记到当前订阅名下。
+  void recordTestedDelay(String name, int delay) {
+    testedDelays[name] = delay;
+    _scheduleDelaySave();
+    _notify();
+  }
+
+  void _recordDelays(Map<String, int> results) {
+    if (results.isEmpty) return;
+    testedDelays.addAll(results);
+    _scheduleDelaySave();
+  }
+
+  void _scheduleDelaySave() {
+    _delaySaveTimer?.cancel();
+    _delaySaveTimer = Timer(const Duration(milliseconds: 500), () {
+      _delaySaveTimer = null;
+      unawaited(_persistTestedDelays());
+    });
+  }
+
+  Future<void> _persistTestedDelays() async {
+    try {
+      await store.saveTestedDelays({
+        for (final entry in _delaysBySubscription.entries)
+          if (entry.value.isNotEmpty) entry.key: Map<String, int>.of(entry.value),
+      });
+    } catch (_) {}
   }
 
   // ---------------------------------------------------------------- connections
@@ -1026,7 +1101,12 @@ class AppController extends ChangeNotifier {
     return List.generate(32, (_) => random.nextInt(16).toRadixString(16)).join();
   }
 
-  Future<Subscription> addSubscription({required String url, String? name}) async {
+  Future<Subscription> addSubscription({
+    required String url,
+    String? name,
+    bool? autoUpdate,
+    int? updateIntervalMinutes,
+  }) async {
     if (importingSubscription) throw const AppError('generic', detail: 'Another import is in progress');
     importingSubscription = true;
     _notify();
@@ -1039,6 +1119,8 @@ class AppController extends ChangeNotifier {
         isLocal: false,
         name: name,
         headers: fetched.headers,
+        autoUpdate: autoUpdate,
+        updateIntervalMinutes: updateIntervalMinutes,
       );
       _notice(l10n.get('subscriptions.addSuccess'));
       return subscription;
@@ -1078,10 +1160,16 @@ class AppController extends ChangeNotifier {
     required bool isLocal,
     required SubscriptionHeaders headers,
     String? name,
+    bool? autoUpdate,
+    int? updateIntervalMinutes,
   }) async {
     final now = DateTime.now();
     final resolvedName = _resolveName(name: name, headers: headers, content: content, url: url);
-    final interval = headers.updateIntervalMinutes ?? 1440;
+    // 添加对话框里显式指定的间隔优先；二维码导入等没有对话框的入口继续沿用
+    // 订阅响应头（部分机场会下发），再退回 24 小时。
+    final interval = (updateIntervalMinutes != null && updateIntervalMinutes > 0)
+        ? updateIntervalMinutes
+        : (headers.updateIntervalMinutes ?? 1440);
     final subscription = Subscription(
       id: _randomId(),
       name: resolvedName,
@@ -1089,7 +1177,7 @@ class AppController extends ChangeNotifier {
       isLocal: isLocal,
       createdAt: now,
       lastUpdatedAt: now,
-      autoUpdate: !isLocal && interval > 0,
+      autoUpdate: !isLocal && interval > 0 && (autoUpdate ?? true),
       updateIntervalMinutes: interval,
       upload: headers.upload,
       download: headers.download,
@@ -1275,10 +1363,36 @@ class AppController extends ChangeNotifier {
     _notice(l10n.get('subscriptions.setActive'));
   }
 
+  /// 手动排序只改列表顺序：当前订阅、选择状态、内核都不受影响。
+  Future<void> reorderSubscriptions(List<String> orderedIds) async {
+    if (orderedIds.length != subscriptions.length) return;
+    final byId = {for (final sub in subscriptions) sub.id: sub};
+    if (orderedIds.toSet().length != orderedIds.length) return;
+    final next = <Subscription>[];
+    for (final id in orderedIds) {
+      final sub = byId[id];
+      if (sub == null) return;
+      next.add(sub);
+    }
+    var unchanged = true;
+    for (var i = 0; i < next.length; i++) {
+      if (next[i].id != subscriptions[i].id) {
+        unchanged = false;
+        break;
+      }
+    }
+    if (unchanged) return;
+    subscriptions = next;
+    await store.saveSubscriptions(subscriptions);
+    _notify();
+    _notice(l10n.get('subscriptions.sortSaved'));
+  }
+
   Future<void> deleteSubscription(String id) async {
     final wasActive = activeId == id;
     subscriptions = subscriptions.where((sub) => sub.id != id).toList();
     selections.remove(id);
+    _delaysBySubscription.remove(id);
     await store.deleteProfile(id);
     if (wasActive) {
       activeId = subscriptions.isEmpty ? null : subscriptions.first.id;
@@ -1286,6 +1400,7 @@ class AppController extends ChangeNotifier {
     }
     await store.saveSubscriptions(subscriptions);
     await store.saveSelections(selections);
+    await _persistTestedDelays();
     _notify();
     if (wasActive) {
       if (phase == CorePhase.running) {
@@ -1386,7 +1501,11 @@ class AppController extends ChangeNotifier {
     _latencyTimer?.cancel();
     _latencyDebounce?.cancel();
     _startupUpdateTimer?.cancel();
+    _delaySaveTimer?.cancel();
+    _delaySaveTimer = null;
     _stopLiveFeeds();
+    // 关窗前把还没落盘的测速结果写完，下次启动不用重测。
+    await _persistTestedDelays();
     await _disableSystemProxy();
     await core.shutdown();
     await _notices.close();
@@ -1400,6 +1519,10 @@ class AppController extends ChangeNotifier {
     _latencyTimer?.cancel();
     _latencyDebounce?.cancel();
     _startupUpdateTimer?.cancel();
+    // 落盘只走 shutdown（关窗）与 500ms 防抖写入。dispose 里发起写入会跟
+    // 数据目录清理/引擎退出抢文件句柄，收益也只有最后半秒以内的结果。
+    _delaySaveTimer?.cancel();
+    _delaySaveTimer = null;
     _stopLiveFeeds();
     // On Android the VpnService deliberately outlives the Flutter engine so the
     // tunnel keeps running in the background; only the UI stops here.

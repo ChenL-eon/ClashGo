@@ -41,6 +41,10 @@ class AppPaths {
   File get subscriptionsFile => File(p.join(subscriptionsDir.path, 'subscriptions_list.json'));
   File get activeSubscriptionFile => File(p.join(subscriptionsDir.path, 'selection_state.json'));
   File get selectionsFile => File(p.join(supportDir.path, 'proxies', 'selection_state.json'));
+
+  /// 按订阅保存的测速结果。离线测速只存在于内存时，页面 State 重建或重启应用
+  /// 就会退回“未测速”，所以结果要跟订阅一起落盘。
+  File get testedDelaysFile => File(p.join(supportDir.path, 'proxies', 'tested_delays.json'));
   File get configFile => File(p.join(runtimeDir.path, 'config.yaml'));
   File get pidFile => File(p.join(runtimeDir.path, 'mihomo.pid'));
   File get coreLogFile => File(p.join(runtimeDir.path, 'core.log'));

@@ -22,6 +22,7 @@ import '../widgets/app_icon.dart';
 import '../widgets/common.dart';
 import '../widgets/status_widgets.dart';
 import 'navigation.dart';
+import 'window_title_bar.dart';
 
 class _NavItem {
   const _NavItem(this.pageIndex, this.labelKey, this.icon, {this.activeIcon});
@@ -102,7 +103,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (event is! KeyDownEvent) return false;
     if (!HardwareKeyboard.instance.isControlPressed) return false;
     final key = event.logicalKey;
-    if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.numpadEnter) {
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
       _controller.toggleCore();
       return true;
     }
@@ -153,9 +155,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _controller.setHomeActive(false);
     // 代理页同样被压在下面了：它不可见时，延迟探测那三次出网没有消费者。
     _controller.setProxyActive(false);
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => _ToolHost(child: page)),
-    );
+    await Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => _ToolHost(child: page)));
     // 先擦屁股再走人：控制器是全局的，shell 自己被销毁不代表可见性标志可以留在
     // "工具页打开"那一态，否则底下的主页永远不会再被标成 active。
     _controller.setHomeActive(_index == 0);
@@ -169,6 +170,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final palette = AppPalette.of(context);
     final width = MediaQuery.sizeOf(context).width;
     final desktop = width >= appDesktopBreakpoint;
+    // 标题栏透明地压在背景上，内容按同样高度整体下移：窗口按钮不会盖住页面，
+    // 页面起点也和原来一致。Android / 测试环境为 0。
+    final titleBarInset = WindowTitleBar.enabled ? kWindowTitleBarHeight : 0.0;
     final content = IndexedStack(
       index: _index,
       children: const [
@@ -180,34 +184,51 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         SettingsPage(),
       ],
     );
+    Widget body = Stack(
+      children: [
+        Positioned.fill(child: _ShellBackground(palette: palette)),
+        SafeArea(
+          bottom: false,
+          child: desktop
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // 侧边栏一直铺到窗口顶边，和标题栏区域之间不再有一条横向接缝。
+                    _Sidebar(
+                      controller: _controller,
+                      index: _index,
+                      onSelect: _select,
+                      topInset: titleBarInset,
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: titleBarInset),
+                        child: content,
+                      ),
+                    ),
+                  ],
+                )
+              : Stack(
+                  children: [
+                    Positioned.fill(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: titleBarInset),
+                        child: content,
+                      ),
+                    ),
+                    _MobileNavBar(index: _index, onSelect: _select),
+                  ],
+                ),
+        ),
+      ],
+    );
+    // 标题栏透明叠在页面顶层；客户区铺满窗口后系统缩放边没了，
+    // 边缘热区也由 WindowChrome 补上。
+    body = WindowChrome(child: body);
     return AppNavigation(
       go: _select,
       openTool: _openTool,
-      child: Scaffold(
-        backgroundColor: palette.background,
-        body: Stack(
-          children: [
-            Positioned.fill(child: _ShellBackground(palette: palette)),
-            SafeArea(
-              bottom: false,
-              child: desktop
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _Sidebar(controller: _controller, index: _index, onSelect: _select),
-                        Expanded(child: content),
-                      ],
-                    )
-                  : Stack(
-                      children: [
-                        Positioned.fill(child: content),
-                        _MobileNavBar(index: _index, onSelect: _select),
-                      ],
-                    ),
-            ),
-          ],
-        ),
-      ),
+      child: Scaffold(backgroundColor: palette.background, body: body),
     );
   }
 }
@@ -235,7 +256,10 @@ class _ShellBackground extends StatelessWidget {
         Positioned(
           bottom: -240,
           left: -180,
-          child: _Glow(color: palette.upload.withValues(alpha: strength * 0.55), size: 520),
+          child: _Glow(
+            color: palette.upload.withValues(alpha: strength * 0.55),
+            size: 520,
+          ),
         ),
       ],
     );
@@ -256,9 +280,7 @@ class _Glow extends StatelessWidget {
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: RadialGradient(
-            colors: [color, color.withValues(alpha: 0)],
-          ),
+          gradient: RadialGradient(colors: [color, color.withValues(alpha: 0)]),
         ),
       ),
     );
@@ -266,11 +288,17 @@ class _Glow extends StatelessWidget {
 }
 
 class _Sidebar extends StatelessWidget {
-  const _Sidebar({required this.controller, required this.index, required this.onSelect});
+  const _Sidebar({
+    required this.controller,
+    required this.index,
+    required this.onSelect,
+    this.topInset = 0,
+  });
 
   final AppController controller;
   final int index;
   final ValueChanged<int> onSelect;
+  final double topInset;
 
   @override
   Widget build(BuildContext context) {
@@ -280,12 +308,14 @@ class _Sidebar extends StatelessWidget {
       width: AppTheme.sidebarWidth,
       decoration: BoxDecoration(
         border: Border(right: BorderSide(color: palette.border)),
-        color: palette.navBackground.withValues(alpha: palette.isDark ? 0.55 : 0.65),
+        color: palette.navBackground.withValues(
+          alpha: palette.isDark ? 0.55 : 0.65,
+        ),
       ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 22, 14, 16),
+          padding: EdgeInsets.fromLTRB(14, 14 + topInset, 14, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -293,8 +323,8 @@ class _Sidebar extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Row(
                   children: [
-                    const BrandMark(size: 38, radius: 12),
-                    const SizedBox(width: 11),
+                    const BrandMark(size: 46, radius: 15),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -302,15 +332,18 @@ class _Sidebar extends StatelessWidget {
                           Text(
                             AppInfo.name,
                             style: TextStyle(
-                              fontSize: 15,
+                              fontSize: 18,
                               fontWeight: FontWeight.w700,
-                              letterSpacing: -0.2,
+                              letterSpacing: -0.3,
                               color: palette.text,
                             ),
                           ),
                           Text(
                             'v${AppInfo.version}',
-                            style: TextStyle(fontSize: 10, color: palette.muted),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: palette.muted,
+                            ),
                           ),
                         ],
                       ),
@@ -323,7 +356,12 @@ class _Sidebar extends StatelessWidget {
                 padding: const EdgeInsets.only(left: 8, bottom: 8),
                 child: Text(
                   l10n.get('nav.menu').toUpperCase(),
-                  style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, letterSpacing: 1, color: palette.muted.withValues(alpha: 0.7)),
+                  style: TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1,
+                    color: palette.muted.withValues(alpha: 0.7),
+                  ),
                 ),
               ),
               Expanded(
@@ -349,7 +387,11 @@ class _Sidebar extends StatelessWidget {
 }
 
 class _SidebarItem extends StatefulWidget {
-  const _SidebarItem({required this.item, required this.selected, required this.onTap});
+  const _SidebarItem({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
 
   final _NavItem item;
   final bool selected;
@@ -367,7 +409,9 @@ class _SidebarItemState extends State<_SidebarItem> {
     final palette = AppPalette.of(context);
     final accent = Theme.of(context).colorScheme.primary;
     final selected = widget.selected;
-    final icon = selected ? (widget.item.activeIcon ?? widget.item.icon) : widget.item.icon;
+    final icon = selected
+        ? (widget.item.activeIcon ?? widget.item.icon)
+        : widget.item.icon;
     // 选中/悬停底色都做瞬时切换，不用 InkWell 或隐式动画：
     // 颜色与透明度的补间中间帧在 Windows 引擎上会发灰变暗，
     // 切换时看起来像两行同时亮起。
@@ -404,17 +448,26 @@ class _SidebarItemState extends State<_SidebarItem> {
                   ),
                 ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 child: Row(
                   children: [
-                    AppIcon(icon, size: 18, color: selected ? accent : palette.muted),
+                    AppIcon(
+                      icon,
+                      size: 18,
+                      color: selected ? accent : palette.muted,
+                    ),
                     const SizedBox(width: 11),
                     Expanded(
                       child: Text(
                         context.t(widget.item.labelKey),
                         style: TextStyle(
                           fontSize: 13,
-                          fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                          fontWeight: selected
+                              ? FontWeight.w600
+                              : FontWeight.w500,
                           color: selected ? accent : palette.strongMuted,
                         ),
                       ),
@@ -423,7 +476,10 @@ class _SidebarItemState extends State<_SidebarItem> {
                       Container(
                         width: 5,
                         height: 5,
-                        decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+                        decoration: BoxDecoration(
+                          color: accent,
+                          shape: BoxShape.circle,
+                        ),
                       ),
                   ],
                 ),
@@ -449,16 +505,32 @@ class _SidebarCoreCard extends StatelessWidget {
     final running = context.select<AppController, bool>((c) => c.isRunning);
     final phase = context.select<AppController, CorePhase>((c) => c.phase);
     final busy = context.select<AppController, bool>((c) => c.isBusy);
-    final subscription = context.select<AppController, Subscription?>((c) => c.activeSubscription);
-    final coreVersion = context.select<AppController, String?>((c) => c.coreVersion);
-    final color = running ? palette.success : busy ? palette.warning : palette.muted;
+    final subscription = context.select<AppController, Subscription?>(
+      (c) => c.activeSubscription,
+    );
+    final coreVersion = context.select<AppController, String?>(
+      (c) => c.coreVersion,
+    );
+    final color = running
+        ? palette.success
+        : busy
+        ? palette.warning
+        : palette.muted;
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 13, 12, 12),
       decoration: BoxDecoration(
         color: palette.card,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: palette.border),
-        boxShadow: palette.isDark ? null : [BoxShadow(color: palette.shadow, blurRadius: 16, offset: const Offset(0, 6))],
+        boxShadow: palette.isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: palette.shadow,
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -471,14 +543,25 @@ class _SidebarCoreCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: color,
                   shape: BoxShape.circle,
-                  boxShadow: running ? [BoxShadow(color: color.withValues(alpha: 0.55), blurRadius: 7)] : null,
+                  boxShadow: running
+                      ? [
+                          BoxShadow(
+                            color: color.withValues(alpha: 0.55),
+                            blurRadius: 7,
+                          ),
+                        ]
+                      : null,
                 ),
               ),
               const SizedBox(width: 7),
               Expanded(
                 child: Text(
                   l10n.get('status.${phase.name}'),
-                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: palette.text),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: palette.text,
+                  ),
                 ),
               ),
               CorePowerButton(controller: controller, size: 32),
@@ -518,8 +601,8 @@ class _MobileNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
     final bottom = MediaQuery.viewPaddingOf(context).bottom;
-    // 参考图里的胶囊更小更窄：整体 50dp 高、360dp 宽屏幕两侧各留 40dp。
-    const radius = 25.0;
+    // 360dp 宽屏幕两侧各留 40dp，宽度不变；整体 56dp 高，比原先的 50dp 舒展一些。
+    const radius = 28.0;
     return Positioned(
       left: 40,
       right: 40,
@@ -532,7 +615,9 @@ class _MobileNavBar extends StatelessWidget {
               borderRadius: BorderRadius.circular(radius),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: palette.isDark ? 0.45 : 0.14),
+                  color: Colors.black.withValues(
+                    alpha: palette.isDark ? 0.45 : 0.14,
+                  ),
                   blurRadius: 30,
                   offset: const Offset(0, 12),
                 ),
@@ -544,7 +629,9 @@ class _MobileNavBar extends StatelessWidget {
                 filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: palette.isDark ? const Color(0xB312151B) : const Color(0xCCFFFFFF),
+                    color: palette.isDark
+                        ? const Color(0xB312151B)
+                        : const Color(0xCCFFFFFF),
                     borderRadius: BorderRadius.circular(radius),
                     border: Border.all(
                       color: palette.isDark
@@ -554,11 +641,14 @@ class _MobileNavBar extends StatelessWidget {
                   ),
                   padding: const EdgeInsets.all(4),
                   child: SizedBox(
-                    height: 40,
+                    height: 46,
                     child: LayoutBuilder(
                       builder: (context, constraints) {
-                        final slot = constraints.maxWidth / _mobileNavItems.length;
-                        final selected = _mobileNavItems.indexWhere((item) => item.pageIndex == index);
+                        final slot =
+                            constraints.maxWidth / _mobileNavItems.length;
+                        final selected = _mobileNavItems.indexWhere(
+                          (item) => item.pageIndex == index,
+                        );
                         return Stack(
                           children: [
                             // 选中胶囊在相邻项之间滑动切换，而不是原地淡入淡出。
@@ -568,13 +658,13 @@ class _MobileNavBar extends StatelessWidget {
                               left: selected < 0 ? 0 : slot * selected + 2,
                               top: 0,
                               width: selected < 0 ? 0 : slot - 4,
-                              height: 40,
+                              height: 46,
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
                                   color: palette.isDark
                                       ? Colors.white.withValues(alpha: 0.09)
                                       : Colors.black.withValues(alpha: 0.06),
-                                  borderRadius: BorderRadius.circular(20),
+                                  borderRadius: BorderRadius.circular(23),
                                 ),
                               ),
                             ),
@@ -606,7 +696,11 @@ class _MobileNavBar extends StatelessWidget {
 }
 
 class _MobileNavItem extends StatelessWidget {
-  const _MobileNavItem({required this.item, required this.selected, required this.onTap});
+  const _MobileNavItem({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
 
   final _NavItem item;
   final bool selected;
@@ -621,12 +715,12 @@ class _MobileNavItem extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(23),
         // 按压高亮/悬停底色会和滑动的选中胶囊叠成“两个高亮”，只保留点击水波纹。
         highlightColor: Colors.transparent,
         hoverColor: Colors.transparent,
         child: SizedBox(
-          height: 40,
+          height: 46,
           width: double.infinity,
           // 图标/文字随选中状态一起做颜色、字重与轻微缩放过渡，
           // 与底栏滑动胶囊同时完成，避免突兀跳变。
@@ -645,7 +739,12 @@ class _MobileNavItem extends StatelessWidget {
                       duration: const Duration(milliseconds: 180),
                       switchInCurve: Curves.easeOutCubic,
                       switchOutCurve: Curves.easeInCubic,
-                      child: AppIcon(icon, key: ValueKey(icon), size: 18, color: color),
+                      child: AppIcon(
+                        icon,
+                        key: ValueKey(icon),
+                        size: 18,
+                        color: color,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -655,7 +754,11 @@ class _MobileNavItem extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 10,
-                      fontWeight: FontWeight.lerp(FontWeight.w500, FontWeight.w600, t),
+                      fontWeight: FontWeight.lerp(
+                        FontWeight.w500,
+                        FontWeight.w600,
+                        t,
+                      ),
                       color: color,
                     ),
                   ),
@@ -677,14 +780,22 @@ class _ToolHost extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
-    return Scaffold(
-      backgroundColor: palette.background,
-      body: Stack(
-        children: [
-          Positioned.fill(child: _ShellBackground(palette: palette)),
-          SafeArea(bottom: false, child: child),
-        ],
-      ),
+    final titleBarInset = WindowTitleBar.enabled ? kWindowTitleBarHeight : 0.0;
+    Widget body = Stack(
+      children: [
+        Positioned.fill(child: _ShellBackground(palette: palette)),
+        SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: EdgeInsets.only(top: titleBarInset),
+            child: child,
+          ),
+        ),
+      ],
     );
+    // 工具页是压在 shell 上面的新路由，窗口控件得跟着过来，
+    // 否则一进 DNS/规则页标题栏、拖动区和缩放热区就整条消失。
+    body = WindowChrome(child: body);
+    return Scaffold(backgroundColor: palette.background, body: body);
   }
 }

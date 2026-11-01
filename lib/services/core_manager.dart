@@ -274,7 +274,7 @@ class CoreManager {
       apiPort: apiPort,
       subscriptionId: subscriptionId,
       ipv6: ipv6,
-      notificationTitle: notificationTitle ?? 'Clash Go',
+      notificationTitle: notificationTitle ?? 'ClashGo',
       notificationText: notificationText ?? 'VPN connected',
       notificationStop: notificationStop ?? 'Stop',
       apiSecret: apiSecret,

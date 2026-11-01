@@ -27,15 +27,8 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
-  flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
-  });
-
-  // Flutter can complete the first frame before the "show window" callback is
-  // registered. The following call ensures a frame is pending to ensure the
-  // window is shown. It is a no-op if the first frame hasn't completed yet.
-  flutter_controller_->ForceRedraw();
-
+  // The window is shown from Dart via window_manager: with --autostart it must
+  // stay hidden in the tray, and an unconditional Show() here would flash it.
   return true;
 }
 
@@ -62,6 +55,28 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
+    case WM_NCCALCSIZE:
+      // The custom title bar needs the client area to cover the whole window.
+      // WS_THICKFRAME is kept only so the native SC_SIZE loop still runs; the
+      // default 8px non-client frame is never painted and would show up as a
+      // transparent border once the caption is gone.
+      // Keep the proposed rect (rgrc[0]) as-is: it is the *new* window rect,
+      // while GetWindowRect inside WM_NCCALCSIZE still reports the old one.
+      if (wparam == TRUE) {
+        auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+        if (::IsZoomed(hwnd)) {
+          MONITORINFO info{};
+          info.cbSize = sizeof(MONITORINFO);
+          HMONITOR monitor =
+              ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+          if (monitor != nullptr &&
+              ::GetMonitorInfo(monitor, &info) != 0) {
+            params->rgrc[0] = info.rcWork;
+          }
+        }
+        return 0;
+      }
+      break;
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
