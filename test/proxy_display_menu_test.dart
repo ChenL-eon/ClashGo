@@ -3,6 +3,7 @@ import 'package:clash_go/core/theme.dart';
 import 'package:clash_go/models/app_settings.dart';
 import 'package:clash_go/ui/pages/proxy_page.dart';
 import 'package:clash_go/ui/widgets/app_icon.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -133,6 +134,53 @@ void main() {
       await tester.tap(find.text(l10n.get('proxy.sort.delay')));
       await tester.pumpAndSettle();
       expect(log, ['sort=delay']);
+    });
+
+    testWidgets('hovering other rows keeps the submenu open', (tester) async {
+      await pumpMenu(tester);
+      await tester.tap(find.text(l10n.get('proxy.menu.style')));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.get('proxy.style.list')), findsOneWidget);
+
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      await tester.pump();
+
+      // 悬停到相邻的一级子菜单行：不应顶掉已展开的二级菜单。
+      await mouse.moveTo(tester.getCenter(find.text(l10n.get('proxy.menu.sort'))));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.get('proxy.style.list')), findsOneWidget);
+
+      // 悬停到页面空白处也不收起。
+      await mouse.moveTo(const Offset(24, 560));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.get('proxy.style.list')), findsOneWidget);
+      expect(find.text(l10n.get('proxy.menu.style')), findsOneWidget);
+    });
+
+    testWidgets('opening another submenu replaces the current one', (tester) async {
+      await pumpMenu(tester);
+      await tester.tap(find.text(l10n.get('proxy.menu.style')));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.get('proxy.style.list')), findsOneWidget);
+
+      await tester.tap(find.text(l10n.get('proxy.menu.sort')));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.get('proxy.style.list')), findsNothing);
+      expect(find.text(l10n.get('proxy.sort.delay')), findsOneWidget);
+    });
+
+    testWidgets('tapping outside closes the whole menu', (tester) async {
+      await pumpMenu(tester);
+      await tester.tap(find.text(l10n.get('proxy.menu.style')));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.get('proxy.style.list')), findsOneWidget);
+
+      await tester.tapAt(const Offset(24, 560));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.get('proxy.style.list')), findsNothing);
+      expect(find.text(l10n.get('proxy.menu.style')), findsNothing);
     });
 
     testWidgets('scroll to selected closes the popup', (tester) async {

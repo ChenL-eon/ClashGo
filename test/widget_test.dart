@@ -33,6 +33,14 @@ void main() {
       expect(regionEmojiForNode('🇺🇸 US West'), '🇺🇸');
     });
 
+    test('derives region codes from node names', () {
+      expect(regionCodeForNode('香港 01'), 'HK');
+      expect(regionCodeForNode('新加坡 SG-02'), 'SG');
+      expect(regionCodeForNode('🇺🇸 US West'), 'US');
+      expect(regionCodeForNode('Tokyo JP'), isNull);
+      expect(regionCodeForNode(''), isNull);
+    });
+
     test('masks secrets', () {
       expect(maskSecret(''), '—');
       expect(maskSecret('short'), '••••••••');

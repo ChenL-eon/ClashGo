@@ -25,6 +25,7 @@ import '../services/mihomo_api.dart';
 import '../services/network.dart';
 import '../services/subscription_fetcher.dart';
 import '../services/system_proxy.dart';
+import '../services/update_service.dart';
 
 enum CorePhase { stopped, starting, running, stopping }
 
@@ -111,6 +112,7 @@ class AppController extends ChangeNotifier {
   Timer? _autoUpdateTimer;
   Timer? _autoUpdateKick;
   Timer? _latencyDebounce;
+  Timer? _startupUpdateTimer;
   bool _autoUpdating = false;
   bool _disposed = false;
   bool _systemProxyApplied = false;
@@ -203,9 +205,26 @@ class AppController extends ChangeNotifier {
       unawaited(startCore(silent: true));
     }
     _startAutoUpdateTimer();
-    // 句柄必须留着：这条一次性定时器如果在启动 12 秒内就把应用切到后台，
-    // 没有句柄就没人能取消它，它会在后台跑完整自动更新、甚至重启内核。
+    // 句柄必须留着：这两条一次性定时器如果在启动后几秒内就把应用切到后台，
+    // 没有句柄就没人能取消它们，后台仍会跑自动更新/联网检查。
     _autoUpdateKick = Timer(const Duration(seconds: 12), _runAutoUpdates);
+    _startupUpdateTimer = Timer(const Duration(seconds: 5), _checkUpdatesOnStartup);
+  }
+
+  Future<void> _checkUpdatesOnStartup() async {
+    if (_disposed || !_foreground || !settings.checkUpdatesOnStartup) return;
+    try {
+      final release = await const UpdateService().latest(
+        channel: settings.updateChannel,
+        proxyPort: phase == CorePhase.running ? settings.mixedPort : null,
+      );
+      if (_disposed || release == null) return;
+      if (UpdateService.isNewer(release.version, AppInfo.version)) {
+        _notice(l10n.get('settings.updateStartupNotice', [release.version]));
+      }
+    } catch (_) {
+      // 启动检查是静默的：没网、GitHub 被墙都不该打扰用户。
+    }
   }
 
   // 后台只保留 VPN 前台服务与内核进程：停掉 UI 侧的 WebSocket、轮询与自动更新，
@@ -483,6 +502,7 @@ class AppController extends ChangeNotifier {
         notificationTitle: l10n.get('notification.vpnTitle'),
         notificationText: l10n.get('notification.vpnText'),
         notificationStop: l10n.get('notification.stop'),
+        apiSecret: settings.secret,
       );
       final version = await _waitForApi();
       coreVersion = version.version;
@@ -1187,16 +1207,29 @@ class AppController extends ChangeNotifier {
     updatingAll = true;
     _notify();
     var activeUpdated = false;
+    var updated = 0;
+    var failed = 0;
     for (final sub in List<Subscription>.from(subscriptions)) {
       final ok = await updateSubscription(sub.id, restartIfActive: false, silent: true);
-      if (ok && sub.id == activeId) activeUpdated = true;
+      if (!ok) {
+        failed++;
+        continue;
+      }
+      updated++;
+      if (sub.id == activeId) activeUpdated = true;
     }
     updatingAll = false;
     _notify();
     if (activeUpdated && phase == CorePhase.running) {
       await restartCore(silent: true);
     }
-    _notice(l10n.get('subscriptions.updateAllDone'));
+    if (failed == 0) {
+      _notice(l10n.get('subscriptions.updateAllDone'));
+    } else if (updated == 0) {
+      _notice(l10n.get('subscriptions.updateAllFailed'), error: true);
+    } else {
+      _notice(l10n.get('subscriptions.updateAllPartial', [updated, failed]), error: true);
+    }
   }
 
   Future<void> editSubscription(
@@ -1352,6 +1385,7 @@ class AppController extends ChangeNotifier {
     _autoUpdateKick?.cancel();
     _latencyTimer?.cancel();
     _latencyDebounce?.cancel();
+    _startupUpdateTimer?.cancel();
     _stopLiveFeeds();
     await _disableSystemProxy();
     await core.shutdown();
@@ -1365,6 +1399,7 @@ class AppController extends ChangeNotifier {
     _autoUpdateKick?.cancel();
     _latencyTimer?.cancel();
     _latencyDebounce?.cancel();
+    _startupUpdateTimer?.cancel();
     _stopLiveFeeds();
     // On Android the VpnService deliberately outlives the Flutter engine so the
     // tunnel keeps running in the background; only the UI stops here.

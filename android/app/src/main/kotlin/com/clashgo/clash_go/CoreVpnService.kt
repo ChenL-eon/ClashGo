@@ -10,10 +10,14 @@ import android.graphics.drawable.Icon
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.system.Os
 import android.system.OsConstants
 import android.util.Log
+import org.json.JSONObject
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -28,8 +32,11 @@ class CoreVpnService : VpnService() {
     @Volatile private var worker: Thread? = null
     @Volatile private var stopWorker: Thread? = null
     @Volatile private var monitor: Thread? = null
+    @Volatile private var notificationWorker: Thread? = null
+    @Volatile private var notifierConnection: HttpURLConnection? = null
 
     private var logPath: String? = null
+    private var apiSecret = ""
     private var notificationTitle = "Clash Go"
     private var notificationText = "VPN"
     private var notificationStop = "Stop"
@@ -71,6 +78,7 @@ class CoreVpnService : VpnService() {
         notificationTitle = intent.getStringExtra(EXTRA_NOTIFICATION_TITLE) ?: "Clash Go"
         notificationText = intent.getStringExtra(EXTRA_NOTIFICATION_TEXT) ?: "VPN connected"
         notificationStop = intent.getStringExtra(EXTRA_NOTIFICATION_STOP) ?: "Stop"
+        apiSecret = intent.getStringExtra(EXTRA_API_SECRET) ?: ""
         logPath = logFilePath
 
         if (configPath == null || runtimeDir == null || binaryPath == null || logFilePath == null) {
@@ -182,6 +190,7 @@ class CoreVpnService : VpnService() {
             updateNotification(notificationTitle, notificationText)
 
             monitor = Thread({ monitorLoop() }, "clashgo-vpn-monitor").also { it.start() }
+            startNotificationUpdater()
             Thread({ mirrorCoreLog(logFilePath) }, "clashgo-core-log").start()
         } catch (t: Throwable) {
             if (stopping) {
@@ -307,6 +316,7 @@ class CoreVpnService : VpnService() {
     private fun handleUnexpectedExit(code: Int) {
         CoreVpnState.pid = -1
         CoreVpnState.exitCode = code.takeIf { it >= 0 }
+        stopNotificationUpdater()
         closeTunFd()
         if (stopping) return
         CoreVpnState.state = "error"
@@ -321,6 +331,7 @@ class CoreVpnService : VpnService() {
         if (stopWorker?.isAlive == true) return
         stopping = true
         CoreVpnState.state = "stopping"
+        stopNotificationUpdater()
         stopWorker = Thread({
             worker?.join(1500)
             monitor?.interrupt()
@@ -376,6 +387,7 @@ class CoreVpnService : VpnService() {
         CoreVpnState.pid = -1
         CoreVpnState.exitCode = null
         closeTunFd()
+        stopNotificationUpdater()
         updateNotification(notificationTitle, "启动失败 / Start failed")
         stopForegroundCompat()
         stopSelf()
@@ -389,6 +401,7 @@ class CoreVpnService : VpnService() {
 
     override fun onDestroy() {
         stopping = true
+        stopNotificationUpdater()
         monitor?.interrupt()
         worker?.interrupt()
         cleanupChild(500)
@@ -445,6 +458,138 @@ class CoreVpnService : VpnService() {
         } catch (_: Throwable) {}
     }
 
+    // ------------------------------------------------- notification feed
+
+    private fun startNotificationUpdater() {
+        notificationWorker?.interrupt()
+        notificationWorker = Thread({ notificationLoop() }, "clashgo-vpn-notify").also { it.start() }
+    }
+
+    private fun stopNotificationUpdater() {
+        notificationWorker?.interrupt()
+        notificationWorker = null
+        notifierConnection?.disconnect()
+        notifierConnection = null
+    }
+
+    // /traffic 不带 Upgrade 头时是普通 chunked 流，每秒一行 JSON；/proxies 每 10 秒
+    // 拉一次取当前节点。息屏后通知栏没人看，停止读取，避免每秒唤醒。
+    private fun notificationLoop() {
+        val power = getSystemService(PowerManager::class.java)
+        var node: String? = null
+        var nextNodeFetch = 0L
+        var failureLogged = false
+        try {
+            while (!stopping) {
+                if (power != null && !power.isInteractive) {
+                    Thread.sleep(SCREEN_OFF_POLL_MS)
+                    continue
+                }
+                val port = CoreVpnState.apiPort
+                if (port <= 0) {
+                    Thread.sleep(FEED_RETRY_MS)
+                    continue
+                }
+                if (node.isNullOrEmpty() || System.currentTimeMillis() >= nextNodeFetch) {
+                    fetchActiveNode(port)?.let { node = it }
+                    nextNodeFetch = System.currentTimeMillis() + NODE_REFRESH_MS
+                }
+                try {
+                    val connection = openApi(port, "/traffic")
+                    notifierConnection = connection
+                    connection.connect()
+                    connection.inputStream.bufferedReader().use { reader ->
+                        while (!stopping) {
+                            if (power != null && !power.isInteractive) break
+                            val line = reader.readLine() ?: break
+                            failureLogged = false
+                            val frame = JSONObject(line)
+                            val up = frame.optLong("up", 0L)
+                            val down = frame.optLong("down", 0L)
+                            val title = if (node.isNullOrEmpty()) notificationTitle else "Clash Go · $node"
+                            updateNotification(title, "↑ ${formatRate(up)}   ↓ ${formatRate(down)}")
+                            if (System.currentTimeMillis() >= nextNodeFetch) {
+                                fetchActiveNode(port)?.let { node = it }
+                                nextNodeFetch = System.currentTimeMillis() + NODE_REFRESH_MS
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    if (!stopping && !failureLogged) {
+                        failureLogged = true
+                        appendLog("notification feed unavailable: ${t.message}")
+                    }
+                } finally {
+                    notifierConnection?.disconnect()
+                    notifierConnection = null
+                }
+                if (!stopping) Thread.sleep(FEED_RETRY_MS)
+            }
+        } catch (_: InterruptedException) {
+        }
+    }
+
+    private fun openApi(port: Int, path: String): HttpURLConnection {
+        val connection = URL("http://127.0.0.1:$port$path").openConnection() as HttpURLConnection
+        connection.connectTimeout = 3000
+        connection.readTimeout = 12000
+        connection.useCaches = false
+        if (apiSecret.isNotEmpty()) {
+            connection.setRequestProperty("Authorization", "Bearer $apiSecret")
+        }
+        return connection
+    }
+
+    // 与 Dart 的 ProxiesSnapshot.primaryGroup() 保持同一规则：跳过 GLOBAL，优先第一个
+    // 有选中值的 Selector，否则退回第一个分组。
+    private fun fetchActiveNode(port: Int): String? {
+        val connection = openApi(port, "/proxies")
+        return try {
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val proxies = JSONObject(body).optJSONObject("proxies") ?: return null
+            var firstGroupNow: String? = null
+            var seenGroup = false
+            val keys = proxies.keys()
+            while (keys.hasNext()) {
+                val name = keys.next()
+                if (name == "GLOBAL") continue
+                val item = proxies.optJSONObject(name) ?: continue
+                val all = item.optJSONArray("all") ?: continue
+                if (all.length() == 0) continue
+                val now = item.optString("now", "")
+                if (!seenGroup) {
+                    seenGroup = true
+                    firstGroupNow = now.ifEmpty { null }
+                }
+                val type = item.optString("type", "").lowercase(Locale.US)
+                if ((type == "selector" || type == "select") && now.isNotEmpty()) return now
+            }
+            firstGroupNow
+        } catch (_: Throwable) {
+            null
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun formatRate(bytes: Long): String {
+        if (bytes <= 0) return "0 B/s"
+        val units = arrayOf("B", "KB", "MB", "GB", "TB")
+        var value = bytes.toDouble()
+        var unit = 0
+        while (value >= 1024 && unit < units.size - 1) {
+            value /= 1024
+            unit++
+        }
+        val text = when {
+            value == value.toLong().toDouble() && unit <= 1 -> value.toLong().toString()
+            value >= 100 -> String.format(Locale.US, "%.0f", value)
+            else -> String.format(Locale.US, "%.1f", value).trimEnd('0').trimEnd('.')
+        }
+        return "$text ${units[unit]}/s"
+    }
+
     // ------------------------------------------------------------- notifications
 
     private fun createChannel() {
@@ -485,6 +630,7 @@ class CoreVpnService : VpnService() {
             .setSmallIcon(R.drawable.ic_stat_vpn)
             .setContentTitle(title)
             .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
             .setContentIntent(openIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -543,6 +689,9 @@ class CoreVpnService : VpnService() {
         private const val TUN_PREFIX = 30
         private const val TUN_PREFIX6 = 126
         private const val GRACEFUL_STOP_TIMEOUT_MS = 3000
+        private const val NODE_REFRESH_MS = 10_000L
+        private const val FEED_RETRY_MS = 3000L
+        private const val SCREEN_OFF_POLL_MS = 5000L
 
         const val ACTION_START = "com.clashgo.clash_go.action.START"
         const val ACTION_STOP = "com.clashgo.clash_go.action.STOP"
@@ -551,6 +700,7 @@ class CoreVpnService : VpnService() {
         const val EXTRA_BINARY_PATH = "binary_path"
         const val EXTRA_LOG_PATH = "log_path"
         const val EXTRA_API_PORT = "api_port"
+        const val EXTRA_API_SECRET = "api_secret"
         const val EXTRA_SUBSCRIPTION_ID = "subscription_id"
         const val EXTRA_IPV6 = "ipv6"
         const val EXTRA_BYPASS_PRIVATE = "bypass_private"

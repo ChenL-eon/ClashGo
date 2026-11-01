@@ -199,11 +199,12 @@ class MobilePageHeader extends StatelessWidget {
 
 /// Quiet, reference-style section label for mobile dashboards.
 class MobileSectionLabel extends StatelessWidget {
-  const MobileSectionLabel(this.title, {super.key, this.icon, this.trailing});
+  const MobileSectionLabel(this.title, {super.key, this.icon, this.trailing, this.color});
 
   final String title;
   final String? icon;
   final Widget? trailing;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -213,7 +214,7 @@ class MobileSectionLabel extends StatelessWidget {
       child: Row(
         children: [
           if (icon != null) ...[
-            AppIcon(icon!, size: 15, color: palette.muted),
+            AppIcon(icon!, size: 15, color: color ?? palette.muted),
             const SizedBox(width: 6),
           ],
           Expanded(
@@ -223,7 +224,7 @@ class MobileSectionLabel extends StatelessWidget {
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.2,
-                color: palette.muted,
+                color: color ?? palette.muted,
               ),
             ),
           ),
@@ -272,12 +273,13 @@ class MobileValue extends StatelessWidget {
 }
 
 class SectionLabel extends StatelessWidget {
-  const SectionLabel(this.title, {super.key, this.subtitle, this.icon, this.trailing});
+  const SectionLabel(this.title, {super.key, this.subtitle, this.icon, this.trailing, this.color});
 
   final String title;
   final String? subtitle;
   final String? icon;
   final Widget? trailing;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -288,14 +290,14 @@ class SectionLabel extends StatelessWidget {
       child: Row(
         children: [
           if (icon != null) ...[
-            AppIcon(icon!, size: 16, color: palette.muted),
+            AppIcon(icon!, size: 16, color: color ?? palette.muted),
             const SizedBox(width: 7),
           ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                Text(title, style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700, color: color)),
                 if (subtitle != null)
                   Text(subtitle!, style: text.bodySmall?.copyWith(color: palette.muted, fontSize: 11.5)),
               ],
@@ -936,8 +938,7 @@ class SettingRow extends StatelessWidget {
     super.key,
     required this.title,
     this.subtitle,
-    this.icon,
-    this.iconColor,
+    this.titleColor,
     this.trailing,
     this.onTap,
     this.dense = false,
@@ -945,8 +946,7 @@ class SettingRow extends StatelessWidget {
 
   final String title;
   final String? subtitle;
-  final String? icon;
-  final Color? iconColor;
+  final Color? titleColor;
   final Widget? trailing;
   final VoidCallback? onTap;
   final bool dense;
@@ -954,33 +954,35 @@ class SettingRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
-    final text = Theme.of(context).textTheme;
+    final mobile = MediaQuery.sizeOf(context).width < appDesktopBreakpoint;
+    final titleSize = dense ? 14.0 : (mobile ? 16.5 : 14.5);
+    final subtitleSize = dense ? 12.0 : (mobile ? 13.0 : 12.5);
     final content = Padding(
-      padding: EdgeInsets.symmetric(horizontal: dense ? 14 : 18, vertical: dense ? 11 : 14),
+      padding: EdgeInsets.symmetric(
+        horizontal: dense ? 14 : (mobile ? 18 : 20),
+        vertical: dense ? 11 : (mobile ? 18 : 15),
+      ),
       child: Row(
         children: [
-          if (icon != null) ...[
-            Container(
-              width: dense ? 30 : 34,
-              height: dense ? 30 : 34,
-              decoration: BoxDecoration(
-                color: (iconColor ?? Theme.of(context).colorScheme.primary).withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Center(
-                child: AppIcon(icon!, size: dense ? 16 : 18, color: iconColor ?? Theme.of(context).colorScheme.primary),
-              ),
-            ),
-            const SizedBox(width: 12),
-          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w500, color: palette.text)),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: titleSize,
+                    fontWeight: FontWeight.w600,
+                    height: 1.32,
+                    color: titleColor ?? palette.text,
+                  ),
+                ),
                 if (subtitle != null) ...[
-                  const SizedBox(height: 2),
-                  Text(subtitle!, style: text.bodySmall?.copyWith(color: palette.muted, fontSize: 11.5)),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle!,
+                    style: TextStyle(fontSize: subtitleSize, height: 1.45, color: palette.muted),
+                  ),
                 ],
               ],
             ),
@@ -1013,31 +1015,24 @@ class SettingSection extends StatelessWidget {
     super.key,
     required this.title,
     required this.children,
-    this.icon,
     this.trailing,
   });
 
   final String title;
   final List<Widget> children;
-  final String? icon;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SectionLabel(title, icon: icon, trailing: trailing),
+        SectionLabel(title, trailing: trailing, color: palette.sectionLabel),
         SurfaceCard(
           padding: EdgeInsets.zero,
-          child: Column(
-            children: [
-              for (var i = 0; i < children.length; i++) ...[
-                if (i > 0) const RowDivider(),
-                children[i],
-              ],
-            ],
-          ),
+          elevated: false,
+          child: Column(children: children),
         ),
       ],
     );

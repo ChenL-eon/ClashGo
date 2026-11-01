@@ -21,6 +21,8 @@ class AppSettings {
     this.proxyLayout,
     this.proxyNodeSize,
     this.hideTimeoutProxies = false,
+    this.updateChannel = channelStable,
+    this.checkUpdatesOnStartup = false,
   });
 
   factory AppSettings.defaults({bool zh = true, bool systemProxy = true}) {
@@ -39,6 +41,8 @@ class AppSettings {
       autoStartCore: false,
       autoUpdateSubscriptions: true,
       mode: 'rule',
+      updateChannel: channelStable,
+      checkUpdatesOnStartup: false,
     );
   }
 
@@ -64,6 +68,8 @@ class AppSettings {
       proxyLayout: json['proxyLayout'] as String?,
       proxyNodeSize: json['proxyNodeSize'] as String?,
       hideTimeoutProxies: json['hideTimeoutProxies'] as bool? ?? false,
+      updateChannel: json['updateChannel'] as String? ?? channelStable,
+      checkUpdatesOnStartup: json['checkUpdatesOnStartup'] as bool? ?? false,
     );
   }
 
@@ -92,7 +98,15 @@ class AppSettings {
   String? proxyNodeSize;
   bool hideTimeoutProxies;
 
+  // 更新渠道只影响"检查更新"看哪条 release：稳定版走 GitHub 的 latest
+  // 重定向（GitHub 自己排除 draft/prerelease），预览版取 releases.atom 的第一条。
+  String updateChannel;
+  bool checkUpdatesOnStartup;
+
   bool get isZh => language == 'zh';
+
+  static const String channelStable = 'stable';
+  static const String channelPreview = 'preview';
 
   static const String styleTabs = 'tabs';
   static const String styleList = 'list';
@@ -128,6 +142,8 @@ class AppSettings {
     String? proxyLayout,
     String? proxyNodeSize,
     bool? hideTimeoutProxies,
+    String? updateChannel,
+    bool? checkUpdatesOnStartup,
   }) {
     return AppSettings(
       language: language ?? this.language,
@@ -149,6 +165,8 @@ class AppSettings {
       proxyLayout: proxyLayout ?? this.proxyLayout,
       proxyNodeSize: proxyNodeSize ?? this.proxyNodeSize,
       hideTimeoutProxies: hideTimeoutProxies ?? this.hideTimeoutProxies,
+      updateChannel: updateChannel ?? this.updateChannel,
+      checkUpdatesOnStartup: checkUpdatesOnStartup ?? this.checkUpdatesOnStartup,
     );
   }
 
@@ -172,6 +190,8 @@ class AppSettings {
         if (proxyLayout != null) 'proxyLayout': proxyLayout,
         if (proxyNodeSize != null) 'proxyNodeSize': proxyNodeSize,
         'hideTimeoutProxies': hideTimeoutProxies,
+        'updateChannel': updateChannel,
+        'checkUpdatesOnStartup': checkUpdatesOnStartup,
       };
 
   static String generateSecret() {

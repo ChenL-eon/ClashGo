@@ -267,7 +267,7 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
           title: l10n.get('nav.subscriptions'),
           subtitle: l10n.get('subscriptions.subtitle'),
           actions: [
-            if (subscriptions.length > 1) ...[
+            if (subscriptions.isNotEmpty) ...[
               OutlinedButton.icon(
                 onPressed: controller.updatingAll ? null : controller.updateAllSubscriptions,
                 icon: controller.updatingAll
@@ -351,6 +351,8 @@ class _MobileSubscriptionCard extends StatelessWidget {
     return SurfaceCard(
       padding: const EdgeInsets.fromLTRB(18, 15, 16, 15),
       radius: 20,
+      // 切换订阅只点卡片：头部不再放“使用”按钮，整张卡就是入口。
+      onTap: active ? null : onUse,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -369,16 +371,6 @@ class _MobileSubscriptionCard extends StatelessWidget {
                 Text(
                   l10n.get('subscriptions.active'),
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: palette.success),
-                )
-              else
-                TextButton(
-                  onPressed: onUse,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    minimumSize: const Size(0, 26),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: Text(l10n.get('subscriptions.use'), style: const TextStyle(fontSize: 12.5)),
                 ),
             ],
           ),
@@ -415,10 +407,12 @@ class _MobileSubscriptionCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (subscription.hasQuota) ...[
-                      const SizedBox(height: 8),
-                      QuotaBar(ratio: ratio, color: quotaColor, height: 5),
-                    ],
+                    const SizedBox(height: 8),
+                    // 没有流量信息、没有到期日期也保留同样的行高，卡片外框才能对齐。
+                    if (subscription.hasQuota)
+                      QuotaBar(ratio: ratio, color: quotaColor, height: 5)
+                    else
+                      const SizedBox(height: 5),
                     const SizedBox(height: 6),
                     Text(
                       l10n.get('home.lastUpdated', [l10n.formatDateTime(subscription.lastUpdatedAt)]),
@@ -426,18 +420,20 @@ class _MobileSubscriptionCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontSize: 11.5, color: palette.muted),
                     ),
-                    if (subscription.hasExpiry) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        l10n.get('home.expireAt', [formatExpire(subscription.expire, zh: l10n.isZh)]),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          color: subscription.isExpired ? palette.danger : palette.muted,
-                        ),
+                    const SizedBox(height: 2),
+                    Text(
+                      l10n.get('home.expireAt', [
+                        subscription.hasExpiry
+                            ? formatExpire(subscription.expire, zh: l10n.isZh)
+                            : l10n.get('subscriptions.unknown'),
+                      ]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: subscription.isExpired ? palette.danger : palette.muted,
                       ),
-                    ],
+                    ),
                     if (subscription.lastError != null) ...[
                       const SizedBox(height: 8),
                       InfoBanner(
@@ -460,19 +456,6 @@ class _MobileSubscriptionCard extends StatelessWidget {
                       alignment: AlignmentDirectional.bottomEnd,
                     ),
                     menuChildren: [
-                      if (!active)
-                        MenuItemButton(
-                          onPressed: onUse,
-                          style: appMenuItemStyle(palette),
-                          child: SizedBox(
-                            width: _cardMenuContentWidth,
-                            child: _actionMenuRow(
-                              icon: 'check-line',
-                              label: l10n.get('subscriptions.use'),
-                              color: palette.text,
-                            ),
-                          ),
-                        ),
                       MenuItemButton(
                         onPressed: onEdit,
                         style: appMenuItemStyle(palette),

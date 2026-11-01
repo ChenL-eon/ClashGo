@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:country_flags/country_flags.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -9,6 +10,7 @@ import '../../core/app_info.dart';
 import '../../core/formatters.dart';
 import '../../core/l10n.dart';
 import '../../core/theme.dart';
+import '../../services/ip_info.dart';
 import '../shell/navigation.dart';
 import '../widgets/app_icon.dart';
 import '../widgets/common.dart';
@@ -393,8 +395,8 @@ class _MobileOverviewGrid extends StatelessWidget {
                   title: l10n.get('home.netSpeed'),
                   tag: 'NET',
                   rows: [
-                    (l10n.get('home.upload'), formatSpeed(controller.uploadSpeed)),
-                    (l10n.get('home.download'), formatSpeed(controller.downloadSpeed)),
+                    (l10n.get('home.upload'), _MetricText(formatSpeed(controller.uploadSpeed))),
+                    (l10n.get('home.download'), _MetricText(formatSpeed(controller.downloadSpeed))),
                   ],
                 ),
               ),
@@ -406,10 +408,10 @@ class _MobileOverviewGrid extends StatelessWidget {
                 title: l10n.get('home.metricSubscription'),
                 tag: 'SUB',
                 rows: [
-                  (l10n.get('home.used'), subscription == null ? '0 B' : formatBytes(subscription.used)),
+                  (l10n.get('home.used'), _MetricText(subscription == null ? '0 B' : formatBytes(subscription.used))),
                   (
                     l10n.get('home.total'),
-                    subscription != null && subscription.hasQuota ? formatBytes(subscription.total) : '--',
+                    _MetricText(subscription != null && subscription.hasQuota ? formatBytes(subscription.total) : '--'),
                   ),
                 ],
               ),
@@ -424,12 +426,14 @@ class _MobileOverviewGrid extends StatelessWidget {
                   title: l10n.get('home.system'),
                   tag: 'SYS',
                   rows: [
-                    (l10n.get('home.memory'), running ? formatBytes(controller.memoryInUse) : '--'),
+                    (l10n.get('home.memory'), _MetricText(running ? formatBytes(controller.memoryInUse) : '--')),
                     (
                       l10n.get('home.uptime'),
-                      running && controller.startedAt != null
-                          ? formatUptime(DateTime.now().difference(controller.startedAt!))
-                          : '--',
+                      _MetricText(
+                        running && controller.startedAt != null
+                            ? formatUptime(DateTime.now().difference(controller.startedAt!))
+                            : '--',
+                      ),
                     ),
                   ],
                 ),
@@ -453,7 +457,7 @@ class _MobileMetricCard extends StatelessWidget {
   final String icon;
   final String title;
   final String tag;
-  final List<(String, String)> rows;
+  final List<(String, Widget)> rows;
 
   @override
   Widget build(BuildContext context) {
@@ -491,23 +495,38 @@ class _MobileMetricCard extends StatelessWidget {
                 Text(rows[i].$1, style: TextStyle(fontSize: 11.5, color: palette.muted)),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    rows[i].$2,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: palette.text,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: rows[i].$2,
                   ),
                 ),
               ],
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _MetricText extends StatelessWidget {
+  const _MetricText(this.value);
+
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return Text(
+      value,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      textAlign: TextAlign.right,
+      style: TextStyle(
+        fontSize: 12.5,
+        fontWeight: FontWeight.w600,
+        color: palette.text,
+        fontFeatures: const [FontFeature.tabularFigures()],
       ),
     );
   }
@@ -523,29 +542,74 @@ class _IpMetricCard extends StatefulWidget {
 }
 
 class _IpMetricCardState extends State<_IpMetricCard> with WidgetsBindingObserver {
+  // 出口 IP 只在切节点/换链路时变，两分钟兜底一次；本机 IPv4 只在切网时变，30s 足够。
+  static const _exitTtl = Duration(minutes: 2);
+
   Timer? _timer;
-  String? _address;
+  String? _localAddress;
+  IpLocation? _exit;
+  DateTime? _exitAt;
+  String? _seenNode;
+  bool? _wasRunning;
+  int _requestId = 0;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _load();
+    _wasRunning = widget.controller.isRunning;
+    _seenNode = _nodeName;
     _startTimer();
+    if (_wasRunning!) {
+      _refreshExit(force: true);
+    } else {
+      _loadLocal();
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _requestId++;
     _timer?.cancel();
     super.dispose();
   }
 
   @override
+  void didUpdateWidget(covariant _IpMetricCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final controller = widget.controller;
+    if (controller.isRunning != _wasRunning) {
+      _wasRunning = controller.isRunning;
+      _startTimer();
+      if (controller.isRunning) {
+        _seenNode = _nodeName;
+        _refreshExit(force: true);
+      } else {
+        _requestId++;
+        _exit = null;
+        _exitAt = null;
+        _loadLocal();
+      }
+      return;
+    }
+    if (!controller.isRunning) return;
+    final node = _nodeName;
+    if (node != _seenNode) {
+      _seenNode = node;
+      _refreshExit(force: true);
+    }
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _load();
       _startTimer();
+      if (widget.controller.isRunning) {
+        _refreshExit(force: false);
+      } else {
+        _loadLocal();
+      }
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         // 安卓下拉通知栏、弹权限框也只会给 inactive，这时候没必要继续枚举网卡。
@@ -557,11 +621,48 @@ class _IpMetricCardState extends State<_IpMetricCard> with WidgetsBindingObserve
 
   void _startTimer() {
     _timer?.cancel();
-    // 本机 IPv4 只在切网时变，30s 足够；这条轮询在亮屏期间是纯浪费。
-    _timer = Timer.periodic(const Duration(seconds: 30), (_) => _load());
+    _timer = Timer.periodic(
+      widget.controller.isRunning ? _exitTtl : const Duration(seconds: 30),
+      (_) => _sync(),
+    );
   }
 
-  Future<void> _load() async {
+  void _sync() {
+    if (widget.controller.isRunning) {
+      _refreshExit(force: false);
+    } else {
+      _loadLocal();
+    }
+  }
+
+  /// 经内核的 mixed-port 查真实出口。force 用于启动、切换节点和恢复前台：
+  /// 这时地址一定可能已变，先清掉旧值，避免把上一个节点的 IP 继续挂在界面上。
+  Future<void> _refreshExit({required bool force}) async {
+    final controller = widget.controller;
+    if (!controller.isRunning) return;
+    final now = DateTime.now();
+    if (!force &&
+        _exit != null &&
+        _exitAt != null &&
+        now.difference(_exitAt!) < _exitTtl) {
+      return;
+    }
+    if (force) {
+      _exit = null;
+      _exitAt = null;
+    }
+    final id = ++_requestId;
+    final location =
+        await const IpInfoService().lookup(proxyPort: controller.settings.mixedPort);
+    if (!mounted || id != _requestId || !controller.isRunning) return;
+    setState(() {
+      _exit = location;
+      _exitAt = DateTime.now();
+    });
+  }
+
+  Future<void> _loadLocal() async {
+    if (widget.controller.isRunning) return;
     String? address;
     try {
       final interfaces = await NetworkInterface.list(
@@ -578,7 +679,7 @@ class _IpMetricCardState extends State<_IpMetricCard> with WidgetsBindingObserve
       }
     } catch (_) {}
     if (!mounted) return;
-    if (address != _address) setState(() => _address = address);
+    if (address != _localAddress) setState(() => _localAddress = address);
   }
 
   String? get _nodeName {
@@ -596,18 +697,40 @@ class _IpMetricCardState extends State<_IpMetricCard> with WidgetsBindingObserve
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final controller = widget.controller;
+    final running = controller.isRunning;
     final node = _nodeName;
-    final region = node == null ? null : regionLabelForNode(node, zh: l10n.isZh);
+    final exit = _exit;
+    final nodeRegion = node == null ? null : regionCodeForNode(node);
+    // 运行中优先用出口 IP 的真实归属地；trace 没给 loc 时退回节点名里的地区。
+    final region = running
+        ? ((exit != null && _isRegionCode(exit.region)) ? exit.region : nodeRegion)
+        : nodeRegion;
+    final address = running ? (exit?.address ?? '—') : (_localAddress ?? '—');
     return _MobileMetricCard(
       icon: 'globe-line',
       title: l10n.get('home.ip'),
-      tag: '--',
+      tag: region ?? '--',
       rows: [
-        (l10n.get('home.address'), _address ?? '0.0.0.0'),
-        (l10n.get('home.region'), region ?? '--'),
+        (l10n.get('home.address'), _MetricText(address)),
+        (
+          l10n.get('home.region'),
+          region == null
+              ? const _MetricText('—')
+              : CountryFlag.fromCountryCode(
+                  region,
+                  theme: const ImageTheme(
+                    width: 26,
+                    height: 18,
+                    shape: RoundedRectangle(4),
+                  ),
+                ),
+        ),
       ],
     );
   }
+
+  static bool _isRegionCode(String code) => RegExp(r'^[A-Z]{2}$').hasMatch(code);
 }
 
 class _HomeHeaderActions extends StatelessWidget {

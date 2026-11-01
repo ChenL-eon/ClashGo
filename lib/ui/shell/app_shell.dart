@@ -518,14 +518,15 @@ class _MobileNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
     final bottom = MediaQuery.viewPaddingOf(context).bottom;
-    const radius = 33.0;
+    // 参考图里的胶囊更小更窄：整体 50dp 高、360dp 宽屏幕两侧各留 40dp。
+    const radius = 25.0;
     return Positioned(
-      left: 20,
-      right: 20,
+      left: 40,
+      right: 40,
       bottom: 10 + bottom,
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
+          constraints: const BoxConstraints(maxWidth: 360),
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(radius),
@@ -551,9 +552,9 @@ class _MobileNavBar extends StatelessWidget {
                           : Colors.white.withValues(alpha: 0.7),
                     ),
                   ),
-                  padding: const EdgeInsets.all(6),
+                  padding: const EdgeInsets.all(4),
                   child: SizedBox(
-                    height: 46,
+                    height: 40,
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final slot = constraints.maxWidth / _mobileNavItems.length;
@@ -567,13 +568,13 @@ class _MobileNavBar extends StatelessWidget {
                               left: selected < 0 ? 0 : slot * selected + 2,
                               top: 0,
                               width: selected < 0 ? 0 : slot - 4,
-                              height: 46,
+                              height: 40,
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
                                   color: palette.isDark
                                       ? Colors.white.withValues(alpha: 0.09)
                                       : Colors.black.withValues(alpha: 0.06),
-                                  borderRadius: BorderRadius.circular(23),
+                                  borderRadius: BorderRadius.circular(20),
                                 ),
                               ),
                             ),
@@ -620,12 +621,12 @@ class _MobileNavItem extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(23),
+        borderRadius: BorderRadius.circular(20),
         // 按压高亮/悬停底色会和滑动的选中胶囊叠成“两个高亮”，只保留点击水波纹。
         highlightColor: Colors.transparent,
         hoverColor: Colors.transparent,
         child: SizedBox(
-          height: 46,
+          height: 40,
           width: double.infinity,
           // 图标/文字随选中状态一起做颜色、字重与轻微缩放过渡，
           // 与底栏滑动胶囊同时完成，避免突兀跳变。
@@ -644,7 +645,7 @@ class _MobileNavItem extends StatelessWidget {
                       duration: const Duration(milliseconds: 180),
                       switchInCurve: Curves.easeOutCubic,
                       switchOutCurve: Curves.easeInCubic,
-                      child: AppIcon(icon, key: ValueKey(icon), size: 19, color: color),
+                      child: AppIcon(icon, key: ValueKey(icon), size: 18, color: color),
                     ),
                   ),
                   const SizedBox(height: 2),

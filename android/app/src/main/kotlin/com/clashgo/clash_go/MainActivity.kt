@@ -81,6 +81,7 @@ class MainActivity : FlutterActivity() {
             putExtra(CoreVpnService.EXTRA_LOG_PATH, args["logPath"] as? String)
             putExtra(CoreVpnService.EXTRA_API_PORT, (args["apiPort"] as? Number)?.toInt() ?: 0)
             putExtra(CoreVpnService.EXTRA_SUBSCRIPTION_ID, args["subscriptionId"] as? String)
+            putExtra(CoreVpnService.EXTRA_API_SECRET, args["apiSecret"] as? String)
             putExtra(CoreVpnService.EXTRA_IPV6, args["ipv6"] as? Boolean ?: false)
             putExtra(CoreVpnService.EXTRA_BYPASS_PRIVATE, args["bypassPrivate"] as? Boolean ?: true)
             putExtra(CoreVpnService.EXTRA_MTU, (args["mtu"] as? Number)?.toInt() ?: 0)

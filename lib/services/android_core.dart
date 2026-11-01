@@ -87,6 +87,7 @@ class AndroidCore {
     required String notificationTitle,
     required String notificationText,
     required String notificationStop,
+    String apiSecret = '',
     bool bypassPrivate = true,
   }) async {
     await _channel.invokeMethod<bool>('startVpn', {
@@ -98,6 +99,8 @@ class AndroidCore {
       'subscriptionId': subscriptionId,
       'ipv6': ipv6,
       'bypassPrivate': bypassPrivate,
+      // 通知栏要直接读 mihomo 的 /traffic、/proxies，接口需要同一个 secret。
+      'apiSecret': apiSecret,
       // VpnService.setMtu 用的就是这一个值，和 config 里的 tun.mtu 同源。
       'mtu': AppInfo.tunMtu,
       'notificationTitle': notificationTitle,

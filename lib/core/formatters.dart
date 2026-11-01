@@ -153,6 +153,20 @@ String regionEmojiForNode(String name) {
   return '';
 }
 
+/// Resolves the ISO 3166-1 alpha-2 region code of a proxy node, if one is known.
+String? regionCodeForNode(String name) {
+  if (name.trim().isEmpty) return null;
+  for (final hint in _regionHints) {
+    if (name.contains(hint.$1)) return hint.$2;
+  }
+  final match = RegExp(r'[\u{1F1E6}-\u{1F1FF}]{2}', unicode: true)
+      .firstMatch(name);
+  if (match == null) return null;
+  return String.fromCharCodes(
+    match.group(0)!.runes.map((unit) => 65 + unit - 0x1F1E6),
+  );
+}
+
 /// Resolves a readable region label from a proxy node name, if one is known.
 String? regionLabelForNode(String name, {required bool zh}) {
   if (name.trim().isEmpty) return null;

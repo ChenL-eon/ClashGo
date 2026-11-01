@@ -109,7 +109,7 @@ class _NodeView {
     required this.hiddenTimeout,
   });
 
-  /// 风格：true=标签页，false=列表（移动端为下划线标签，桌面端为左侧分组栏）。
+  /// 风格：true=标签页，false=列表（分组卡片，展开后显示该组节点）。
   final bool tabs;
   final String layout;
   final _NodeScale scale;
@@ -129,8 +129,8 @@ class _ProxyPageState extends State<ProxyPage> {
   final TextEditingController _search = TextEditingController();
   String? _selectedGroup;
 
-  /// 「标签页」风格下正在展开节点快切面板的分组名，null 表示收起。
-  String? _expandedGroup;
+  /// 「列表」风格下展开了节点区的分组，可同时展开多个。
+  final Set<String> _openGroups = {};
   bool _showSearch = false;
   String? _offlineKey;
   ProxiesSnapshot? _offlineSnapshot;
@@ -393,12 +393,26 @@ class _ProxyPageState extends State<ProxyPage> {
     return group.all.where((node) => _isTimeout(controller, snapshot, node, offline: offline)).length;
   }
 
-  void _scrollToSelected(ProxyInfo? group) {
+  void _scrollToSelected(ProxyInfo? group, {bool expandCard = false}) {
     final name = group?.now;
     if (name == null || name.isEmpty) {
       _toast(context.l10n.get('proxy.noSelectedNode'));
       return;
     }
+    if (expandCard) {
+      final cardWasOpen = _openGroups.contains(group!.name);
+      setState(() => _openGroups.add(group.name));
+      if (cardWasOpen) {
+        _scrollToNode(name);
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToNode(name));
+      }
+      return;
+    }
+    _scrollToNode(name);
+  }
+
+  void _scrollToNode(String name) {
     final target = GlobalObjectKey(_nodeKey(name)).currentContext;
     // 被搜索或「隐藏超时代理」过滤掉时不在树上，此时不做跳转。
     if (target == null) return;
@@ -476,7 +490,10 @@ class _ProxyPageState extends State<ProxyPage> {
       onLayout: (value) => _setDisplay(controller, layout: value),
       onSize: (value) => _setDisplay(controller, size: value),
       onHideTimeout: () => _setDisplay(controller, hideTimeout: !settings.hideTimeoutProxies),
-      onScrollToSelected: () => _scrollToSelected(group),
+      onScrollToSelected: () => _scrollToSelected(
+        group,
+        expandCard: settings.resolvedProxyStyle(desktop: desktop) == AppSettings.styleList,
+      ),
       builder: builder,
     );
   }
@@ -602,12 +619,22 @@ class _ProxyPageState extends State<ProxyPage> {
       orElse: () => snapshot.primaryGroup() ?? groups.first,
     );
 
+    final tabs = controller.settings.resolvedProxyStyle(desktop: true) == AppSettings.styleTabs;
     return PageContainer(
       children: [
         PageHeader(
           title: l10n.get('nav.proxy'),
           subtitle: l10n.get('proxy.groups', [groups.length]),
           actions: [
+            if (!tabs)
+              AppIconButton(
+                icon: 'search-line',
+                size: 18,
+                padding: 9,
+                background: palette.cardAlt,
+                tooltip: l10n.get('common.search'),
+                onTap: _toggleSearch,
+              ),
             _testAllButton(controller, snapshot, offline: offline, desktop: true),
             const SizedBox(width: 8),
             _displayMenuButton(controller, group, desktop: true, size: 18, padding: 9),
@@ -635,151 +662,50 @@ class _ProxyPageState extends State<ProxyPage> {
           ),
         ],
         const SizedBox(height: 18),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final view = _nodeView(controller, group, snapshot, offline: offline, desktop: true);
-            final panel = _buildGroupPanel(
-              context,
-              controller,
-              group,
-              snapshot,
-              offline: offline,
-              view: view,
-            );
-            // 「风格 = 列表」用左侧分组栏；窗口过窄或选择标签页时退回顶部胶囊行。
-            if (constraints.maxWidth < 860 || view.tabs) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  view.tabs
-                      ? _groupTabBar(controller, group, snapshot, offline: offline)
-                      : SizedBox(height: 54, child: _groupChipRow(groups, group)),
-                  const SizedBox(height: 12),
-                  panel,
-                ],
-              );
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: 286,
-                  child: SurfaceCard(
-                    padding: const EdgeInsets.all(8),
-                    child: Column(
-                      children: [
-                        for (final item in groups)
-                          _GroupTile(
-                            group: item,
-                            selected: item.name == group.name,
-                            onTap: () => setState(() => _selectedGroup = item.name),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(child: panel),
-              ],
-            );
-          },
-        ),
+        if (!tabs && _showSearch) ...[
+          AppSearchField(
+            controller: _search,
+            autofocus: true,
+            hint: l10n.get('proxy.searchNodes'),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (tabs)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _groupTabBar(snapshot, group),
+              const SizedBox(height: 12),
+              _buildGroupPanel(
+                context,
+                controller,
+                group,
+                snapshot,
+                offline: offline,
+                view: _nodeView(controller, group, snapshot, offline: offline, desktop: true),
+              ),
+            ],
+          )
+        else
+          _buildGroupCards(controller, snapshot, offline: offline, mobile: false),
       ],
     );
   }
 
-  /// 「标签页」风格的分组条：图标胶囊 + 选中高亮环，点胶囊上的箭头在该组下方展开节点快切面板。
-  Widget _groupTabBar(
-    AppController controller,
-    ProxyInfo selected,
-    ProxiesSnapshot snapshot, {
-    required bool offline,
-  }) {
+  void _toggleSearch() {
+    setState(() {
+      _showSearch = !_showSearch;
+      if (!_showSearch) _search.clear();
+    });
+  }
+
+  /// 「标签页」风格的分组条：文字标签 + 下划线指示器，点标签切换下方节点区。
+  Widget _groupTabBar(ProxiesSnapshot snapshot, ProxyInfo selected) {
     return _GroupTabBar(
       groups: snapshot.groups,
       selected: selected.name,
-      expanded: _expandedGroup,
       onSelect: (name) => setState(() => _selectedGroup = name),
-      onToggle: (name) => setState(() {
-        _selectedGroup = name;
-        _expandedGroup = _expandedGroup == name ? null : name;
-      }),
-      expandedPanel: (group) => _groupQuickPanel(controller, group, snapshot, offline: offline),
-    );
-  }
-
-  /// 展开面板里的节点列表，过滤与排序沿用主面板那套，避免两处结果对不上。
-  Widget _groupQuickPanel(
-    AppController controller,
-    ProxyInfo group,
-    ProxiesSnapshot snapshot, {
-    required bool offline,
-  }) {
-    final palette = AppPalette.of(context);
-    final l10n = context.l10n;
-    final nodes = _visibleNodes(
-      controller: controller,
-      group: group,
-      snapshot: snapshot,
-      offline: offline,
-      sort: _sortOf(controller),
-    );
-    if (nodes.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        child: Text(
-          l10n.get('proxy.filterNoResult'),
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: palette.muted),
-        ),
-      );
-    }
-    return Container(
-      decoration: appCardDecoration(context, radius: 14, elevated: false),
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 288),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final name in nodes)
-                _NodeQuickRow(
-                  name: name,
-                  isNow: group.now == name,
-                  delay: offline ? _offlineDelay(name) : controller.displayDelay(name),
-                  testing: offline ? _offlineTesting.contains(name) : controller.testingNodes.contains(name),
-                  onSelect: () {
-                    if (offline) {
-                      _selectOffline(group, name);
-                    } else {
-                      _select(group, name);
-                    }
-                    setState(() => _expandedGroup = null);
-                  },
-                  onTest: () => offline ? _probeOfflineNode(name) : controller.testNode(name),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _groupChipRow(List<ProxyInfo> groups, ProxyInfo group) {
-    return ListView.separated(
-      scrollDirection: Axis.horizontal,
-      itemCount: groups.length,
-      separatorBuilder: (_, _) => const SizedBox(width: 8),
-      itemBuilder: (context, index) {
-        final item = groups[index];
-        return _GroupChip(
-          group: item,
-          selected: item.name == group.name,
-          onTap: () => setState(() => _selectedGroup = item.name),
-        );
-      },
     );
   }
 
@@ -806,20 +732,18 @@ class _ProxyPageState extends State<ProxyPage> {
       children: [
         MobilePageHeader(
           title: l10n.get('proxy.title'),
+          subtitle: view.tabs
+              ? null
+              : offline
+                  ? l10n.get('proxy.offlineHint')
+                  : l10n.get('proxy.groups', [groups.length]),
           actions: [
             AppIconButton(
               icon: 'search-line',
               size: 20,
               padding: 7,
               tooltip: l10n.get('common.search'),
-              onTap: groups.isEmpty
-                  ? null
-                  : () {
-                      setState(() {
-                        _showSearch = !_showSearch;
-                        if (!_showSearch) _search.clear();
-                      });
-                    },
+              onTap: groups.isEmpty ? null : _toggleSearch,
             ),
             const SizedBox(width: 6),
             _testAllButton(controller, snapshot, offline: offline, desktop: false),
@@ -828,31 +752,16 @@ class _ProxyPageState extends State<ProxyPage> {
           ],
         ),
         const SizedBox(height: 14),
-        if (group != null)
-          view.tabs
-              ? _groupTabBar(controller, group, snapshot, offline: offline)
-              : SizedBox(
-                  height: 46,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: groups.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 8),
-                    itemBuilder: (context, index) {
-                      final item = groups[index];
-                      return _GroupChip(
-                        group: item,
-                        selected: item.name == group!.name,
-                        onTap: () => setState(() => _selectedGroup = item.name),
-                      );
-                    },
-                  ),
-                ),
-        if (offline && group != null) ...[
-          const SizedBox(height: 14),
-          Text(
-            l10n.get('proxy.offlineTcpHint'),
-            style: TextStyle(fontSize: 12, height: 1.4, color: palette.muted),
-          ),
+        if (group != null && view.tabs) ...[
+          _groupTabBar(snapshot, group),
+          if (offline)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(
+                l10n.get('proxy.offlineHint'),
+                style: TextStyle(fontSize: 12, height: 1.4, color: palette.muted),
+              ),
+            ),
         ],
         if (_showSearch && group != null) ...[
           const SizedBox(height: 12),
@@ -942,6 +851,8 @@ class _ProxyPageState extends State<ProxyPage> {
                     message: l10n.get('proxy.noGroupsHint'),
                   ),
           )
+        else if (!view.tabs)
+          _buildGroupCards(controller, snapshot, offline: offline, mobile: true)
         else ...[
           if (nodes.isEmpty)
             Padding(
@@ -990,6 +901,319 @@ class _ProxyPageState extends State<ProxyPage> {
           ],
         ],
       ],
+    );
+  }
+
+  // ------------------------------------------------------- 列表风格分组卡片
+
+  Widget _buildGroupCards(
+    AppController controller,
+    ProxiesSnapshot snapshot, {
+    required bool offline,
+    required bool mobile,
+  }) {
+    final groups = snapshot.groups;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < groups.length; i++) ...[
+          if (i > 0) const SizedBox(height: 12),
+          _buildGroupCard(controller, snapshot, groups[i], offline: offline, mobile: mobile),
+        ],
+      ],
+    );
+  }
+
+  /// 分组卡片：标题 + 「类型 · 当前节点 · 已测/总数」，右侧延迟与展开按钮。
+  /// 展开后在该卡片内显示节点，布局与尺寸沿用显示选项。
+  Widget _buildGroupCard(
+    AppController controller,
+    ProxiesSnapshot snapshot,
+    ProxyInfo group, {
+    required bool offline,
+    required bool mobile,
+  }) {
+    final l10n = context.l10n;
+    final palette = AppPalette.of(context);
+    final accent = Theme.of(context).colorScheme.primary;
+    final settings = controller.settings;
+    final layout = settings.resolvedProxyLayout(desktop: !mobile);
+    final scale = _NodeScale.of(settings.resolvedProxyNodeSize());
+    final searching = _search.text.trim().isNotEmpty;
+    final nodes = _visibleNodes(
+      controller: controller,
+      group: group,
+      snapshot: snapshot,
+      offline: offline,
+      sort: _sortOf(controller),
+    );
+    final view = _NodeView(
+      tabs: false,
+      layout: layout,
+      scale: scale,
+      hideTimeout: settings.hideTimeoutProxies,
+      nodes: nodes,
+      hiddenTimeout: _hiddenTimeoutCount(controller, snapshot, group, offline: offline),
+    );
+    // 搜索时自动展开有命中的分组，避免结果藏在折叠卡片里。
+    final expanded = _openGroups.contains(group.name) || (searching && nodes.isNotEmpty);
+    final now = group.now;
+    ProxyInfo? inlineGroup;
+    for (final item in snapshot.groups) {
+      if (item.name == now) {
+        inlineGroup = item;
+        break;
+      }
+    }
+    int? delayOf(String name) => offline ? _offlineDelay(name) : controller.displayDelay(name);
+    final nowDelay = now.isEmpty ? null : delayOf(now);
+    final tested = group.all.where((name) {
+      final delay = delayOf(name);
+      return delay != null && delay >= 0;
+    }).length;
+    final testingGroup = offline
+        ? _offlineTesting.contains(group.name)
+        : controller.testingGroups.contains(group.name);
+    final typeLabel = l10n.get(group.groupTypeKey);
+    final metaStyle = TextStyle(fontSize: mobile ? 12.5 : 12, color: palette.muted, height: 1.3);
+    final cardIcon = _groupCardIcon(group);
+
+    void toggle() {
+      setState(() {
+        if (!_openGroups.remove(group.name)) _openGroups.add(group.name);
+      });
+    }
+
+    final heading = Padding(
+      padding: mobile
+          ? const EdgeInsets.fromLTRB(18, 15, 14, 15)
+          : const EdgeInsets.fromLTRB(20, 16, 16, 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    if (cardIcon.isNotEmpty) ...[
+                      AppIcon(cardIcon, size: mobile ? 19 : 18, color: accent),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: Text(
+                        group.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: mobile ? 18 : 17,
+                          fontWeight: FontWeight.w700,
+                          height: 1.2,
+                          color: palette.text,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 5),
+                Row(
+                  children: [
+                    Text(typeLabel, style: metaStyle),
+                    Text(' · ', style: metaStyle),
+                    if (inlineGroup != null && _groupCardIcon(inlineGroup).isNotEmpty) ...[
+                      AppIcon(_groupCardIcon(inlineGroup), size: 13, color: accent),
+                      const SizedBox(width: 5),
+                    ],
+                    Flexible(
+                      child: Text(
+                        now.isEmpty ? l10n.get('proxy.noSelection') : now,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: metaStyle,
+                      ),
+                    ),
+                    Text(' · ', style: metaStyle),
+                    Tooltip(
+                      message: l10n.get('proxy.testedCount', [tested, group.all.length]),
+                      child: Text('$tested/${group.all.length}', style: metaStyle),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 58,
+            child: Text(
+              nowDelay == null ? '—' : formatDelay(nowDelay, zh: l10n.isZh),
+              maxLines: 1,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: mobile ? 14 : 13,
+                fontWeight: FontWeight.w600,
+                color: palette.delayColor(nowDelay),
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+          SizedBox(width: mobile ? 10 : 12),
+          Material(
+            color: palette.cardAlt,
+            shape: const CircleBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: toggle,
+              customBorder: const CircleBorder(),
+              child: SizedBox(
+                width: mobile ? 38 : 36,
+                height: mobile ? 38 : 36,
+                child: Center(
+                  child: AnimatedRotation(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
+                    turns: expanded ? 0.5 : 0,
+                    child: AppIcon('down-small-line', size: 16, color: palette.strongMuted),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    Widget? expandedBody;
+    if (expanded) {
+      expandedBody = Padding(
+        padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          decoration: BoxDecoration(
+            color: palette.cardAlt,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: palette.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    l10n.get('proxy.nodes', [group.all.length]),
+                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: palette.muted),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: testingGroup
+                        ? null
+                        : () => offline ? _probeOfflineGroup(group) : controller.testGroup(group),
+                    style: TextButton.styleFrom(
+                      minimumSize: Size.zero,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (testingGroup)
+                          const SizedBox(
+                            width: 13,
+                            height: 13,
+                            child: CircularProgressIndicator(strokeWidth: 1.8),
+                          )
+                        else
+                          AppIcon('lightning-line', size: 13, color: accent),
+                        const SizedBox(width: 5),
+                        Text(
+                          l10n.get('proxy.testGroup'),
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: accent),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              if (nodes.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Text(
+                    searching ? l10n.get('proxy.filterNoResult') : l10n.get('proxy.emptyGroup'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: palette.muted),
+                  ),
+                )
+              else
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final spacing = mobile ? 10.0 : 8.0;
+                    final columns = mobile
+                        ? _columnsFor(layout, constraints.maxWidth)
+                        : _desktopColumnsFor(layout, constraints.maxWidth);
+                    final width = (constraints.maxWidth - spacing * (columns - 1)) / columns;
+                    return Wrap(
+                      spacing: spacing,
+                      runSpacing: spacing,
+                      children: [
+                        for (final name in nodes)
+                          SizedBox(
+                            width: width,
+                            child: mobile
+                                ? _MobileNodeCard(
+                                    key: GlobalObjectKey(_nodeKey(name)),
+                                    name: name,
+                                    type: snapshot.proxies[name]?.type ?? '',
+                                    selected: now == name,
+                                    delay: delayOf(name),
+                                    testing: offline
+                                        ? _offlineTesting.contains(name)
+                                        : controller.testingNodes.contains(name),
+                                    scale: scale,
+                                    onTap: () => offline ? _selectOffline(group, name) : _select(group, name),
+                                    onTest: () =>
+                                        offline ? _probeOfflineNode(name) : controller.testNode(name),
+                                  )
+                                : _NodeTile(
+                                    key: GlobalObjectKey(_nodeKey(name)),
+                                    name: name,
+                                    type: snapshot.proxies[name]?.type ?? '',
+                                    selected: now == name,
+                                    delay: delayOf(name),
+                                    testing: offline
+                                        ? _offlineTesting.contains(name)
+                                        : controller.testingNodes.contains(name),
+                                    scale: scale,
+                                    onSelect: offline ? () => _selectOffline(group, name) : () => _select(group, name),
+                                    onTest: () => offline ? _probeOfflineNode(name) : controller.testNode(name),
+                                  ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ?_timeoutHint(l10n, palette, view),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SurfaceCard(
+      padding: EdgeInsets.zero,
+      radius: 20,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(onTap: toggle, hoverColor: palette.hover, child: heading),
+          ),
+          ?expandedBody,
+        ],
+      ),
     );
   }
 
@@ -1235,337 +1459,106 @@ class _ProxyPageState extends State<ProxyPage> {
   }
 }
 
-class _GroupTile extends StatelessWidget {
-  const _GroupTile({required this.group, required this.selected, required this.onTap});
-
-  final ProxyInfo group;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = AppPalette.of(context);
-    final l10n = context.l10n;
-    final accent = Theme.of(context).colorScheme.primary;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 3),
-      child: Material(
-        color: selected ? palette.accentSoft : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          hoverColor: palette.hover,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            child: Row(
-              children: [
-                AppIcon('shield-shape-line', size: 16, color: selected ? accent : palette.muted),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        group.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                          color: selected ? accent : palette.text,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        group.now.isEmpty ? l10n.get(group.groupTypeKey) : group.now,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 10.5, color: palette.muted),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '${group.all.length}',
-                  style: TextStyle(fontSize: 10.5, color: palette.muted),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GroupChip extends StatelessWidget {
-  const _GroupChip({required this.group, required this.selected, required this.onTap});
-
-  final ProxyInfo group;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = AppPalette.of(context);
-    final accent = Theme.of(context).colorScheme.primary;
-    return Material(
-      color: selected ? palette.accentSoft : palette.card,
-      borderRadius: BorderRadius.circular(13),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(13),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(13),
-            border: Border.all(color: selected ? accent.withValues(alpha: 0.35) : palette.border),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AppIcon('shield-shape-line', size: 14, color: selected ? accent : palette.muted),
-              const SizedBox(width: 7),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 160),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      group.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: selected ? accent : palette.text,
-                      ),
-                    ),
-                    if (group.now.isNotEmpty)
-                      Text(
-                        group.now,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 9.5, color: palette.muted),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 分组类型对应的图标，让标签条一眼分辨手动选择 / 自动测速 / 故障转移。
-String _groupTypeIcon(ProxyInfo group) {
+/// 列表卡片标题前的类型图标；手动选择不显示，与参考稿一致。
+String _groupCardIcon(ProxyInfo group) {
   return switch (group.type.toLowerCase()) {
-    'urltest' || 'url-test' => 'speed-line',
+    'urltest' || 'url-test' => 'refresh-2-line',
     'fallback' => 'transfer-line',
     'loadbalance' || 'load-balance' => 'grid-line',
     'relay' => 'link-line',
-    _ => 'list-check-line',
+    _ => '',
   };
 }
 
-/// 「标签页」风格的分组条：图标胶囊横排，选中项带高亮环，
-/// 展开时在该组正下方挂一个节点快切面板。
+/// 「标签页」风格的分组条：文字标签横排，选中项用强调色 + 底部下划线；
+/// 自动测速类分组在名字前挂绿色回收图标，与列表卡片的类型标识一致。
 class _GroupTabBar extends StatelessWidget {
   const _GroupTabBar({
     required this.groups,
     required this.selected,
-    required this.expanded,
     required this.onSelect,
-    required this.onToggle,
-    required this.expandedPanel,
   });
 
   final List<ProxyInfo> groups;
   final String selected;
-  final String? expanded;
   final ValueChanged<String> onSelect;
-  final ValueChanged<String> onToggle;
-  final Widget Function(ProxyInfo group) expandedPanel;
 
   @override
   Widget build(BuildContext context) {
-    final bar = SizedBox(
-      height: 38,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: groups.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final item = groups[index];
-          return _GroupTabPill(
-            group: item,
-            selected: item.name == selected,
-            expanded: item.name == expanded,
-            onTap: () => onSelect(item.name),
-            onToggle: () => onToggle(item.name),
-          );
-        },
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          for (var i = 0; i < groups.length; i++) ...[
+            if (i > 0) const SizedBox(width: 22),
+            _GroupTabItem(
+              group: groups[i],
+              selected: groups[i].name == selected,
+              onTap: () => onSelect(groups[i].name),
+            ),
+          ],
+        ],
       ),
-    );
-    ProxyInfo? open;
-    for (final item in groups) {
-      if (item.name == expanded) {
-        open = item;
-        break;
-      }
-    }
-    if (open == null) return bar;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        bar,
-        const SizedBox(height: 10),
-        expandedPanel(open),
-      ],
     );
   }
 }
 
-class _GroupTabPill extends StatelessWidget {
-  const _GroupTabPill({
+class _GroupTabItem extends StatelessWidget {
+  const _GroupTabItem({
     required this.group,
     required this.selected,
-    required this.expanded,
     required this.onTap,
-    required this.onToggle,
   });
 
   final ProxyInfo group;
   final bool selected;
-  final bool expanded;
   final VoidCallback onTap;
-  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
     final accent = Theme.of(context).colorScheme.primary;
-    final content = selected ? accent : palette.text;
+    final type = group.type.toLowerCase();
+    final auto = type == 'urltest' || type == 'url-test';
+    final icon = _groupCardIcon(group);
+    final content = selected ? accent : palette.muted;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         hoverColor: palette.hover,
-        // 底色走 Ink 而不是 Container，否则悬停高亮会被不透明底色盖掉。
-        child: Ink(
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(2, 2, 2, 8),
           decoration: BoxDecoration(
-            color: selected ? palette.accentSoft : palette.card,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected ? accent.withValues(alpha: 0.45) : palette.border,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 11),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AppIcon(_groupTypeIcon(group), size: 14, color: content),
-                const SizedBox(width: 7),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 150),
-                  child: Text(
-                    group.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                      color: content,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Material(
-                  color: Colors.transparent,
-                  shape: const CircleBorder(),
-                  clipBehavior: Clip.antiAlias,
-                  child: InkWell(
-                    onTap: onToggle,
-                    customBorder: const CircleBorder(),
-                    child: Padding(
-                      padding: const EdgeInsets.all(5),
-                      child: AnimatedRotation(
-                        duration: const Duration(milliseconds: 180),
-                        curve: Curves.easeOut,
-                        turns: expanded ? 0.5 : 0,
-                        child: AppIcon('down-small-line', size: 15, color: content),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 展开面板里的一行节点：勾选标记 + 节点名 + 延迟胶囊。
-class _NodeQuickRow extends StatelessWidget {
-  const _NodeQuickRow({
-    required this.name,
-    required this.isNow,
-    required this.delay,
-    required this.testing,
-    required this.onSelect,
-    required this.onTest,
-  });
-
-  final String name;
-  final bool isNow;
-  final int? delay;
-  final bool testing;
-  final VoidCallback onSelect;
-  final VoidCallback onTest;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = AppPalette.of(context);
-    final accent = Theme.of(context).colorScheme.primary;
-    return Material(
-      color: isNow ? palette.accentSoft : Colors.transparent,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        onTap: onSelect,
-        borderRadius: BorderRadius.circular(10),
-        hoverColor: palette.hover,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 15,
-                child: isNow ? AppIcon('check-line', size: 14, color: accent) : const SizedBox.shrink(),
+            border: Border(
+              bottom: BorderSide(
+                color: selected ? accent : Colors.transparent,
+                width: 2,
               ),
-              const SizedBox(width: 7),
-              Expanded(
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon.isNotEmpty) ...[
+                AppIcon(icon, size: 13, color: auto ? palette.success : content),
+                const SizedBox(width: 5),
+              ],
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 180),
                 child: Text(
-                  name,
+                  group.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: isNow ? FontWeight.w600 : FontWeight.w500,
-                    color: isNow ? accent : palette.text,
+                    fontSize: 13.5,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color: content,
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              DelayChip(delay: delay, testing: testing, dense: true, onTap: onTest),
             ],
           ),
         ),
@@ -1601,81 +1594,89 @@ class _MobileNodeCard extends StatelessWidget {
     final palette = AppPalette.of(context);
     final l10n = context.l10n;
     final accent = Theme.of(context).colorScheme.primary;
-    final flag = regionEmojiForNode(name);
-    final delayLabel = delay == null ? '--' : formatDelay(delay!, zh: l10n.isZh);
-    // 选中态用整圈描边 + 浅色底，与桌面节点磁贴一致；
-    // 之前的左侧粗竖条在圆角卡片上会切出直角、像贴了一条色带。
+    final delayLabel = delay == null ? '—' : formatDelay(delay!, zh: l10n.isZh);
+    // 选中态用左侧强调竖条 + 名字旁勾选，卡片保持白底；竖条由 SurfaceCard 的
+    // 圆角裁剪，不会在圆角处切出直角。
     return SurfaceCard(
-      padding: scale.cardPadding,
+      padding: EdgeInsets.zero,
       radius: scale.radius,
-      color: selected ? palette.accentSoft : null,
       border: Border.all(
         color: selected ? accent.withValues(alpha: 0.45) : palette.border,
         width: selected ? 1.2 : 1,
       ),
       onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Stack(
         children: [
-          Row(
-            children: [
-              if (flag.isNotEmpty) ...[
-                Text(flag, style: TextStyle(fontSize: scale.name + 2)),
-                const SizedBox(width: 6),
-              ],
-              Expanded(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: scale.name,
-                    fontWeight: FontWeight.w600,
-                    color: selected ? accent : palette.text,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              selected
-                  ? AppIcon('check-line', size: scale.icon, color: accent)
-                  : SizedBox(width: scale.icon),
-            ],
-          ),
-          SizedBox(height: scale.gap),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  type.isEmpty ? '—' : type,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: scale.meta, color: palette.muted),
-                ),
-              ),
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: onTest,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-                  child: testing
-                      ? SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(strokeWidth: 1.5, color: palette.delayColor(delay)),
-                        )
-                      : Text(
-                          delayLabel,
-                          style: TextStyle(
-                            fontSize: scale.meta + 0.5,
-                            fontWeight: FontWeight.w600,
-                            color: palette.delayColor(delay),
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
+          Padding(
+            padding: scale.cardPadding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: scale.name,
+                          fontWeight: FontWeight.w600,
+                          color: selected ? accent : palette.text,
                         ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    selected
+                        ? AppIcon('check-line', size: scale.icon, color: accent)
+                        : SizedBox(width: scale.icon),
+                  ],
                 ),
-              ),
-            ],
+                SizedBox(height: scale.gap),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        type.isEmpty ? '—' : type,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: scale.meta, color: palette.muted),
+                      ),
+                    ),
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onTest,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                        child: testing
+                            ? SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(strokeWidth: 1.5, color: palette.delayColor(delay)),
+                              )
+                            : Text(
+                                delayLabel,
+                                style: TextStyle(
+                                  fontSize: scale.meta + 0.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: palette.delayColor(delay),
+                                  fontFeatures: const [FontFeature.tabularFigures()],
+                                ),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
+          if (selected)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: Container(width: 3, color: accent),
+            ),
         ],
       ),
     );
@@ -2027,14 +2028,19 @@ class DisplayMenuState extends State<DisplayMenu> {
   }) {
     final palette = AppPalette.of(context);
     final accent = Theme.of(context).colorScheme.primary;
-    return SubmenuButton(
-      controller: _subController(id),
-      // 悬停默认会立刻展开二级菜单；给一个足够长的延迟，让它只响应点击。
-      hoverOpenDelay: const Duration(days: 1),
+    final controller = _subController(id);
+    // 不用 SubmenuButton：它悬停时必定抢焦点，焦点被相邻菜单行拿走就自动收起。
+    // 这里用嵌套 MenuAnchor，只响应点击，悬停到别处不会关闭；打开的兄弟子菜单
+    // 会由 MenuAnchor.open 自动收起，点击浮层外则由根菜单统一关闭。
+    return MenuAnchor(
+      controller: controller,
       onOpen: () => _handleSubmenuOpen(id),
-      style: appMenuItemStyle(palette),
-      menuStyle: appMenuStyle(palette),
-      submenuIcon: WidgetStatePropertyAll(AppIcon('right-small-line', size: 16, color: palette.muted)),
+      // 子菜单自身已有 8px 内边距，这里不再预留额外的边缘间距，
+      // 窄窗口下能更早地翻到菜单左侧；实在放不下时由 MenuAnchor 兜底保证不出屏。
+      reservedPadding: EdgeInsets.zero,
+      // 与 SubmenuButton 默认对齐一致：贴着菜单行左缘展开，首项和入口行齐平。
+      alignmentOffset: const Offset(0, -8),
+      style: appMenuStyle(palette).copyWith(alignment: AlignmentDirectional.topEnd),
       menuChildren: [
         for (final option in options)
           MenuItemButton(
@@ -2071,21 +2077,28 @@ class DisplayMenuState extends State<DisplayMenu> {
             ),
           ),
       ],
-      child: SizedBox(
-        width: _rowWidth,
-        child: Row(
-          children: [
-            AppIcon(icon, size: 17, color: palette.text),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+      builder: (context, menu, child) => MenuItemButton(
+        onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+        closeOnActivate: false,
+        style: appMenuItemStyle(palette),
+        child: SizedBox(
+          width: _rowWidth + _submenuGap,
+          child: Row(
+            children: [
+              AppIcon(icon, size: 17, color: palette.text),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                ),
               ),
-            ),
-          ],
+              const SizedBox(width: 10),
+              AppIcon('right-small-line', size: 16, color: palette.muted),
+            ],
+          ),
         ),
       ),
     );

@@ -111,6 +111,7 @@ class CoreManager {
     String? notificationTitle,
     String? notificationText,
     String? notificationStop,
+    String apiSecret = '',
   }) async {
     if (Platform.isAndroid) {
       await _startAndroid(
@@ -122,6 +123,7 @@ class CoreManager {
         notificationTitle: notificationTitle,
         notificationText: notificationText,
         notificationStop: notificationStop,
+        apiSecret: apiSecret,
       );
       return;
     }
@@ -241,6 +243,7 @@ class CoreManager {
     required String? notificationTitle,
     required String? notificationText,
     required String? notificationStop,
+    required String apiSecret,
   }) async {
     final exe = binaryPath;
     if (exe == null) throw const AppError('coreMissing');
@@ -274,6 +277,7 @@ class CoreManager {
       notificationTitle: notificationTitle ?? 'Clash Go',
       notificationText: notificationText ?? 'VPN connected',
       notificationStop: notificationStop ?? 'Stop',
+      apiSecret: apiSecret,
     );
 
     final deadline = DateTime.now().add(const Duration(seconds: 20));

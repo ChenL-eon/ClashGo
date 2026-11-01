@@ -12,6 +12,7 @@ import '../../core/l10n.dart';
 import '../../core/theme.dart';
 import '../../models/app_settings.dart';
 import '../../services/system_proxy.dart';
+import '../../services/update_service.dart';
 import '../widgets/app_icon.dart';
 import '../widgets/common.dart';
 import '../widgets/dialogs.dart';
@@ -28,6 +29,15 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   _SettingsView _view = _SettingsView.hub;
+  final TextEditingController _search = TextEditingController();
+  String _query = '';
+  bool _checkingUpdate = false;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   void _open(_SettingsView view) => setState(() => _view = view);
 
@@ -57,88 +67,381 @@ class _SettingsPageState extends State<SettingsPage> {
               AppBadge(text: 'v${AppInfo.version}', icon: 'shield-shape-line', dense: true),
             ],
           ),
-        SizedBox(height: mobile ? 18 : 20),
-        _section(
-          context,
-          mobile: mobile,
-          title: l10n.get('settings.group.personalization'),
-          icon: 'palette-line',
-          children: [
-            SettingRow(
-              icon: 'moon-cloudy-line',
-              title: l10n.get('settings.theme'),
-              subtitle: l10n.get('settings.hub.themeHint'),
-              trailing: chevron(),
-              onTap: () => _open(_SettingsView.theme),
-            ),
-            SettingRow(
-              icon: 'translate-line',
-              title: l10n.get('settings.language'),
-              subtitle: l10n.get('settings.languageHint'),
-              trailing: chevron(),
-              onTap: () => _open(_SettingsView.language),
-            ),
-          ],
-        ),
-        const SizedBox(height: 22),
-        _section(
-          context,
-          mobile: mobile,
-          title: l10n.get('settings.group.clash'),
-          icon: 'chip-line',
-          children: [
-            SettingRow(
-              icon: 'settings-3-line',
-              title: l10n.get('settings.hub.clash'),
-              subtitle: l10n.get('settings.hub.clashHint'),
-              trailing: chevron(),
-              onTap: () => _open(_SettingsView.clash),
-            ),
-          ],
-        ),
-        const SizedBox(height: 22),
-        _section(
-          context,
-          mobile: mobile,
-          title: l10n.get('settings.group.app'),
-          icon: 'grid-line',
-          children: [
-            SettingRow(
-              icon: 'power-line',
-              title: l10n.get('settings.hub.behavior'),
-              subtitle: l10n.get('settings.hub.behaviorHint'),
-              trailing: chevron(),
-              onTap: () => _open(_SettingsView.behavior),
-            ),
-            SettingRow(
-              icon: 'information-line',
-              title: l10n.get('settings.about'),
-              subtitle: l10n.get('settings.aboutHint'),
-              trailing: chevron(),
-              onTap: () => _open(_SettingsView.about),
-            ),
-          ],
-        ),
-        const SizedBox(height: 22),
-        _section(
-          context,
-          mobile: mobile,
-          title: l10n.get('settings.group.maintenance'),
-          icon: 'transfer-line',
-          children: [
-            SettingRow(
-              icon: 'folder-line',
-              title: l10n.get('settings.hub.data'),
-              subtitle: l10n.get('settings.hub.dataHint'),
-              trailing: chevron(),
-              onTap: () => _open(_SettingsView.data),
-            ),
-          ],
-        ),
-        const SizedBox(height: 30),
-        _BrandFooter(compact: mobile),
+        SizedBox(height: mobile ? 16 : 20),
+        _searchField(context),
+        SizedBox(height: mobile ? 18 : 22),
+        if (_query.trim().isNotEmpty)
+          ..._searchSections(context, controller, mobile: mobile)
+        else ...[
+          _section(
+            context,
+            mobile: mobile,
+            title: l10n.get('settings.group.personalization'),
+            children: [
+              SettingRow(
+                title: l10n.get('settings.theme'),
+                subtitle: l10n.get('settings.hub.themeHint'),
+                trailing: chevron(),
+                onTap: () => _open(_SettingsView.theme),
+              ),
+              SettingRow(
+                title: l10n.get('settings.language'),
+                subtitle: l10n.get('settings.languageHint'),
+                trailing: chevron(),
+                onTap: () => _open(_SettingsView.language),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          _section(
+            context,
+            mobile: mobile,
+            title: l10n.get('settings.group.clash'),
+            children: [
+              SettingRow(
+                title: l10n.get('settings.hub.clash'),
+                subtitle: l10n.get('settings.hub.clashHint'),
+                trailing: chevron(),
+                onTap: () => _open(_SettingsView.clash),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          _section(
+            context,
+            mobile: mobile,
+            title: l10n.get('settings.group.app'),
+            children: [
+              SettingRow(
+                title: l10n.get('settings.hub.behavior'),
+                subtitle: l10n.get('settings.hub.behaviorHint'),
+                trailing: chevron(),
+                onTap: () => _open(_SettingsView.behavior),
+              ),
+              SettingRow(
+                title: l10n.get('settings.about'),
+                subtitle: l10n.get('settings.aboutHint'),
+                trailing: chevron(),
+                onTap: () => _open(_SettingsView.about),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          _section(
+            context,
+            mobile: mobile,
+            title: l10n.get('settings.group.maintenance'),
+            children: [
+              SettingRow(
+                title: l10n.get('settings.hub.data'),
+                subtitle: l10n.get('settings.hub.dataHint'),
+                trailing: chevron(),
+                onTap: () => _open(_SettingsView.data),
+              ),
+            ],
+          ),
+        ],
       ],
     );
+  }
+
+  Widget _searchField(BuildContext context) {
+    return AppSearchField(
+      controller: _search,
+      hint: context.t('settings.search'),
+      onChanged: (value) => setState(() => _query = value),
+    );
+  }
+
+  List<Widget> _searchSections(BuildContext context, AppController controller, {required bool mobile}) {
+    final l10n = context.l10n;
+    final palette = AppPalette.of(context);
+    final query = _query.trim().toLowerCase();
+    final matches = _settingsCatalog(controller).where((entry) => entry.matches(query)).toList();
+    if (matches.isEmpty) {
+      return [
+        SurfaceCard(
+          padding: EdgeInsets.zero,
+          radius: 18,
+          elevated: false,
+          child: EmptyState(
+            compact: true,
+            icon: 'search-line',
+            title: l10n.get('settings.noResults'),
+          ),
+        ),
+      ];
+    }
+    final grouped = <String, List<_SettingEntry>>{};
+    for (final entry in matches) {
+      grouped.putIfAbsent(entry.groupKey, () => []).add(entry);
+    }
+    final widgets = <Widget>[];
+    grouped.forEach((groupKey, entries) {
+      if (widgets.isNotEmpty) widgets.add(const SizedBox(height: 22));
+      widgets.add(
+        _section(
+          context,
+          mobile: mobile,
+          title: l10n.get(groupKey),
+          children: [
+            for (final entry in entries)
+              SettingRow(
+                title: l10n.get(entry.titleKey),
+                subtitle: entry.subtitleKey == null ? null : l10n.get(entry.subtitleKey!),
+                titleColor: entry.danger ? palette.danger : null,
+                trailing: AppIcon('right-small-line', size: 14, color: palette.muted),
+                onTap: () => _openFromSearch(entry.view),
+              ),
+          ],
+        ),
+      );
+    });
+    return widgets;
+  }
+
+  void _openFromSearch(_SettingsView view) {
+    _search.clear();
+    setState(() {
+      _query = '';
+      _view = view;
+    });
+  }
+
+  Future<void> _checkUpdates(AppController controller) async {
+    final l10n = context.l10n;
+    setState(() => _checkingUpdate = true);
+    try {
+      final release = await const UpdateService().latest(
+        channel: controller.settings.updateChannel,
+        // 内核在跑时借 mixed-port 出网：GitHub 在很多地区直连不通。
+        proxyPort: controller.isRunning ? controller.settings.mixedPort : null,
+      );
+      if (!mounted) return;
+      if (release == null) {
+        showAppToast(context, l10n.get('settings.updateFailed'), error: true);
+        return;
+      }
+      if (!UpdateService.isNewer(release.version, AppInfo.version)) {
+        showAppToast(context, l10n.get('settings.upToDate'));
+        return;
+      }
+      final open = await showAppDialog<bool>(
+        context,
+        maxWidth: 440,
+        builder: (dialogContext) => AppDialog(
+          title: l10n.get('settings.updateDialogTitle'),
+          subtitle: l10n.get('settings.updateAvailable', [release.version]),
+          icon: 'download-2-line',
+          content: Text(
+            l10n.get('settings.updateDialogMessage', [AppInfo.version, release.version]),
+            style: TextStyle(fontSize: 13, height: 1.5, color: AppPalette.of(dialogContext).strongMuted),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(dialogContext.t('common.cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(dialogContext.t('settings.viewRelease')),
+            ),
+          ],
+        ),
+      );
+      if (open == true && mounted) {
+        await _openUrl(context, release.url, l10n.get('settings.openFailed'));
+      }
+    } catch (_) {
+      if (!mounted) return;
+      showAppToast(context, l10n.get('settings.updateFailed'), error: true);
+    } finally {
+      if (mounted) setState(() => _checkingUpdate = false);
+    }
+  }
+
+  List<_SettingEntry> _settingsCatalog(AppController controller) {
+    final channelKey = controller.settings.updateChannel == AppSettings.channelPreview
+        ? 'settings.channel.preview'
+        : 'settings.channel.stable';
+    return [
+      const _SettingEntry(
+        view: _SettingsView.theme,
+        groupKey: 'settings.group.personalization',
+        titleKey: 'settings.theme',
+        subtitleKey: 'settings.hub.themeHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.theme,
+        groupKey: 'settings.group.personalization',
+        titleKey: 'settings.accent',
+        subtitleKey: 'settings.accentHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.theme,
+        groupKey: 'settings.group.personalization',
+        titleKey: 'settings.pureBlack',
+        subtitleKey: 'settings.pureBlackHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.language,
+        groupKey: 'settings.group.personalization',
+        titleKey: 'settings.language',
+        subtitleKey: 'settings.languageHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.hub.clash',
+        subtitleKey: 'settings.hub.clashHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.mixedPort',
+        subtitleKey: 'settings.mixedPortHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.apiPort',
+        subtitleKey: 'settings.apiPortHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.secret',
+        subtitleKey: 'settings.secretHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.allowLan',
+        subtitleKey: 'settings.allowLanHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.ipv6',
+        subtitleKey: 'settings.ipv6Hint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.systemProxy',
+        subtitleKey: 'settings.systemProxyHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.coreVersion',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.coreBinary',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.runtimeDir',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.restartCore',
+        subtitleKey: 'settings.restartHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.behavior,
+        groupKey: 'settings.group.app',
+        titleKey: 'settings.hub.behavior',
+        subtitleKey: 'settings.hub.behaviorHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.behavior,
+        groupKey: 'settings.group.app',
+        titleKey: 'settings.autoStart',
+        subtitleKey: 'settings.autoStartHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.behavior,
+        groupKey: 'settings.group.app',
+        titleKey: 'settings.autoUpdateSubs',
+        subtitleKey: 'settings.autoUpdateSubsHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.about,
+        groupKey: 'settings.group.app',
+        titleKey: 'settings.about',
+        subtitleKey: 'settings.aboutHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.about,
+        groupKey: 'settings.group.app',
+        titleKey: 'settings.checkUpdates',
+        subtitleKey: 'settings.checkUpdatesHint',
+      ),
+      _SettingEntry(
+        view: _SettingsView.about,
+        groupKey: 'settings.group.app',
+        titleKey: 'settings.updateChannel',
+        subtitleKey: channelKey,
+        extraKeys: const ['settings.channel.stable', 'settings.channel.preview'],
+      ),
+      const _SettingEntry(
+        view: _SettingsView.about,
+        groupKey: 'settings.group.app',
+        titleKey: 'settings.checkUpdatesOnStartup',
+        subtitleKey: 'settings.checkUpdatesOnStartupHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.about,
+        groupKey: 'settings.group.app',
+        titleKey: 'settings.github',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.about,
+        groupKey: 'settings.group.app',
+        titleKey: 'about.mihomo',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.about,
+        groupKey: 'settings.group.app',
+        titleKey: 'settings.license',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.about,
+        groupKey: 'settings.group.app',
+        titleKey: 'settings.diagnostics',
+        subtitleKey: 'settings.copyDiagnostics',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.data,
+        groupKey: 'settings.group.maintenance',
+        titleKey: 'settings.hub.data',
+        subtitleKey: 'settings.hub.dataHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.data,
+        groupKey: 'settings.group.maintenance',
+        titleKey: 'settings.updateAllSubs',
+        subtitleKey: 'settings.updateAllSubsHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.data,
+        groupKey: 'settings.group.maintenance',
+        titleKey: 'settings.clearSelections',
+        subtitleKey: 'settings.clearSelectionsHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.data,
+        groupKey: 'settings.group.maintenance',
+        titleKey: 'settings.reset',
+        subtitleKey: 'settings.resetHint',
+        danger: true,
+      ),
+    ];
   }
 
   Widget _buildDetail(BuildContext context, AppController controller, {required bool mobile}) {
@@ -163,6 +466,9 @@ class _SettingsPageState extends State<SettingsPage> {
     };
     final back = _BackChip(onTap: () => setState(() => _view = _SettingsView.hub));
     return PageContainer(
+      // 详情页按视图换 key：否则 PageContainer 内的滚动位置会被复用，
+      // 从滚到底部的 hub 点进「关于」会直接落在详情页底部。
+      key: ValueKey('settings-${_view.name}'),
       children: [
         if (mobile)
           Row(
@@ -198,7 +504,6 @@ class _SettingsPageState extends State<SettingsPage> {
             context,
             mobile: mobile,
             title: l10n.get('settings.appearance'),
-            icon: 'palette-line',
             children: [
               AppDropdown<String>(
                 options: [
@@ -209,7 +514,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 selected: settings.themeMode,
                 onSelected: (value) => _apply(context, controller, settings.copyWith(themeMode: value)),
                 builder: (context, toggle) => _ValueRow(
-                  icon: 'moon-cloudy-line',
                   title: l10n.get('settings.theme'),
                   value: l10n.get('settings.theme.${settings.themeMode}'),
                   onTap: toggle,
@@ -223,7 +527,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 selected: settings.accentIndex,
                 onSelected: (index) => _apply(context, controller, settings.copyWith(accentIndex: index)),
                 builder: (context, toggle) => SettingRow(
-                  icon: 'palette-line',
                   title: l10n.get('settings.accent'),
                   subtitle: l10n.get('settings.accentHint'),
                   onTap: toggle,
@@ -231,7 +534,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               _SwitchRow(
-                icon: 'moon-cloudy-line',
                 title: l10n.get('settings.pureBlack'),
                 subtitle: l10n.get('settings.pureBlackHint'),
                 value: settings.pureBlack,
@@ -247,7 +549,6 @@ class _SettingsPageState extends State<SettingsPage> {
             context,
             mobile: mobile,
             title: l10n.get('settings.language'),
-            icon: 'translate-line',
             children: [
               AppDropdown<String>(
                 options: const [
@@ -257,7 +558,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 selected: settings.language,
                 onSelected: (value) => _apply(context, controller, settings.copyWith(language: value)),
                 builder: (context, toggle) => _ValueRow(
-                  icon: 'translate-line',
                   title: l10n.get('settings.language'),
                   subtitle: l10n.get('settings.languageHint'),
                   value: settings.isZh ? '简体中文' : 'English',
@@ -273,17 +573,14 @@ class _SettingsPageState extends State<SettingsPage> {
             context,
             mobile: mobile,
             title: l10n.get('settings.network'),
-            icon: 'globe-line',
             children: [
               _ValueRow(
-                icon: 'link-line',
                 title: l10n.get('settings.mixedPort'),
                 subtitle: l10n.get('settings.mixedPortHint'),
                 value: '${settings.mixedPort}',
                 onTap: () => _showPortDialog(context, controller, apiPort: false),
               ),
               _ValueRow(
-                icon: 'terminal-line',
                 title: l10n.get('settings.apiPort'),
                 subtitle: l10n.get('settings.apiPortHint'),
                 value: '${settings.apiPort}',
@@ -291,7 +588,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
               if (mobile)
                 SettingRow(
-                  icon: 'file-line',
                   title: l10n.get('settings.secret'),
                   subtitle: maskSecret(settings.secret),
                   trailing: chevron(),
@@ -299,7 +595,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 )
               else
                 SettingRow(
-                  icon: 'file-line',
                   title: l10n.get('settings.secret'),
                   subtitle: maskSecret(settings.secret),
                   trailing: Row(
@@ -319,21 +614,18 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ),
               _SwitchRow(
-                icon: 'wifi-line',
                 title: l10n.get('settings.allowLan'),
                 subtitle: l10n.get('settings.allowLanHint'),
                 value: settings.allowLan,
                 onChanged: (value) => _apply(context, controller, settings.copyWith(allowLan: value)),
               ),
               _SwitchRow(
-                icon: 'globe-line',
                 title: l10n.get('settings.ipv6'),
                 subtitle: l10n.get('settings.ipv6Hint'),
                 value: settings.ipv6,
                 onChanged: (value) => _apply(context, controller, settings.copyWith(ipv6: value)),
               ),
               _SwitchRow(
-                icon: 'shield-shape-line',
                 title: l10n.get('settings.systemProxy'),
                 subtitle: systemProxyHint,
                 value: settings.systemProxy,
@@ -347,17 +639,14 @@ class _SettingsPageState extends State<SettingsPage> {
             context,
             mobile: mobile,
             title: l10n.get('settings.core'),
-            icon: 'chip-line',
             trailing: CoreStatusBadge(controller: controller, dense: true),
             children: [
               _ValueRow(
-                icon: 'shield-shape-line',
                 title: l10n.get('settings.coreVersion'),
                 value: controller.coreVersion ?? '—',
                 onTap: null,
               ),
               _ValueRow(
-                icon: 'file-line',
                 title: l10n.get('settings.coreBinary'),
                 value: controller.coreBinary,
                 onTap: () => copyToClipboard(context, controller.coreBinary),
@@ -365,7 +654,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 monospace: true,
               ),
               _ValueRow(
-                icon: 'folder-line',
                 title: l10n.get('settings.runtimeDir'),
                 value: controller.core.runtimeDir,
                 onTap: !Platform.isWindows
@@ -375,7 +663,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 monospace: true,
               ),
               SettingRow(
-                icon: 'play-circle-line',
                 title: l10n.get('settings.restartCore'),
                 subtitle: l10n.get('settings.restartHint'),
                 trailing: FilledButton(
@@ -401,17 +688,14 @@ class _SettingsPageState extends State<SettingsPage> {
             context,
             mobile: mobile,
             title: l10n.get('settings.systemSection'),
-            icon: 'settings-3-line',
             children: [
               _SwitchRow(
-                icon: 'power-line',
                 title: l10n.get('settings.autoStart'),
                 subtitle: l10n.get('settings.autoStartHint'),
                 value: settings.autoStartCore,
                 onChanged: (value) => _apply(context, controller, settings.copyWith(autoStartCore: value)),
               ),
               _SwitchRow(
-                icon: 'refresh-2-line',
                 title: l10n.get('settings.autoUpdateSubs'),
                 subtitle: l10n.get('settings.autoUpdateSubsHint'),
                 value: settings.autoUpdateSubscriptions,
@@ -425,25 +709,69 @@ class _SettingsPageState extends State<SettingsPage> {
           _section(
             context,
             mobile: mobile,
-            title: l10n.get('settings.about'),
-            icon: 'information-line',
+            title: l10n.get('settings.updateSection'),
             children: [
               SettingRow(
-                icon: 'grid-line',
+                title: l10n.get('settings.checkUpdates'),
+                subtitle: l10n.get('settings.checkUpdatesHint'),
+                trailing: _checkingUpdate
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : chevron(),
+                onTap: _checkingUpdate ? null : () => _checkUpdates(controller),
+              ),
+              AppDropdown<String>(
+                options: [
+                  AppDropdownOption(
+                    AppSettings.channelStable,
+                    l10n.get('settings.channel.stable'),
+                  ),
+                  AppDropdownOption(
+                    AppSettings.channelPreview,
+                    l10n.get('settings.channel.preview'),
+                  ),
+                ],
+                selected: settings.updateChannel,
+                onSelected: (value) =>
+                    _apply(context, controller, settings.copyWith(updateChannel: value)),
+                builder: (context, toggle) => SettingRow(
+                  title: l10n.get('settings.updateChannel'),
+                  subtitle: l10n.get('settings.channel.${settings.updateChannel}'),
+                  trailing: chevron(),
+                  onTap: toggle,
+                ),
+              ),
+              _SwitchRow(
+                title: l10n.get('settings.checkUpdatesOnStartup'),
+                subtitle: l10n.get('settings.checkUpdatesOnStartupHint'),
+                value: settings.checkUpdatesOnStartup,
+                onChanged: (value) =>
+                    _apply(context, controller, settings.copyWith(checkUpdatesOnStartup: value)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          _section(
+            context,
+            mobile: mobile,
+            title: l10n.get('settings.about'),
+            children: [
+              SettingRow(
                 title: l10n.get('settings.github'),
                 subtitle: AppInfo.repository,
                 trailing: chevron(),
                 onTap: () => _openUrl(context, AppInfo.repository, l10n.get('settings.openFailed')),
               ),
               SettingRow(
-                icon: 'shield-shape-line',
                 title: l10n.get('about.mihomo'),
                 subtitle: AppInfo.mihomoRepository,
                 trailing: chevron(),
                 onTap: () => _openUrl(context, AppInfo.mihomoRepository, l10n.get('settings.openFailed')),
               ),
               SettingRow(
-                icon: 'file-line',
                 title: l10n.get('settings.license'),
                 subtitle: AppInfo.license,
                 trailing: chevron(),
@@ -456,7 +784,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               SettingRow(
-                icon: 'information-line',
                 title: l10n.get('settings.diagnostics'),
                 subtitle: l10n.get('settings.copyDiagnostics'),
                 trailing: AppIcon('copy-line', size: 15, color: palette.muted),
@@ -464,8 +791,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
-          const SizedBox(height: 30),
-          _BrandFooter(compact: mobile),
         ];
       case _SettingsView.data:
         return [
@@ -473,10 +798,8 @@ class _SettingsPageState extends State<SettingsPage> {
             context,
             mobile: mobile,
             title: l10n.get('settings.data'),
-            icon: 'transfer-line',
             children: [
               SettingRow(
-                icon: 'refresh-2-line',
                 title: l10n.get('settings.updateAllSubs'),
                 subtitle: l10n.get('settings.updateAllSubsHint'),
                 trailing: controller.updatingAll
@@ -487,17 +810,15 @@ class _SettingsPageState extends State<SettingsPage> {
                     : () => controller.updateAllSubscriptions(),
               ),
               SettingRow(
-                icon: 'close-circle-line',
                 title: l10n.get('settings.clearSelections'),
                 subtitle: l10n.get('settings.clearSelectionsHint'),
                 trailing: chevron(),
                 onTap: () => _clearSelections(controller),
               ),
               SettingRow(
-                icon: 'delete-2-line',
                 title: l10n.get('settings.reset'),
                 subtitle: l10n.get('settings.resetHint'),
-                iconColor: palette.danger,
+                titleColor: palette.danger,
                 trailing: chevron(),
                 onTap: () => _resetSettings(context, controller),
               ),
@@ -513,28 +834,22 @@ class _SettingsPageState extends State<SettingsPage> {
     BuildContext context, {
     required bool mobile,
     required String title,
-    String? icon,
     List<Widget> children = const [],
     Widget? trailing,
   }) {
+    final palette = AppPalette.of(context);
     if (!mobile) {
-      return SettingSection(title: title, icon: icon, trailing: trailing, children: children);
+      return SettingSection(title: title, trailing: trailing, children: children);
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        MobileSectionLabel(title, trailing: trailing),
+        MobileSectionLabel(title, trailing: trailing, color: palette.sectionLabel),
         SurfaceCard(
           padding: EdgeInsets.zero,
           radius: 18,
-          child: Column(
-            children: [
-              for (var i = 0; i < children.length; i++) ...[
-                if (i > 0) const RowDivider(indent: 16),
-                children[i],
-              ],
-            ],
-          ),
+          elevated: false,
+          child: Column(children: children),
         ),
       ],
     );
@@ -562,7 +877,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     dense: true,
                     title: l10n.get('settings.copySecret'),
                     subtitle: maskSecret(controller.settings.secret),
-                    icon: 'copy-line',
                     onTap: () {
                       Navigator.of(sheetContext).pop();
                       copyToClipboard(context, controller.settings.secret);
@@ -572,7 +886,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   SettingRow(
                     dense: true,
                     title: l10n.get('settings.secretRegenerate'),
-                    icon: 'refresh-2-line',
                     onTap: () {
                       Navigator.of(sheetContext).pop();
                       _regenerateSecret(context, controller);
@@ -626,37 +939,35 @@ class _BackChip extends StatelessWidget {
   }
 }
 
-class _BrandFooter extends StatelessWidget {
-  const _BrandFooter({required this.compact});
+class _SettingEntry {
+  const _SettingEntry({
+    required this.view,
+    required this.groupKey,
+    required this.titleKey,
+    this.subtitleKey,
+    this.extraKeys = const [],
+    this.danger = false,
+  });
 
-  final bool compact;
+  final _SettingsView view;
+  final String groupKey;
+  final String titleKey;
+  final String? subtitleKey;
+  final List<String> extraKeys;
+  final bool danger;
 
-  @override
-  Widget build(BuildContext context) {
-    final palette = AppPalette.of(context);
-    final l10n = context.l10n;
-    return Center(
-      child: Column(
-        children: [
-          BrandMark(size: compact ? 44 : 48, radius: compact ? 14 : 15),
-          const SizedBox(height: 12),
-          Text(
-            AppInfo.name,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            'v${AppInfo.version} · ${l10n.get('about.gpl')}',
-            style: TextStyle(fontSize: 10.5, color: palette.muted),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            l10n.get('about.brand'),
-            style: TextStyle(fontSize: 10, color: palette.muted.withValues(alpha: 0.8)),
-          ),
-        ],
-      ),
-    );
+  bool matches(String query) {
+    bool hit(String key) {
+      for (final code in L10n.supported) {
+        if (L10n(code).get(key).toLowerCase().contains(query)) return true;
+      }
+      return false;
+    }
+
+    if (hit(groupKey) || hit(titleKey)) return true;
+    final subtitle = subtitleKey;
+    if (subtitle != null && hit(subtitle)) return true;
+    return extraKeys.any(hit);
   }
 }
 
@@ -699,7 +1010,6 @@ class _AccentValue extends StatelessWidget {
 
 class _ValueRow extends StatelessWidget {
   const _ValueRow({
-    required this.icon,
     required this.title,
     required this.value,
     this.subtitle,
@@ -708,7 +1018,6 @@ class _ValueRow extends StatelessWidget {
     this.monospace = false,
   });
 
-  final String icon;
   final String title;
   final String value;
   final String? subtitle;
@@ -720,14 +1029,14 @@ class _ValueRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
     return SettingRow(
-      icon: icon,
       title: title,
       subtitle: subtitle,
       onTap: onTap,
-      // 取值为弹性列：窄屏下若用固定宽度，标题列会被挤到一字一行（如图「运/行/目/录」）。
+      // 取值为弹性列，但要占满自己的槽位并右对齐：只写 MainAxisSize.min 时
+      // 内容会停在弹性槽左端，桌面宽卡片上看起来像悬在卡片中间。
       trailing: Flexible(
         child: Row(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.end,
           children: [
             Flexible(
               child: ConstrainedBox(
@@ -738,9 +1047,9 @@ class _ValueRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.right,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: FontWeight.w500,
-                    color: onTap == null ? palette.strongMuted : Theme.of(context).colorScheme.primary,
+                    color: palette.muted,
                     fontFamily: monospace ? 'Consolas' : null,
                   ),
                 ),
@@ -748,7 +1057,7 @@ class _ValueRow extends StatelessWidget {
             ),
             if (trailingIcon != null) ...[
               const SizedBox(width: 6),
-              AppIcon(trailingIcon!, size: 13, color: palette.muted),
+              AppIcon(trailingIcon!, size: 14, color: palette.muted),
             ],
           ],
         ),
@@ -759,7 +1068,6 @@ class _ValueRow extends StatelessWidget {
 
 class _SwitchRow extends StatelessWidget {
   const _SwitchRow({
-    required this.icon,
     required this.title,
     required this.value,
     required this.onChanged,
@@ -767,7 +1075,6 @@ class _SwitchRow extends StatelessWidget {
     this.enabled = true,
   });
 
-  final String icon;
   final String title;
   final String? subtitle;
   final bool value;
@@ -777,7 +1084,6 @@ class _SwitchRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SettingRow(
-      icon: icon,
       title: title,
       subtitle: subtitle,
       trailing: Switch(

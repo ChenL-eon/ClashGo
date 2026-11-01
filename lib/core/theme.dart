@@ -31,6 +31,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     required this.muted,
     required this.strongMuted,
     required this.accentSoft,
+    required this.sectionLabel,
     required this.success,
     required this.warning,
     required this.danger,
@@ -51,6 +52,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
   final Color muted;
   final Color strongMuted;
   final Color accentSoft;
+  final Color sectionLabel;
   final Color success;
   final Color warning;
   final Color danger;
@@ -74,6 +76,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
         muted: const Color(0xFF6B7280),
         strongMuted: const Color(0xFF4B5563),
         accentSoft: Color.alphaBlend(accent.withValues(alpha: 0.10), Colors.white),
+        // 设置页分组标题固定用参考图的灰蓝色，不跟随强调色。
+        sectionLabel: const Color(0xFF8C93B0),
         success: const Color(0xFF16A34A),
         warning: const Color(0xFFD97706),
         danger: const Color(0xFFDC2626),
@@ -95,6 +99,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
         muted: const Color(0xFF8C94A4),
         strongMuted: const Color(0xFFB4BCC9),
         accentSoft: Color.alphaBlend(accent.withValues(alpha: 0.16), pureBlack ? Colors.black : const Color(0xFF15181F)),
+        sectionLabel: const Color(0xFFA3ABC5),
         success: const Color(0xFF4ADE80),
         warning: const Color(0xFFFBBF24),
         danger: const Color(0xFFF87171),
@@ -117,6 +122,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     Color? muted,
     Color? strongMuted,
     Color? accentSoft,
+    Color? sectionLabel,
     Color? success,
     Color? warning,
     Color? danger,
@@ -137,6 +143,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
       muted: muted ?? this.muted,
       strongMuted: strongMuted ?? this.strongMuted,
       accentSoft: accentSoft ?? this.accentSoft,
+      sectionLabel: sectionLabel ?? this.sectionLabel,
       success: success ?? this.success,
       warning: warning ?? this.warning,
       danger: danger ?? this.danger,
@@ -163,6 +170,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
       muted: c(muted, other.muted),
       strongMuted: c(strongMuted, other.strongMuted),
       accentSoft: c(accentSoft, other.accentSoft),
+      sectionLabel: c(sectionLabel, other.sectionLabel),
       success: c(success, other.success),
       warning: c(warning, other.warning),
       danger: c(danger, other.danger),
