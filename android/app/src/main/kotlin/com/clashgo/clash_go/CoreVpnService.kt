@@ -24,8 +24,8 @@ import java.util.Locale
 
 class CoreVpnService : VpnService() {
 
-    private var tunFd = -1
-    private var childPid = -1
+    @Volatile private var tunFd = -1
+    @Volatile private var childPid = -1
     private val processLock = Any()
 
     @Volatile private var stopping = false
@@ -64,8 +64,11 @@ class CoreVpnService : VpnService() {
     }
 
     private fun handleStart(intent: Intent) {
-        if (worker?.isAlive == true) {
-            Log.i(TAG, "Start ignored: previous start still in progress")
+        // 一条 start 还没跑完，或已有内核/TUN fd 时再来一条 start，会把旧内核
+        // 和旧 fd 丢在进程里没人回收。启动与停止之间的第二条 start 也一并挡住。
+        val hasCore = synchronized(processLock) { childPid > 0 || tunFd >= 0 }
+        if (worker?.isAlive == true || stopWorker?.isAlive == true || hasCore) {
+            Log.i(TAG, "Start ignored: previous start/stop still in progress")
             return
         }
         val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
@@ -75,6 +78,8 @@ class CoreVpnService : VpnService() {
         val allowIpv6 = intent.getBooleanExtra(EXTRA_IPV6, false)
         val bypassPrivate = intent.getBooleanExtra(EXTRA_BYPASS_PRIVATE, true)
         val tunMtu = intent.getIntExtra(EXTRA_MTU, 0)
+        val splitMode = intent.getStringExtra(EXTRA_SPLIT_MODE) ?: SPLIT_ALL
+        val splitPackages = intent.getStringArrayListExtra(EXTRA_SPLIT_PACKAGES) ?: arrayListOf()
         notificationTitle = intent.getStringExtra(EXTRA_NOTIFICATION_TITLE) ?: "ClashGo"
         notificationText = intent.getStringExtra(EXTRA_NOTIFICATION_TEXT) ?: "VPN connected"
         notificationStop = intent.getStringExtra(EXTRA_NOTIFICATION_STOP) ?: "Stop"
@@ -118,7 +123,17 @@ class CoreVpnService : VpnService() {
         updateNotification(notificationTitle, notificationText)
 
         worker = Thread({
-            runStart(configFile, runtime, binary, logFilePath, allowIpv6, bypassPrivate, tunMtu)
+            runStart(
+                configFile,
+                runtime,
+                binary,
+                logFilePath,
+                allowIpv6,
+                bypassPrivate,
+                tunMtu,
+                splitMode,
+                splitPackages,
+            )
         }, "clashgo-vpn-start").also { it.start() }
     }
 
@@ -130,12 +145,14 @@ class CoreVpnService : VpnService() {
         allowIpv6: Boolean,
         bypassPrivate: Boolean,
         mtu: Int,
+        splitMode: String,
+        splitPackages: List<String>,
     ) {
         try {
             prepareGeodata(runtime)
             if (stopping) return
 
-            val fd = establishTun(allowIpv6, bypassPrivate, mtu)
+            val fd = establishTun(allowIpv6, bypassPrivate, mtu, splitMode, splitPackages)
             synchronized(processLock) { tunFd = fd }
             if (stopping) {
                 closeTunFd()
@@ -184,6 +201,8 @@ class CoreVpnService : VpnService() {
 
             CoreVpnState.pid = pid
             CoreVpnState.startedAt = System.currentTimeMillis()
+            CoreVpnState.splitMode = splitMode
+            CoreVpnState.splitPackages = splitPackages
             CoreVpnState.state = "running"
             CoreVpnState.error = null
             appendLog("mihomo started: pid=$pid (ipv6=$allowIpv6, bypassPrivate=$bypassPrivate)")
@@ -201,7 +220,13 @@ class CoreVpnService : VpnService() {
         }
     }
 
-    private fun establishTun(allowIpv6: Boolean, bypassPrivate: Boolean, mtu: Int): Int {
+    private fun establishTun(
+        allowIpv6: Boolean,
+        bypassPrivate: Boolean,
+        mtu: Int,
+        splitMode: String,
+        splitPackages: List<String>,
+    ): Int {
         val builder = Builder()
         builder.addAddress(TUN_GATEWAY, TUN_PREFIX)
         builder.setMtu(mtu)
@@ -228,8 +253,38 @@ class CoreVpnService : VpnService() {
         builder.addDnsServer(TUN_DNS)
         if (allowIpv6) builder.addDnsServer(TUN_DNS6)
         builder.allowBypass()
+
+        // 分应用过滤：包名来自设置页，应用可能已经被卸载，逐个添加并跳过失败项，
+        // 避免一个失效包名把整次启动拖垮。自身永远不参与分流，避免流量回环。
+        val applied = ArrayList<String>()
+        if (splitMode == SPLIT_ALLOW || splitMode == SPLIT_DISALLOW) {
+            for (pkg in splitPackages) {
+                if (pkg.isBlank() || pkg == packageName || applied.contains(pkg)) continue
+                try {
+                    if (splitMode == SPLIT_ALLOW) {
+                        builder.addAllowedApplication(pkg)
+                    } else {
+                        builder.addDisallowedApplication(pkg)
+                    }
+                    applied.add(pkg)
+                } catch (t: Throwable) {
+                    appendLog("split tunnel: skip $pkg (${t.javaClass.simpleName})")
+                }
+            }
+        }
+        // allow 模式一旦过滤到空列表，Builder 默认会放行全部应用，等于用户以为
+        // 只代理几个应用、实际全网都进了隧道。宁可显式失败也不静默放行。
+        if (splitMode == SPLIT_ALLOW && applied.isEmpty()) {
+            throw IllegalStateException("Split tunnel allow list has no installed apps")
+        }
+        appendLog("split tunnel mode=$splitMode requested=${splitPackages.size} applied=${applied.size}")
+
         // Excluding our own package keeps mihomo's upstream sockets out of its tun.
-        builder.addDisallowedApplication(packageName)
+        // Builder 不允许 allowed 与 disallowed 混用；allow 模式下自身本就不在
+        // 白名单里，天然被排除，不能再调 disallowed。
+        if (splitMode != SPLIT_ALLOW) {
+            builder.addDisallowedApplication(packageName)
+        }
         builder.setMetered(false)
 
         val pfd = builder.establish()
@@ -342,6 +397,8 @@ class CoreVpnService : VpnService() {
             CoreVpnState.exitCode = null
             CoreVpnState.apiPort = 0
             CoreVpnState.subscriptionId = null
+            CoreVpnState.splitMode = SPLIT_ALL
+            CoreVpnState.splitPackages = emptyList()
             CoreVpnState.startedAt = 0L
             CoreVpnState.state = "stopped"
             CoreVpnState.error = null
@@ -413,6 +470,8 @@ class CoreVpnService : VpnService() {
             CoreVpnState.error = null
             CoreVpnState.apiPort = 0
             CoreVpnState.subscriptionId = null
+            CoreVpnState.splitMode = SPLIT_ALL
+            CoreVpnState.splitPackages = emptyList()
             CoreVpnState.startedAt = 0L
         }
         CoreVpnState.serviceRunning = false
@@ -705,9 +764,15 @@ class CoreVpnService : VpnService() {
         const val EXTRA_IPV6 = "ipv6"
         const val EXTRA_BYPASS_PRIVATE = "bypass_private"
         const val EXTRA_MTU = "tun_mtu"
+        const val EXTRA_SPLIT_MODE = "split_mode"
+        const val EXTRA_SPLIT_PACKAGES = "split_packages"
         const val EXTRA_NOTIFICATION_TITLE = "notification_title"
         const val EXTRA_NOTIFICATION_TEXT = "notification_text"
         const val EXTRA_NOTIFICATION_STOP = "notification_stop"
+
+        private const val SPLIT_ALL = "all"
+        private const val SPLIT_ALLOW = "allow"
+        private const val SPLIT_DISALLOW = "disallow"
 
         // Public IPv4 space only: RFC1918, link-local, loopback, multicast and
         // carrier-grade NAT stay outside the tunnel so LAN access keeps working.

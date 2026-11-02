@@ -95,12 +95,14 @@ class CoreStatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
     final l10n = context.l10n;
-    final (color, label) = switch (controller.phase) {
-      CorePhase.running => (palette.success, l10n.get('status.running')),
-      CorePhase.starting => (palette.warning, l10n.get('status.starting')),
-      CorePhase.stopping => (palette.warning, l10n.get('status.stopping')),
-      CorePhase.stopped => (palette.muted, l10n.get('status.stopped')),
-    };
+    final (color, label) = controller.stopUnconfirmed
+        ? (palette.danger, l10n.get('status.stopUnconfirmed'))
+        : switch (controller.phase) {
+            CorePhase.running => (palette.success, l10n.get('status.running')),
+            CorePhase.starting => (palette.warning, l10n.get('status.starting')),
+            CorePhase.stopping => (palette.warning, l10n.get('status.stopping')),
+            CorePhase.stopped => (palette.muted, l10n.get('status.stopped')),
+          };
     return AppBadge(
       text: label,
       color: color,

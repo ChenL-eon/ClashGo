@@ -37,11 +37,11 @@ class CoreManager {
   void Function(int code)? onExit;
   void Function()? onExternalStop;
 
-  WindowsCoreLauncher get _elevated => _elevatedLauncher ??= WindowsCoreLauncher(paths);
+  WindowsCoreLauncher get _elevated =>
+      _elevatedLauncher ??= WindowsCoreLauncher(paths);
 
   Process? get process => _process;
   int? get pid => _process?.pid ?? _androidPid ?? _elevatedPid;
-  bool get hasProcess => _process != null || _androidRunning || _elevatedPid != null;
   String? get binaryPath => paths.coreBinaryPath;
   bool get supported => Platform.isWindows || Platform.isAndroid;
   String get runtimeDir => paths.runtimeDir.path;
@@ -58,11 +58,17 @@ class CoreManager {
   Future<void> prepareRuntime() async {
     final source = paths.bundledGeodataDir;
     if (source == null) return;
-    for (final name in const ['geoip.metadb', 'geosite.dat', 'GeoIP.dat', 'ASN.mmdb']) {
+    for (final name in const [
+      'geoip.metadb',
+      'geosite.dat',
+      'GeoIP.dat',
+      'ASN.mmdb',
+    ]) {
       final src = File(p.join(source, name));
       if (!await src.exists()) continue;
       final dst = File(p.join(paths.runtimeDir.path, name));
-      final needsCopy = !await dst.exists() || await dst.length() != await src.length();
+      final needsCopy =
+          !await dst.exists() || await dst.length() != await src.length();
       if (!needsCopy) continue;
       try {
         await src.copy(dst.path);
@@ -112,6 +118,9 @@ class CoreManager {
     String? notificationText,
     String? notificationStop,
     String apiSecret = '',
+    String splitTunnelMode = 'all',
+    List<String> splitTunnelPackages = const [],
+    int tunMtu = AppInfo.tunMtu,
   }) async {
     if (Platform.isAndroid) {
       await _startAndroid(
@@ -124,18 +133,25 @@ class CoreManager {
         notificationText: notificationText,
         notificationStop: notificationStop,
         apiSecret: apiSecret,
+        splitTunnelMode: splitTunnelMode,
+        splitTunnelPackages: splitTunnelPackages,
+        tunMtu: tunMtu,
       );
       return;
     }
     if (!Platform.isWindows) throw const AppError('unsupportedPlatform');
     final exe = binaryPath;
     if (exe == null) throw const AppError('coreMissing');
-    if (!await waitPortAvailable(mixedPort)) throw AppError('portInUse', statusCode: mixedPort);
-    if (!await waitPortAvailable(apiPort)) throw AppError('portInUse', statusCode: apiPort);
 
     await prepareRuntime();
     await writeConfig(config);
+    // 先清掉上次崩溃留下的内核：它往往正占着 mixed/api 端口，先探测端口
+    // 会把"自己的旧进程"误报成 portInUse，永远起不来。
     await killStale();
+    if (!await waitPortAvailable(mixedPort))
+      throw AppError('portInUse', statusCode: mixedPort);
+    if (!await waitPortAvailable(apiPort))
+      throw AppError('portInUse', statusCode: apiPort);
 
     log.reset();
     log.append('Using core $exe');
@@ -148,22 +164,31 @@ class CoreManager {
     }
 
     try {
-      final process = await Process.start(
-        exe,
-        ['-d', paths.runtimeDir.path, '-f', paths.configFile.path],
-        workingDirectory: paths.runtimeDir.path,
-      );
+      final process = await Process.start(exe, [
+        '-d',
+        paths.runtimeDir.path,
+        '-f',
+        paths.configFile.path,
+      ], workingDirectory: paths.runtimeDir.path);
       _process = process;
       await paths.pidFile.writeAsString('${process.pid}');
-      process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(log.append);
-      process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(log.append);
-      unawaited(process.exitCode.then((code) {
-        if (identical(_process, process)) {
-          _process = null;
-          log.append('Core exited with code $code');
-          onExit?.call(code);
-        }
-      }));
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(log.append);
+      process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(log.append);
+      unawaited(
+        process.exitCode.then((code) {
+          if (identical(_process, process)) {
+            _process = null;
+            log.append('Core exited with code $code');
+            onExit?.call(code);
+          }
+        }),
+      );
     } on AppError {
       rethrow;
     } catch (error) {
@@ -182,7 +207,10 @@ class CoreManager {
   ///   就是"内核没了"的信号；代价是监护进程被人为杀死时这里会误报存活——
   ///   那种情况下端口和控制接口也一起没了，`_waitForApi` 与后续请求会把真实故障带回来。
   Future<void> _startWindowsElevated(String exe) async {
-    final pid = await _elevated.start(mihomoPath: exe, configPath: paths.configFile.path);
+    final pid = await _elevated.start(
+      mihomoPath: exe,
+      configPath: paths.configFile.path,
+    );
     _elevatedPid = pid;
     log.append('Elevated core started (pid $pid)');
     // 就绪探测排在存活轮询之前：这几十秒里日志由下面这个循环自己追读，
@@ -204,7 +232,10 @@ class CoreManager {
   void _startElevatedMonitor() {
     _elevatedMonitor?.cancel();
     if (!_monitorEnabled) return;
-    _elevatedMonitor = Timer.periodic(const Duration(seconds: 2), (_) => _pollElevatedCore());
+    _elevatedMonitor = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _pollElevatedCore(),
+    );
   }
 
   Future<void> _pollElevatedCore() async {
@@ -244,11 +275,16 @@ class CoreManager {
     required String? notificationText,
     required String? notificationStop,
     required String apiSecret,
+    required String splitTunnelMode,
+    required List<String> splitTunnelPackages,
+    required int tunMtu,
   }) async {
     final exe = binaryPath;
     if (exe == null) throw const AppError('coreMissing');
-    if (!await waitPortAvailable(mixedPort)) throw AppError('portInUse', statusCode: mixedPort);
-    if (!await waitPortAvailable(apiPort)) throw AppError('portInUse', statusCode: apiPort);
+    if (!await waitPortAvailable(mixedPort))
+      throw AppError('portInUse', statusCode: mixedPort);
+    if (!await waitPortAvailable(apiPort))
+      throw AppError('portInUse', statusCode: apiPort);
 
     await prepareRuntime();
     await writeConfig(config);
@@ -278,6 +314,9 @@ class CoreManager {
       notificationText: notificationText ?? 'VPN connected',
       notificationStop: notificationStop ?? 'Stop',
       apiSecret: apiSecret,
+      splitTunnelMode: splitTunnelMode,
+      splitTunnelPackages: splitTunnelPackages,
+      mtu: tunMtu,
     );
 
     final deadline = DateTime.now().add(const Duration(seconds: 20));
@@ -293,7 +332,10 @@ class CoreManager {
       }
       if (status.isError) {
         await _ingestAndroidLog();
-        throw AppError('startFailed', detail: _androidFailureDetail(status.error));
+        throw AppError(
+          'startFailed',
+          detail: _androidFailureDetail(status.error),
+        );
       }
       if (status.state == 'stopped' && !status.serviceRunning) {
         await _ingestAndroidLog();
@@ -302,7 +344,10 @@ class CoreManager {
       await Future<void>.delayed(const Duration(milliseconds: 200));
     }
     await _ingestAndroidLog();
-    throw const AppError('startTimeout', detail: 'Android VPN service did not report a running core');
+    throw const AppError(
+      'startTimeout',
+      detail: 'Android VPN service did not report a running core',
+    );
   }
 
   String _androidFailureDetail(String? message) {
@@ -322,7 +367,11 @@ class CoreManager {
     } catch (_) {}
   }
 
-  Future<List<String>> _readLogTail(File file, {int maxBytes = 64 * 1024, int maxLines = 160}) async {
+  Future<List<String>> _readLogTail(
+    File file, {
+    int maxBytes = 64 * 1024,
+    int maxLines = 160,
+  }) async {
     if (!await file.exists()) return const [];
     final raf = await file.open(mode: FileMode.read);
     try {
@@ -369,7 +418,10 @@ class CoreManager {
   void _startAndroidMonitor() {
     _androidMonitor?.cancel();
     if (!_monitorEnabled) return;
-    _androidMonitor = Timer.periodic(const Duration(seconds: 2), (_) => _pollAndroidStatus());
+    _androidMonitor = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _pollAndroidStatus(),
+    );
   }
 
   Future<void> _pollAndroidStatus() async {
@@ -420,7 +472,9 @@ class CoreManager {
       return null;
     }
     if (status.apiPort != apiPort || status.subscriptionId != subscriptionId) {
-      log.append('Stopping stale Android core (subscription=${status.subscriptionId}, apiPort=${status.apiPort})');
+      log.append(
+        'Stopping stale Android core (subscription=${status.subscriptionId}, apiPort=${status.apiPort})',
+      );
       try {
         await AndroidCore.stop();
       } catch (_) {}
@@ -434,10 +488,13 @@ class CoreManager {
     return status;
   }
 
-  Future<void> stop({bool removePid = true}) async {
+  /// 返回 false 只有一个含义：提权内核的停止请求没被监护进程确认。
+  /// 普通进程既 kill 不动它也看不到它，调用方不能把这次停止当成成功——
+  /// 系统里的 TUN 路由和 DNS 劫持可能还挂着。
+  Future<bool> stop({bool removePid = true}) async {
     if (Platform.isAndroid) {
       await _stopAndroid(removePid: removePid);
-      return;
+      return true;
     }
     final process = _process;
     _process = null;
@@ -455,24 +512,29 @@ class CoreManager {
       }
     }
     if (removePid) await _removePidFile();
-    await _stopElevated();
+    return _stopElevated();
   }
 
   /// 关隧道不能再来一次 UAC：这边只写停止标志，提权的监护进程自己看到、自己把内核带走。
-  Future<void> _stopElevated() async {
-    if (_elevatedPid == null && !paths.elevatedFlagFile.existsSync()) return;
+  Future<bool> _stopElevated() async {
+    if (_elevatedPid == null && !paths.elevatedFlagFile.existsSync()) return true;
     final pid = _elevatedPid;
     _elevatedStopping = true;
     _elevatedMonitor?.cancel();
     _elevatedMonitor = null;
-    log.append('Requesting elevated core stop${pid == null ? '' : ' (pid $pid)'}');
+    log.append(
+      'Requesting elevated core stop${pid == null ? '' : ' (pid $pid)'}',
+    );
     final acknowledged = await _elevated.requestStop();
-    log.append(acknowledged
-        ? 'Elevated core stopped'
-        : 'Elevated supervisor did not acknowledge the stop request');
+    log.append(
+      acknowledged
+          ? 'Elevated core stopped'
+          : 'Elevated supervisor did not acknowledge the stop request',
+    );
     await _ingestElevatedLogs();
     _elevatedPid = null;
     _elevatedStopping = false;
+    return acknowledged;
   }
 
   Future<void> _stopAndroid({required bool removePid}) async {
@@ -492,7 +554,8 @@ class CoreManager {
       status = await AndroidCore.status();
     } catch (_) {}
     if (status == null) return;
-    final wasRunning = _androidRunning ||
+    final wasRunning =
+        _androidRunning ||
         status.isRunning ||
         status.state == 'starting' ||
         status.state == 'stopping' ||
@@ -529,7 +592,13 @@ class CoreManager {
       return;
     }
     try {
-      final result = await Process.run('tasklist', ['/FI', 'PID eq $pid', '/FO', 'CSV', '/NH']);
+      final result = await Process.run('tasklist', [
+        '/FI',
+        'PID eq $pid',
+        '/FO',
+        'CSV',
+        '/NH',
+      ]);
       final output = '${result.stdout}'.toLowerCase();
       if (output.contains('mihomo')) {
         log.append('Killing stale core process (pid $pid)');
@@ -547,10 +616,14 @@ class CoreManager {
   Future<void> _killStaleElevated() async {
     if (!_elevated.hasStaleElevatedCore) return;
     log.append('Stopping stale elevated core');
-    final acknowledged = await _elevated.requestStop(timeout: const Duration(seconds: 6));
+    final acknowledged = await _elevated.requestStop(
+      timeout: const Duration(seconds: 6),
+    );
     if (!acknowledged) {
-      log.append('Stale elevated core is still running: its supervisor is gone, '
-          'and a non-elevated process cannot kill it. Kill mihomo from an elevated terminal.');
+      log.append(
+        'Stale elevated core is still running: its supervisor is gone, '
+        'and a non-elevated process cannot kill it. Kill mihomo from an elevated terminal.',
+      );
     }
   }
 

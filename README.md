@@ -25,9 +25,10 @@ ClashGo 是一款使用 Flutter 编写的 mihomo（Clash Meta）图形客户端�
 
 - **双平台接管**：Windows 提供系统代理与 TUN 两种方式，同一时间只启用一种；Android 通过 VpnService 建立 TUN，接管设备 DNS 与 TCP/UDP 流量，前台通知显示当前节点与实时上下行速率并可直接停止内核。
 - **开箱即用**：安装包、便携包与 APK 均内置 mihomo v1.19.33 与 geodata；Windows 首次开启 TUN 时由内核自动安装 Wintun 驱动。
-- **订阅与节点**：支持链接、本地 YAML 与二维码导入；手动/自动/全部更新、手动排序、更新间隔、流量与到期信息；策略组与节点切换、规则/全局/直连模式、单节点/整组/全部测速、离线预览与 TCP 测速，结果按订阅保存、重启后仍保留。
-- **运行可视化**：首页出口 IP 与地区旗帜、实时流量曲线；连接列表与搜索、日志筛选、生效规则查询、DNS 记录查询、代理提供者更新与健康检查。
-- **桌面常驻**：Windows 支持登录自启、关闭到托盘、托盘菜单快速显隐与启停内核；系统代理绕过列表可在设置中编辑。
+- **订阅与节点**：支持链接、本地 YAML、二维码与剪贴板导入，Android 可直接打开 `clash://` 订阅链接；手动/自动/全部更新、手动排序、更新间隔、流量与到期信息；策略组与节点切换、规则/全局/直连模式、单节点/整组/全部测速、离线预览与 TCP 测速，结果按订阅保存、重启后仍保留。
+- **运行可视化**：首页出口 IP 与地区旗帜、实时流量曲线；连接列表与搜索、日志筛选、生效规则查询、DNS 记录查询、代理与规则提供者更新、健康检查。
+- **配置与分流**：Android 分应用代理（全部应用 / 仅代理所选 / 排除所选，支持搜索与全选）；DNS 配置（fake-ip / redir-host、主备 DNS）；YAML 配置覆写；备份导出与整包恢复（设置、订阅原文、节点选择与测速结果）。
+- **桌面常驻**：Windows 支持登录自启、关闭到托盘、托盘菜单快速显隐与启停内核；系统代理绕过列表可在设置中编辑；支持在线检查并更新本地 mihomo 内核。
 - **界面与个性化**：桌面侧边栏 / 移动悬浮导航自适应（窗口宽度小于 1000px 切移动布局）、跟随系统/浅色/深色/纯黑、6 种主题色、中英文切换、设置搜索直达。
 - **后台与隐私**：退到后台后停止 UI 侧 WebSocket、连接/代理轮询、延迟探测与订阅自动更新，仅保留内核与 Android VPN 前台服务；未引入 WakeLock 或 AlarmManager。无账号、无广告、无遥测，API 默认只监听 `127.0.0.1`，配置全部保存在本机。
 - **应用更新**：关于页支持稳定/预览双通道检查 GitHub Release，可设置启动时检查。
@@ -36,20 +37,20 @@ ClashGo 是一款使用 Flutter 编写的 mihomo（Clash Meta）图形客户端�
 
 ## 安装与下载
 
-前往 [Releases](https://github.com/ChenL-eon/ClashGo/releases) 下载当前正式版 **v1.2.0**，各产物 SHA-256 见 Release 说明。
+前往 [Releases](https://github.com/ChenL-eon/ClashGo/releases) 下载当前正式版 **v1.3.0**，各产物 SHA-256 见 Release 说明。
 
 | 平台 | 文件 | 说明 |
 | --- | --- | --- |
-| Windows 10/11 x64 | [`ClashGo-1.2.0-windows-x64-setup.exe`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.2.0/ClashGo-1.2.0-windows-x64-setup.exe) | Inno Setup 安装包，需管理员权限；默认装到 `Program Files\ClashGo`，含开始菜单与可选桌面快捷方式 |
-| Windows 10/11 x64 | [`ClashGo-1.2.0-windows-x64-portable.zip`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.2.0/ClashGo-1.2.0-windows-x64-portable.zip) | 便携包，解压后运行 `clash_go.exe` |
-| Android 7.0+ | [`ClashGo-1.2.0-android-arm64-v8a.apk`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.2.0/ClashGo-1.2.0-android-arm64-v8a.apk) | 适用于绝大多数现代手机与平板，推荐优先选择 |
-| Android 7.0+ | [`ClashGo-1.2.0-android-armeabi-v7a.apk`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.2.0/ClashGo-1.2.0-android-armeabi-v7a.apk) | 适用于 32 位 ARM 老设备；已完成构建与打包验证，未在 32 位真机复测 |
+| Windows 10/11 x64 | [`ClashGo-1.3.0-windows-x64-setup.exe`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.3.0/ClashGo-1.3.0-windows-x64-setup.exe) | Inno Setup 安装包，需管理员权限；默认装到 `Program Files\ClashGo`，含开始菜单与可选桌面快捷方式 |
+| Windows 10/11 x64 | [`ClashGo-1.3.0-windows-x64-portable.zip`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.3.0/ClashGo-1.3.0-windows-x64-portable.zip) | 便携包，解压后运行 `clash_go.exe` |
+| Android 7.0+ | [`ClashGo-1.3.0-android-arm64-v8a.apk`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.3.0/ClashGo-1.3.0-android-arm64-v8a.apk) | 适用于绝大多数现代手机与平板，推荐优先选择 |
+| Android 7.0+ | [`ClashGo-1.3.0-android-armeabi-v7a.apk`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.3.0/ClashGo-1.3.0-android-armeabi-v7a.apk) | 适用于 32 位 ARM 老设备；已完成构建与打包验证，未在 32 位真机复测 |
 
 **注意事项**
 
 - **Windows**：当前构建未做商业代码签名，SmartScreen 提示时选择「更多信息 → 仍要运行」。TUN 只对内核进程提权（每次以 TUN 启动通常请求一次 UAC），主界面保持普通权限；首次开启需要多等几秒安装 Wintun 驱动。系统代理与 TUN 互斥，关闭 TUN 后不会自动恢复系统代理。
 - **Android**：APK 使用 debug 签名，同包名不同签名需先卸载再安装；首次启动内核会请求 VPN 授权，Android 13+ 还需授予通知权限。息屏时通知栏速率刷新暂停以省电，亮屏后恢复。
-- **平台支持**：Windows 10/11 x64 与 Android 7.0+ arm64-v8a 完整链路已实机验证；armeabi-v7a 仅构建验证。暂不支持 Windows ARM64、macOS/Linux/iOS、root/TPROXY、按应用代理、WebDAV、Wi-Fi 策略。
+- **平台支持**：Windows 10/11 x64 与 Android 7.0+ arm64-v8a 完整链路已实机验证；armeabi-v7a 仅构建验证；Android 分应用代理本轮完成构建与界面回归，尚未在真机复测。暂不支持 Windows ARM64、macOS/Linux/iOS、Windows 按应用代理、root/TPROXY、WebDAV、Wi-Fi 策略。
 
 ---
 
@@ -91,7 +92,7 @@ flutter build windows --release
 
 ```powershell
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" tool\windows_installer.iss
-# 产物：build/release/ClashGo-1.2.0-windows-x64-setup.exe
+# 产物：build/release/ClashGo-1.3.0-windows-x64-setup.exe
 ```
 
 便携包直接压缩 `build/windows/x64/runner/Release` 整个目录。
@@ -142,7 +143,7 @@ windows/ · android/ · test/ · docs/（验证记录）
 
 ## 验证与测试
 
-交付前执行：`flutter analyze` 0 issues；`flutter test` 127 项全部通过；Windows release 与 arm64 / armeabi-v7a APK 构建成功。Windows 11 x64 实机覆盖系统代理与 TUN 启停、路由与 DNS 接管、UAC 授权、Wintun 首次安装；Android 真机覆盖 VPN 授权、TUN 数据面、节点切换、前台服务与停止。逐条记录见 [docs/VERIFICATION.md](docs/VERIFICATION.md)。
+交付前执行：`flutter analyze` 无 error/warning；`flutter test` 198 项全部通过（本机整包单进程运行偶发 `flutter_tester` 未完成，分文件复跑 26 个文件全绿）；Windows release 与 arm64 / armeabi-v7a APK 构建成功。Windows 11 x64 实机覆盖系统代理与 TUN 启停、路由与 DNS 接管、UAC 授权、Wintun 首次安装；Android 真机覆盖 VPN 授权、TUN 数据面、节点切换、前台服务与停止。逐条记录见 [docs/VERIFICATION.md](docs/VERIFICATION.md)。
 
 ---
 

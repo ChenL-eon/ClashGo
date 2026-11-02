@@ -49,7 +49,6 @@ class L10n {
 
   static const Map<String, Map<String, String>> _strings = {
     // ---------------------------------------------------------------- common
-    'common.ok': {'zh': '好', 'en': 'OK'},
     'common.cancel': {'zh': '取消', 'en': 'Cancel'},
     'common.save': {'zh': '保存', 'en': 'Save'},
     'common.delete': {'zh': '删除', 'en': 'Delete'},
@@ -102,6 +101,7 @@ class L10n {
     'nav.dns': {'zh': 'DNS 查询', 'en': 'DNS'},
     'nav.rules': {'zh': '规则', 'en': 'Rules'},
     'nav.providers': {'zh': '代理提供者', 'en': 'Providers'},
+    'nav.ruleProviders': {'zh': '规则提供者', 'en': 'Rule providers'},
     'nav.tools': {'zh': '工具', 'en': 'Tools'},
     'nav.menu': {'zh': '导航', 'en': 'Navigation'},
     'window.minimize': {'zh': '最小化', 'en': 'Minimize'},
@@ -114,30 +114,23 @@ class L10n {
     'status.starting': {'zh': '启动中', 'en': 'Starting'},
     'status.running': {'zh': '运行中', 'en': 'Running'},
     'status.stopping': {'zh': '停止中', 'en': 'Stopping'},
+    'status.stopUnconfirmed': {'zh': '停止未确认', 'en': 'Stop unconfirmed'},
     'mode.rule': {'zh': '规则', 'en': 'Rule'},
     'mode.global': {'zh': '全局', 'en': 'Global'},
     'mode.direct': {'zh': '直连', 'en': 'Direct'},
 
     // ------------------------------------------------------------------ home
-    'home.tagline': {
-      'zh': '轻快、简洁的 mihomo 客户端',
-      'en': 'A fast, minimal mihomo client',
-    },
     'home.welcome': {'zh': '欢迎回来', 'en': 'Welcome back'},
     'home.activeNode': {'zh': '当前节点', 'en': 'Active node'},
     'home.uptime': {'zh': '运行时长', 'en': 'Uptime'},
     'home.coreVersion': {'zh': '内核版本', 'en': 'Core version'},
-    'home.statusHint.stopped': {
-      'zh': '添加订阅后即可启动代理',
-      'en': 'Add a subscription to get started',
-    },
-    'home.statusHint.ready': {
-      'zh': '就绪，点击电源启动代理',
-      'en': 'Ready — tap the power button to start',
-    },
     'home.statusHint.running': {'zh': '内核运行中，流量已就绪', 'en': 'Core is running'},
     'home.statusHint.starting': {'zh': '正在启动内核…', 'en': 'Starting the core…'},
     'home.statusHint.stopping': {'zh': '正在停止内核…', 'en': 'Stopping the core…'},
+    'home.statusHint.stopUnconfirmed': {
+      'zh': '提权内核可能仍在运行，流量可能仍被接管',
+      'en': 'The elevated core may still be running and traffic may still be intercepted',
+    },
     'home.speed': {'zh': '实时速率', 'en': 'Realtime speed'},
     'home.upload': {'zh': '上传', 'en': 'Upload'},
     'home.download': {'zh': '下载', 'en': 'Download'},
@@ -158,10 +151,6 @@ class L10n {
     'home.tools': {'zh': '快捷入口', 'en': 'Quick access'},
     'home.subscription': {'zh': '订阅用量', 'en': 'Subscription'},
     'home.noSubscription': {'zh': '还没有订阅', 'en': 'No subscription yet'},
-    'home.noSubscriptionHint': {
-      'zh': '添加一个订阅即可开始使用',
-      'en': 'Add a subscription to get started',
-    },
     'home.manageSubscription': {'zh': '管理订阅', 'en': 'Manage'},
     'home.usedOf': {'zh': '{0} / {1}', 'en': '{0} / {1}'},
     'home.expireAt': {'zh': '到期 {0}', 'en': 'Expires {0}'},
@@ -251,6 +240,8 @@ class L10n {
     'tools.rulesSub': {'zh': '查看生效规则', 'en': 'Active rules'},
     'tools.providers': {'zh': '代理提供者', 'en': 'Providers'},
     'tools.providersSub': {'zh': '管理外部资源', 'en': 'Manage remote sets'},
+    'tools.ruleProviders': {'zh': '规则提供者', 'en': 'Rule providers'},
+    'tools.ruleProvidersSub': {'zh': '管理远程规则集', 'en': 'Manage remote rule sets'},
     'tools.subscriptions': {'zh': '订阅', 'en': 'Subscriptions'},
     'tools.subscriptionsSub': {'zh': '导入与更新', 'en': 'Import & update'},
 
@@ -369,6 +360,22 @@ class L10n {
       'en': 'Camera unavailable — check the permission and retry',
     },
     'subscriptions.importFile': {'zh': '从文件导入', 'en': 'Import file'},
+    'subscriptions.importClipboard': {
+      'zh': '从剪贴板导入',
+      'en': 'Import from clipboard',
+    },
+    'subscriptions.clipboardEmpty': {
+      'zh': '剪贴板是空的',
+      'en': 'The clipboard is empty',
+    },
+    'subscriptions.clipboardNoLink': {
+      'zh': '剪贴板里没有可识别的订阅链接',
+      'en': 'No subscription link found in the clipboard',
+    },
+    'subscriptions.linkInvalid': {
+      'zh': '无法识别的订阅链接',
+      'en': 'Unrecognized subscription link',
+    },
     'subscriptions.active': {'zh': '使用中', 'en': 'Active'},
     'subscriptions.local': {'zh': '本地', 'en': 'Local'},
     'subscriptions.remote': {'zh': '远程', 'en': 'Remote'},
@@ -417,14 +424,6 @@ class L10n {
       'zh': '获取订阅失败',
       'en': 'Failed to fetch subscription',
     },
-    'subscriptions.invalidConfig': {
-      'zh': '无效的 Clash 配置',
-      'en': 'Invalid Clash config',
-    },
-    'subscriptions.noProxies': {
-      'zh': '配置中没有找到节点',
-      'en': 'No proxies found in this config',
-    },
     'subscriptions.localFile': {'zh': '本地文件', 'en': 'Local file'},
     'subscriptions.traffic': {'zh': '流量', 'en': 'Traffic'},
     'subscriptions.used': {'zh': '已用', 'en': 'Used'},
@@ -468,10 +467,6 @@ class L10n {
       'zh': '订阅顺序已保存',
       'en': 'Subscription order saved',
     },
-    'subscriptions.selectProfile': {
-      'zh': '设为当前',
-      'en': 'Use this subscription',
-    },
     'subscriptions.noQuota': {'zh': '未提供流量信息', 'en': 'No quota information'},
     'subscriptions.source': {'zh': '来源', 'en': 'Source'},
     'subscriptions.autoUpdateHint': {
@@ -479,10 +474,6 @@ class L10n {
       'en': 'Check for updates in the background',
     },
     'subscriptions.createdAt': {'zh': '添加于 {0}', 'en': 'Added {0}'},
-    'subscriptions.importUnsupported': {
-      'zh': '文件选择器不可用',
-      'en': 'File picker is unavailable',
-    },
     'subscriptions.exportHint': {
       'zh': '支持 Clash / mihomo YAML 配置',
       'en': 'Clash / mihomo YAML configs',
@@ -636,6 +627,29 @@ class L10n {
     'providers.failed': {'zh': '操作失败', 'en': 'Operation failed'},
     'providers.vehicle': {'zh': '类型', 'en': 'Vehicle'},
 
+    // --------------------------------------------------------- rule providers
+    'ruleProviders.subtitle': {
+      'zh': '管理订阅内的外部规则集合',
+      'en': 'Remote rule sets from your subscription',
+    },
+    'ruleProviders.count': {'zh': '{0} 个规则提供者', 'en': '{0} rule providers'},
+    'ruleProviders.updateAll': {'zh': '更新全部', 'en': 'Update all'},
+    'ruleProviders.update': {'zh': '更新', 'en': 'Update'},
+    'ruleProviders.updated': {'zh': '更新于 {0}', 'en': 'Updated {0}'},
+    'ruleProviders.rules': {'zh': '{0} 条规则', 'en': '{0} rules'},
+    'ruleProviders.empty': {'zh': '暂无规则提供者', 'en': 'No rule providers'},
+    'ruleProviders.emptyHint': {
+      'zh': '当前订阅没有使用 rule-providers',
+      'en': 'This subscription has no rule-providers',
+    },
+    'ruleProviders.updateSuccess': {'zh': '“{0}”已更新', 'en': '“{0}” updated'},
+    'ruleProviders.allUpdated': {
+      'zh': '全部规则提供者已更新',
+      'en': 'All rule providers updated',
+    },
+    'ruleProviders.notRunning': {'zh': '内核尚未运行', 'en': 'Core is not running'},
+    'ruleProviders.failed': {'zh': '操作失败', 'en': 'Operation failed'},
+
     // --------------------------------------------------------------- settings
     'settings.subtitle': {
       'zh': '调整外观、网络与内核选项',
@@ -645,6 +659,7 @@ class L10n {
     'settings.noResults': {'zh': '没有匹配的设置', 'en': 'No matching settings'},
     'settings.group.personalization': {'zh': '个性化', 'en': 'Personalization'},
     'settings.group.clash': {'zh': 'Clash', 'en': 'Clash'},
+    'settings.group.advanced': {'zh': '高级配置', 'en': 'Advanced'},
     'settings.group.app': {'zh': '应用', 'en': 'App'},
     'settings.group.maintenance': {'zh': '维护', 'en': 'Maintenance'},
     'settings.hub.themeHint': {
@@ -666,15 +681,73 @@ class L10n {
       'zh': '批量更新订阅、清除选择与重置',
       'en': 'Refresh subscriptions, clear selections and reset',
     },
+    'settings.splitTunnel': {'zh': '分应用代理', 'en': 'Per-app proxy'},
+    'settings.splitTunnelHint': {
+      'zh': '选择哪些应用通过 VPN 隧道',
+      'en': 'Choose which apps use the VPN tunnel',
+    },
+    'settings.split.mode': {'zh': '代理范围', 'en': 'Proxy scope'},
+    'settings.split.mode.all': {'zh': '全部应用', 'en': 'All apps'},
+    'settings.split.mode.allHint': {
+      'zh': '所有应用都通过 VPN',
+      'en': 'Every app uses the VPN',
+    },
+    'settings.split.mode.allow': {'zh': '仅代理所选', 'en': 'Selected only'},
+    'settings.split.mode.allowHint': {
+      'zh': '只有选中的应用通过 VPN',
+      'en': 'Only selected apps use the VPN',
+    },
+    'settings.split.mode.allowLocked': {
+      'zh': '请先在下方选择至少一个应用',
+      'en': 'Select at least one app below first',
+    },
+    'settings.split.mode.disallow': {'zh': '排除所选', 'en': 'Exclude selected'},
+    'settings.split.mode.disallowHint': {
+      'zh': '选中的应用不通过 VPN',
+      'en': 'Selected apps bypass the VPN',
+    },
+    'settings.split.apps': {'zh': '应用列表', 'en': 'Apps'},
+    'settings.split.search': {'zh': '搜索应用或包名', 'en': 'Search apps or packages'},
+    'settings.split.count': {'zh': '已选 {0} 个', 'en': '{0} selected'},
+    'settings.split.selectAll': {'zh': '全选', 'en': 'Select all'},
+    'settings.split.clear': {'zh': '清空', 'en': 'Clear'},
+    'settings.split.loadFailed': {
+      'zh': '读取应用列表失败',
+      'en': 'Failed to load apps',
+    },
+    'settings.split.empty': {'zh': '没有可用的应用', 'en': 'No apps available'},
+    'settings.split.emptyHint': {
+      'zh': '系统没有返回可启动的应用',
+      'en': 'No launchable apps were returned',
+    },
+    'settings.split.searchEmpty': {'zh': '没有匹配的应用', 'en': 'No matching apps'},
+    'settings.split.system': {'zh': '系统', 'en': 'System'},
+    'settings.split.selfExcluded': {
+      'zh': 'ClashGo 自身始终不经过 VPN，避免代理流量回环。',
+      'en': 'ClashGo itself always bypasses the VPN to avoid routing loops.',
+    },
+    'settings.split.allModeNote': {
+      'zh': '当前为全部应用模式，下面的选择已保存，切换范围后生效。',
+      'en': 'All apps are proxied. Selections below are saved and apply after changing the scope.',
+    },
+    'settings.split.allowEmpty': {
+      'zh': '选中的应用都不可用，请重新选择，否则内核无法启动。',
+      'en': 'None of the selected apps are available. Select again or the core cannot start.',
+    },
+    'settings.split.allowKeepOne': {
+      'zh': '「仅代理所选」模式至少要保留一个应用。',
+      'en': 'Keep at least one app while using the selected-only mode.',
+    },
+    'settings.split.restartNeeded': {
+      'zh': '分应用代理已修改，重启内核后生效。',
+      'en': 'Per-app proxy changed. Restart the core to apply.',
+    },
+    'settings.split.restart': {'zh': '重启内核', 'en': 'Restart core'},
     'settings.aboutApp': {'zh': '关于 ClashGo', 'en': 'About ClashGo'},
     'settings.appearance': {'zh': '外观', 'en': 'Appearance'},
     'settings.languageHint': {
       'zh': '选择界面显示语言',
       'en': 'Choose the interface language',
-    },
-    'settings.themeHint': {
-      'zh': '浅色、深色或跟随系统',
-      'en': 'Light, dark or follow system',
     },
     'settings.accentHint': {
       'zh': '选择应用的强调色',
@@ -722,6 +795,36 @@ class L10n {
     'settings.ipv6Hint': {
       'zh': '启用 IPv6 解析与连接',
       'en': 'Enable IPv6 resolution',
+    },
+    'settings.testUrl': {'zh': '测速 URL', 'en': 'Test URL'},
+    'settings.testUrlHint': {
+      'zh': '节点测速时访问的目标地址',
+      'en': 'Target URL used for node delay tests',
+    },
+    'settings.testUrlTitle': {'zh': '测速 URL', 'en': 'Test URL'},
+    'settings.testUrlInvalid': {
+      'zh': '请输入有效的 http 或 https 地址',
+      'en': 'Enter a valid http or https address',
+    },
+    'settings.tunParams': {'zh': 'TUN 参数', 'en': 'TUN parameters'},
+    'settings.tunMtu': {'zh': 'MTU', 'en': 'MTU'},
+    'settings.tunMtuHint': {
+      'zh': 'VPN 网卡与内核协议栈共用的最大传输单元',
+      'en': 'Maximum transmission unit shared by the VPN device and the core',
+    },
+    'settings.tunMtuTitle': {'zh': '编辑 TUN MTU', 'en': 'Edit TUN MTU'},
+    'settings.tunMtuInvalid': {
+      'zh': 'MTU 需在 1280–9000 之间',
+      'en': 'MTU must be between 1280 and 9000',
+    },
+    'settings.tunStack': {'zh': '协议栈', 'en': 'Stack'},
+    'settings.tunStackHint': {
+      'zh': 'gvisor 兼容性最好，system 使用系统协议栈',
+      'en': 'gvisor is the most compatible; system uses the OS stack',
+    },
+    'settings.tunRestartHint': {
+      'zh': '隧道正在使用，保存后内核会自动重启',
+      'en': 'TUN is in use; the core restarts automatically after saving',
     },
     'settings.systemProxy': {'zh': '系统代理', 'en': 'System proxy'},
     'settings.systemProxyHint': {
@@ -782,14 +885,6 @@ class L10n {
       'en': 'The core binary is not bundled on this platform',
     },
     'settings.tools': {'zh': '工具', 'en': 'Tools'},
-    'settings.connectionsHint': {
-      'zh': '实时连接、规则与流量',
-      'en': 'Live connections, rules and traffic',
-    },
-    'settings.logsHint': {
-      'zh': '查看 mihomo 运行日志',
-      'en': 'View mihomo runtime logs',
-    },
     'settings.data': {'zh': '数据', 'en': 'Data'},
     'settings.updateAllSubs': {
       'zh': '更新全部订阅',
@@ -799,6 +894,110 @@ class L10n {
     'settings.clearSelectionsDone': {
       'zh': '已清除节点选择',
       'en': 'Node selections cleared',
+    },
+    'settings.backupExport': {'zh': '导出备份', 'en': 'Export backup'},
+    'settings.backupExportHint': {
+      'zh': '保存设置、订阅、节点选择与测速结果',
+      'en': 'Save settings, subscriptions, selections and delays',
+    },
+    'settings.backupImport': {'zh': '导入备份', 'en': 'Import backup'},
+    'settings.backupImportHint': {
+      'zh': '从备份文件整包恢复当前数据',
+      'en': 'Replace the current data from a backup file',
+    },
+    'settings.backupExportTitle': {'zh': '导出备份', 'en': 'Export backup'},
+    'settings.backupExportMessage': {
+      'zh': '备份包含订阅链接、订阅原文和 API 密钥，等同于一份明文凭据。请妥善保管，不要分享给他人。',
+      'en': 'The backup contains subscription URLs, profiles and the API secret — treat it as plain-text credentials and keep it private.',
+    },
+    'settings.backupExportDone': {'zh': '备份已导出', 'en': 'Backup exported'},
+    'settings.backupExportFailed': {
+      'zh': '导出备份失败',
+      'en': 'Could not export the backup',
+    },
+    'settings.backupImportTitle': {'zh': '导入备份', 'en': 'Import backup'},
+    'settings.backupImportMessage': {
+      'zh': '将用备份替换当前的设置、订阅和节点选择（{0} 个订阅、{1} 个配置文件）。此操作不可撤销，内核会停止运行。',
+      'en': 'This replaces the current settings, subscriptions and selections with the backup ({0} subscriptions, {1} profiles). It cannot be undone and the core will stop.',
+    },
+    'settings.backupImportInvalid': {
+      'zh': '备份文件无效',
+      'en': 'This backup file is not valid',
+    },
+    'settings.backupImported': {
+      'zh': '备份已恢复：{0} 个订阅、{1} 个配置文件',
+      'en': 'Backup restored: {0} subscriptions, {1} profiles',
+    },
+    'settings.backupImportedRestart': {
+      'zh': '备份已恢复：{0} 个订阅、{1} 个配置文件；内核已停止，请重新启动',
+      'en': 'Backup restored: {0} subscriptions, {1} profiles. The core is stopped — start it again.',
+    },
+    'settings.checkCoreUpdate': {
+      'zh': '检查内核更新',
+      'en': 'Check core update',
+    },
+    'settings.checkCoreUpdateHint': {
+      'zh': '从 mihomo 官方 release 下载并校验新内核',
+      'en': 'Download and verify the latest core from mihomo releases',
+    },
+    'settings.coreCheckFailed': {
+      'zh': '检查内核更新失败',
+      'en': 'Could not check for a core update',
+    },
+    'settings.coreUpdateLatest': {
+      'zh': '已是最新内核',
+      'en': 'The core is up to date',
+    },
+    'settings.coreUpdateAvailable': {
+      'zh': '发现新内核 {0}',
+      'en': 'Core {0} is available',
+    },
+    'settings.coreUpdateDialogTitle': {'zh': '更新内核', 'en': 'Update core'},
+    'settings.coreUpdateDialogMessage': {
+      'zh': '当前 {0}，最新 {1}。下载后会先运行新内核校验版本，再停止内核替换文件；期间代理会短暂中断。',
+      'en': 'You have {0}; the latest is {1}. The new core is verified before replacing the current one, and the proxy briefly stops during the swap.',
+    },
+    'settings.coreUpdateAction': {
+      'zh': '下载并更新',
+      'en': 'Download and update',
+    },
+    'settings.coreUpdateProgress': {
+      'zh': '正在下载并校验新内核…',
+      'en': 'Downloading and verifying the new core…',
+    },
+    'settings.coreUpdateInstalled': {
+      'zh': '内核已更新到 {0}',
+      'en': 'Core updated to {0}',
+    },
+    'settings.coreUpdateTunHint': {
+      'zh': '内核已更新到 {0}；TUN 需要重新授权，请在首页手动启动',
+      'en': 'Core updated to {0}. TUN needs fresh approval — start it from the home page.',
+    },
+    'settings.coreRestore': {
+      'zh': '恢复内置内核',
+      'en': 'Restore bundled core',
+    },
+    'settings.coreRestoreHint': {
+      'zh': '删除已更新的内核，回到安装包内置版本',
+      'en': 'Remove the updated core and use the bundled one',
+    },
+    'settings.coreRestoreTitle': {'zh': '恢复内置内核', 'en': 'Restore bundled core'},
+    'settings.coreRestoreMessage': {
+      'zh': '将删除已下载的内核并改用安装包内置版本，当前内核会停止运行。',
+      'en': 'The downloaded core will be removed and the bundled one used instead. The running core will stop.',
+    },
+    'settings.coreRestoreDone': {
+      'zh': '已恢复内置内核',
+      'en': 'Bundled core restored',
+    },
+    'settings.coreSource': {'zh': '内核来源', 'en': 'Core source'},
+    'settings.coreSourceBundled': {
+      'zh': '安装包内置',
+      'en': 'Bundled with the app',
+    },
+    'settings.coreSourceUpdated': {
+      'zh': '已更新（支持目录）',
+      'en': 'Updated (app data)',
     },
     'settings.reset': {'zh': '重置设置', 'en': 'Reset settings'},
     'settings.resetTitle': {'zh': '重置所有设置', 'en': 'Reset all settings'},
@@ -818,10 +1017,6 @@ class L10n {
     'settings.github': {'zh': '项目主页', 'en': 'GitHub'},
     'settings.license': {'zh': '许可证', 'en': 'License'},
     'settings.credits': {'zh': '开源致谢', 'en': 'Credits'},
-    'settings.creditsText': {
-      'zh': '基于 ClashGo、Mishka、mihomo 等开源项目构建',
-      'en': 'Built on ClashGo, Mishka, mihomo and other open-source projects',
-    },
     'settings.diagnostics': {'zh': '诊断', 'en': 'Diagnostics'},
     'settings.copyDiagnostics': {'zh': '复制诊断信息', 'en': 'Copy diagnostics'},
     'settings.diagnosticsCopied': {'zh': '诊断信息已复制', 'en': 'Diagnostics copied'},
@@ -848,10 +1043,6 @@ class L10n {
       'en': 'New secret generated',
     },
     'settings.openFailed': {'zh': '无法打开目录', 'en': 'Could not open folder'},
-    'settings.systemProxyFailed': {
-      'zh': '设置系统代理失败',
-      'en': 'Could not update the system proxy',
-    },
     'settings.systemProxySaved': {
       'zh': '系统代理已更新',
       'en': 'System proxy updated',
@@ -905,6 +1096,94 @@ class L10n {
       'zh': '发现新版本 {0}，可在“设置 → 关于”中查看',
       'en': 'Version {0} is available — open Settings → About to view it',
     },
+
+    // ------------------------------------------------------------- DNS config
+    'settings.dns': {'zh': 'DNS 配置', 'en': 'DNS configuration'},
+    'settings.dnsHint': {
+      'zh': '覆盖订阅里的 DNS 设置',
+      'en': 'Override the subscription DNS',
+    },
+    'settings.dnsEnable': {'zh': '启用自定义 DNS', 'en': 'Use custom DNS'},
+    'settings.dnsEnableHint': {
+      'zh': '关闭时沿用订阅中的 dns 段',
+      'en': 'When off, the dns section from your subscription is kept',
+    },
+    'settings.dnsEnhanced': {'zh': '解析模式', 'en': 'Enhanced mode'},
+    'settings.dnsEnhancedHint': {
+      'zh': 'fake-ip 兼容性最好，redir-host 返回真实 IP',
+      'en': 'fake-ip is the most compatible; redir-host returns real IPs',
+    },
+    'settings.dnsMode.fakeIp': {'zh': 'fake-ip', 'en': 'fake-ip'},
+    'settings.dnsMode.redirHost': {'zh': 'redir-host', 'en': 'redir-host'},
+    'settings.dnsFakeIpRange': {'zh': 'fake-ip 网段', 'en': 'fake-ip range'},
+    'settings.dnsFakeIpRangeHint': {
+      'zh': '虚拟地址池，需为 IPv4 CIDR',
+      'en': 'Virtual address pool in IPv4 CIDR form',
+    },
+    'settings.dnsNameserver': {'zh': '主 DNS', 'en': 'Nameservers'},
+    'settings.dnsNameserverHint': {
+      'zh': '用于解析代理节点域名',
+      'en': 'Used to resolve proxy node hostnames',
+    },
+    'settings.dnsFallback': {'zh': '备用 DNS', 'en': 'Fallback DNS'},
+    'settings.dnsFallbackHint': {
+      'zh': '主 DNS 无法解析时使用，可留空',
+      'en': 'Used when the primary DNS fails — optional',
+    },
+    'settings.dnsDefaultNameserver': {
+      'zh': '引导 DNS',
+      'en': 'Default nameservers',
+    },
+    'settings.dnsDefaultNameserverHint': {
+      'zh': '解析 DNS 服务器自身域名，需为 IP',
+      'en': 'Resolves the DNS servers themselves; use IPs',
+    },
+    'settings.dnsRestartHint': {
+      'zh': '修改后会重启内核以写入 config.yaml；TUN 模式下会重新接管 DNS。',
+      'en': 'Changes restart the core to rewrite config.yaml; TUN mode re-takes over DNS.',
+    },
+    'settings.dnsDisabledHint': {
+      'zh': '自定义 DNS 已关闭，订阅里的 dns 段保持不变。',
+      'en': 'Custom DNS is off; the dns section from your subscription is unchanged.',
+    },
+    'settings.dnsServersEmpty': {
+      'zh': '至少填写一个 DNS 服务器',
+      'en': 'Add at least one DNS server',
+    },
+    'settings.dnsServersHint': {'zh': '每行一个，例如 223.5.5.5', 'en': 'One per line, e.g. 223.5.5.5'},
+    'settings.dnsServersFormat': {
+      'zh': '支持 udp://、tcp://、tls://、https:// 前缀；留空行会被忽略，重复项自动去除。',
+      'en': 'Supports udp://, tcp://, tls:// and https:// prefixes. Blank lines are ignored and duplicates removed.',
+    },
+    'settings.dnsInvalidRange': {
+      'zh': '请输入合法的 IPv4 CIDR，例如 198.18.0.1/16',
+      'en': 'Enter a valid IPv4 CIDR, e.g. 198.18.0.1/16',
+    },
+
+    // --------------------------------------------------------- YAML override
+    'settings.override': {'zh': '配置覆写', 'en': 'Config override'},
+    'settings.overrideHint': {
+      'zh': '把自定义 YAML 深度合并进生成的配置',
+      'en': 'Deep-merge custom YAML into the generated config',
+    },
+    'settings.overrideEditorHint': {
+      'zh': 'YAML 顶层必须是映射，会深度合并进生成的 config.yaml；列表和标量直接替换。端口、密钥、TUN、代理模式等由 ClashGo 管理的字段不允许覆写。',
+      'en': 'The YAML root must be a mapping and is deep-merged into the generated config.yaml; lists and scalars replace. Fields managed by ClashGo — ports, secret, TUN, proxy mode and similar — cannot be overridden.',
+    },
+    'settings.overridePlaceholder': {
+      'zh': '# 示例\nrouting-mark: 6666\nsniffer:\n  enable: true',
+      'en': '# Example\nrouting-mark: 6666\nsniffer:\n  enable: true',
+    },
+    'settings.overrideApply': {'zh': '保存并应用', 'en': 'Save & apply'},
+    'settings.overrideApplying': {'zh': '应用中…', 'en': 'Applying…'},
+    'settings.overrideSaved': {'zh': '配置覆写已应用', 'en': 'Override applied'},
+    'settings.overrideClear': {'zh': '清空', 'en': 'Clear'},
+    'settings.overrideClearTitle': {'zh': '清空配置覆写', 'en': 'Clear override'},
+    'settings.overrideClearMessage': {
+      'zh': '将删除全部覆写内容并恢复订阅生成的配置。',
+      'en': 'All override content will be removed and the generated config restored.',
+    },
+    'settings.overrideCleared': {'zh': '配置覆写已清空', 'en': 'Override cleared'},
     'tray.showWindow': {'zh': '显示主界面', 'en': 'Show window'},
     'tray.quit': {'zh': '退出 ClashGo', 'en': 'Quit ClashGo'},
 
@@ -965,6 +1244,10 @@ class L10n {
       'zh': 'TUN 网卡没有建立，流量没有被接管',
       'en': 'The TUN adapter never came up; no traffic is being taken over',
     },
+    'err.tunStopUnconfirmed': {
+      'zh': '停止没有被确认：提权内核可能仍在运行，系统流量可能仍被接管。请在管理员权限的任务管理器里结束 mihomo，或重启电脑。',
+      'en': 'The stop was not confirmed: the elevated core may still be running and system traffic may still be intercepted. End mihomo from an elevated Task Manager or restart the computer.',
+    },
     'err.unsupportedFile': {
       'zh': '仅支持 YAML 配置文件',
       'en': 'Only YAML config files are supported',
@@ -974,6 +1257,10 @@ class L10n {
       'en': 'The core exited (code {0})',
     },
     'err.generic': {'zh': '发生未知错误', 'en': 'An unexpected error occurred'},
+    'err.overrideInvalid': {
+      'zh': '配置覆写无效',
+      'en': 'Invalid config override',
+    },
     'err.saveConfig': {'zh': '写入配置失败', 'en': 'Failed to write config'},
     'err.filePick': {'zh': '文件选择失败', 'en': 'Failed to pick a file'},
     'err.invalidConfig': {
@@ -987,6 +1274,18 @@ class L10n {
     'err.systemProxy': {
       'zh': '系统代理设置失败',
       'en': 'Failed to update the system proxy',
+    },
+    'err.backupInvalid': {
+      'zh': '备份文件无效',
+      'en': 'The backup file is not valid',
+    },
+    'err.coreUpdate': {
+      'zh': '内核更新失败',
+      'en': 'Core update failed',
+    },
+    'err.coreUpdateVerify': {
+      'zh': '新内核校验失败，未替换原内核',
+      'en': 'The new core failed verification; the current core was kept',
     },
 
     // ---------------------------------------------------------------- toasts

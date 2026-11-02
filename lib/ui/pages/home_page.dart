@@ -207,12 +207,14 @@ class _MobileHeroCard extends StatelessWidget {
     final uptime = running && controller.startedAt != null
         ? formatUptime(DateTime.now().difference(controller.startedAt!))
         : '00:00:00';
-    final (dotColor, statusLabel) = switch (controller.phase) {
-      CorePhase.running => (palette.success, l10n.get('status.running')),
-      CorePhase.starting => (palette.warning, l10n.get('status.starting')),
-      CorePhase.stopping => (palette.warning, l10n.get('status.stopping')),
-      CorePhase.stopped => (palette.danger, l10n.get('status.stopped')),
-    };
+    final (dotColor, statusLabel) = controller.stopUnconfirmed
+        ? (palette.danger, l10n.get('status.stopUnconfirmed'))
+        : switch (controller.phase) {
+            CorePhase.running => (palette.success, l10n.get('status.running')),
+            CorePhase.starting => (palette.warning, l10n.get('status.starting')),
+            CorePhase.stopping => (palette.warning, l10n.get('status.stopping')),
+            CorePhase.stopped => (palette.danger, l10n.get('status.stopped')),
+          };
     final endpoint = Platform.isAndroid ? l10n.get('home.vpn') : 'PROXY';
     // 运行中即为「停止」：用告警红浅底与红字，和启动态的实心主题色区分，
     // 同时避免整块纯红在大按钮上过于刺眼。
@@ -1125,20 +1127,27 @@ class _CoreStatusCard extends StatelessWidget {
     final uptime = running && controller.startedAt != null
         ? formatUptime(DateTime.now().difference(controller.startedAt!))
         : '';
-    final value = switch (controller.phase) {
-      CorePhase.running => l10n.get('status.running'),
-      CorePhase.starting => l10n.get('status.starting'),
-      CorePhase.stopping => l10n.get('status.stopping'),
-      CorePhase.stopped => l10n.get('home.notRunning'),
-    };
-    final hint = switch (controller.phase) {
-      CorePhase.running =>
-        l10n.get('home.coreRunningHint', [uptime, '${controller.connectionCount}']),
-      CorePhase.starting => l10n.get('home.statusHint.starting'),
-      CorePhase.stopping => l10n.get('home.statusHint.stopping'),
-      CorePhase.stopped =>
-        subscription == null ? l10n.get('home.addSubHint') : l10n.get('home.startHint'),
-    };
+    final value = controller.stopUnconfirmed
+        ? l10n.get('status.stopUnconfirmed')
+        : switch (controller.phase) {
+            CorePhase.running => l10n.get('status.running'),
+            CorePhase.starting => l10n.get('status.starting'),
+            CorePhase.stopping => l10n.get('status.stopping'),
+            CorePhase.stopped => l10n.get('home.notRunning'),
+          };
+    final hint = controller.stopUnconfirmed
+        ? l10n.get('home.statusHint.stopUnconfirmed')
+        : switch (controller.phase) {
+            CorePhase.running => l10n.get(
+              'home.coreRunningHint',
+              [uptime, '${controller.connectionCount}'],
+            ),
+            CorePhase.starting => l10n.get('home.statusHint.starting'),
+            CorePhase.stopping => l10n.get('home.statusHint.stopping'),
+            CorePhase.stopped => subscription == null
+                ? l10n.get('home.addSubHint')
+                : l10n.get('home.startHint'),
+          };
     return _MetricPanel(
       icon: 'power-line',
       title: l10n.get('home.coreStatus'),
@@ -1456,6 +1465,7 @@ class _ToolsGrid extends StatelessWidget {
       ('globe-line', l10n.get('tools.dns'), l10n.get('tools.dnsSub'), () => AppNavigation.tool(context, AppTool.dns)),
       ('list-check-line', l10n.get('tools.rules'), l10n.get('tools.rulesSub'), () => AppNavigation.tool(context, AppTool.rules)),
       ('cloud-line', l10n.get('tools.providers'), l10n.get('tools.providersSub'), () => AppNavigation.tool(context, AppTool.providers)),
+      ('file-line', l10n.get('tools.ruleProviders'), l10n.get('tools.ruleProvidersSub'), () => AppNavigation.tool(context, AppTool.ruleProviders)),
       ('card-line', l10n.get('tools.subscriptions'), l10n.get('tools.subscriptionsSub'), () => AppNavigation.goTab(context, 2)),
     ];
     return LayoutBuilder(

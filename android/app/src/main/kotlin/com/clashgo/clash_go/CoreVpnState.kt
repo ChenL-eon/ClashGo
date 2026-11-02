@@ -11,6 +11,8 @@ object CoreVpnState {
     @Volatile var exitCode: Int? = null
     @Volatile var apiPort: Int = 0
     @Volatile var subscriptionId: String? = null
+    @Volatile var splitMode: String = "all"
+    @Volatile var splitPackages: List<String> = emptyList()
     @Volatile var startedAt: Long = 0L
     @Volatile var serviceRunning: Boolean = false
 
@@ -19,6 +21,9 @@ object CoreVpnState {
             "state" to state,
             "pid" to pid,
             "serviceRunning" to serviceRunning,
+            // Dart 侧在进程重建后靠这个判断运行中的隧道是否仍匹配当前设置。
+            "splitMode" to splitMode,
+            "splitPackages" to splitPackages,
         )
         error?.let { map["error"] = it }
         exitCode?.let { map["exitCode"] = it }

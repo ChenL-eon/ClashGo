@@ -53,7 +53,7 @@ class UpdateService {
   }
 
   static UpdateRelease? releaseFromUri(Uri uri) {
-    final tag = _tagOf(uri);
+    final tag = tagFromUri(uri);
     if (tag == null) return null;
     return UpdateRelease(version: normalizeVersion(tag), url: uri.toString());
   }
@@ -66,12 +66,12 @@ class UpdateService {
     if (href == null) return null;
     final uri = Uri.tryParse(href);
     if (uri == null) return null;
-    final tag = _tagOf(uri);
+    final tag = tagFromUri(uri);
     if (tag == null) return null;
     return UpdateRelease(version: normalizeVersion(tag), url: href);
   }
 
-  static String? _tagOf(Uri uri) {
+  static String? tagFromUri(Uri uri) {
     final segments = uri.pathSegments;
     final index = segments.indexOf('tag');
     if (index < 0 || index + 1 >= segments.length) return null;

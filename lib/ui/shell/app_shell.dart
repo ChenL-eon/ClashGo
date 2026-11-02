@@ -15,6 +15,7 @@ import '../pages/home_page.dart';
 import '../pages/logs_page.dart';
 import '../pages/providers_page.dart';
 import '../pages/proxy_page.dart';
+import '../pages/rule_providers_page.dart';
 import '../pages/rules_page.dart';
 import '../pages/settings_page.dart';
 import '../pages/subscriptions_page.dart';
@@ -143,6 +144,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       AppTool.dns => const DnsPage(),
       AppTool.rules => const RulesPage(),
       AppTool.providers => const ProvidersPage(),
+      AppTool.ruleProviders => const RuleProvidersPage(),
       AppTool.connections => const ConnectionsPage(showBack: true),
       AppTool.logs => const LogsPage(showBack: true),
     };
@@ -505,13 +507,18 @@ class _SidebarCoreCard extends StatelessWidget {
     final running = context.select<AppController, bool>((c) => c.isRunning);
     final phase = context.select<AppController, CorePhase>((c) => c.phase);
     final busy = context.select<AppController, bool>((c) => c.isBusy);
+    final stopUnconfirmed = context.select<AppController, bool>(
+      (c) => c.stopUnconfirmed,
+    );
     final subscription = context.select<AppController, Subscription?>(
       (c) => c.activeSubscription,
     );
     final coreVersion = context.select<AppController, String?>(
       (c) => c.coreVersion,
     );
-    final color = running
+    final color = stopUnconfirmed
+        ? palette.danger
+        : running
         ? palette.success
         : busy
         ? palette.warning
@@ -556,7 +563,11 @@ class _SidebarCoreCard extends StatelessWidget {
               const SizedBox(width: 7),
               Expanded(
                 child: Text(
-                  l10n.get('status.${phase.name}'),
+                  l10n.get(
+                    stopUnconfirmed
+                        ? 'status.stopUnconfirmed'
+                        : 'status.${phase.name}',
+                  ),
                   style: TextStyle(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w600,

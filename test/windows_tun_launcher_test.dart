@@ -127,6 +127,22 @@ void main() {
       expect(paths.stopFlagFile.existsSync(), isFalse);
     });
 
+    test('pid file alone is enough to ask the supervisor to stop', () async {
+      // elevated.flag 只是 GUI 自己记的"这一轮起过提权内核"；清理工具或上一条
+      // 失败分支可能先把它删掉，而监护进程和内核都还活着。PID 文件在，就该试。
+      paths.elevatedPidFile.writeAsStringSync('4242');
+
+      final acknowledge = Timer(const Duration(milliseconds: 300), () {
+        if (paths.stopFlagFile.existsSync()) paths.elevatedPidFile.deleteSync();
+      });
+      final acknowledged = await launcher.requestStop(timeout: const Duration(seconds: 2));
+      acknowledge.cancel();
+
+      expect(acknowledged, isTrue);
+      expect(paths.elevatedPidFile.existsSync(), isFalse);
+      expect(paths.stopFlagFile.existsSync(), isFalse);
+    });
+
     test('unacknowledged stop is reported as failure, not as a closed tunnel', () async {
       paths.elevatedFlagFile.writeAsStringSync('elevated');
       paths.elevatedPidFile.writeAsStringSync('4242');

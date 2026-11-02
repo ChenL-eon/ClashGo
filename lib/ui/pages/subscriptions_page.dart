@@ -2,12 +2,14 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../core/errors.dart';
 import '../../core/formatters.dart';
 import '../../core/l10n.dart';
+import '../../core/subscription_link.dart';
 import '../../core/theme.dart';
 import '../../models/subscription.dart';
 import '../widgets/app_icon.dart';
@@ -21,18 +23,8 @@ const _cardMenuContentWidth = 150.0;
 // 菜单宽度 = 内容宽 + 浮层左右 8 + 菜单行左右 16（与 appMenuStyle/appMenuItemStyle 一致）。
 const _cardMenuWidth = _cardMenuContentWidth + 8 * 2 + 16 * 2;
 
-/// 二维码内容 → 订阅链接。支持直接链接，也支持 clash://install-config?url=… 这类包装。
-String? subscriptionUrlFromQr(String raw) {
-  final text = raw.trim();
-  if (text.isEmpty) return null;
-  final uri = Uri.tryParse(text);
-  if (uri == null) return null;
-  if (uri.scheme == 'http' || uri.scheme == 'https') return text;
-  final embedded = uri.queryParameters['url'] ?? uri.queryParameters['config'];
-  if (embedded == null) return null;
-  final decoded = Uri.decodeComponent(embedded);
-  return decoded.startsWith('http') ? decoded : null;
-}
+/// 保留旧入口名：二维码测试与页面都从这里取解析结果。
+String? subscriptionUrlFromQr(String raw) => subscriptionUrlFromLink(raw);
 
 Widget _actionMenuRow({
   required String icon,
@@ -125,12 +117,45 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
     }
   }
 
-  /// 三种导入方式：订阅链接、本地文件、二维码。
-  /// 桌面端没有摄像头，第三项是选择二维码图片识别。
+  Future<void> _importClipboard() async {
+    if (_importing) return;
+    final controller = context.read<AppController>();
+    final l10n = context.l10n;
+    setState(() => _importing = true);
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final raw = data?.text?.trim() ?? '';
+      if (raw.isEmpty) {
+        if (!mounted) return;
+        showAppToast(context, l10n.get('subscriptions.clipboardEmpty'), error: true);
+        return;
+      }
+      final url = subscriptionUrlFromLink(raw);
+      if (url == null) {
+        if (!mounted) return;
+        showAppToast(context, l10n.get('subscriptions.clipboardNoLink'), error: true);
+        return;
+      }
+      await controller.addSubscription(url: url);
+    } catch (error) {
+      if (!mounted) return;
+      showAppToast(context, errorFrom(error).localized(context.l10n), error: true);
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  /// 四种导入方式：订阅链接、剪贴板、本地文件、二维码。
+  /// 桌面端没有摄像头，最后一项是选择二维码图片识别。
   List<({String icon, String label, VoidCallback onPressed})> _importEntries(BuildContext context) {
     final l10n = context.l10n;
     return [
       (icon: 'link-line', label: l10n.get('subscriptions.addByUrl'), onPressed: _add),
+      (
+        icon: 'copy-line',
+        label: l10n.get('subscriptions.importClipboard'),
+        onPressed: _importClipboard,
+      ),
       (icon: 'file-line', label: l10n.get('subscriptions.importLocal'), onPressed: _importFile),
       (
         icon: 'qrcode-line',

@@ -188,7 +188,12 @@ Write-Sup 'supervisor done'
   /// 超时没等到说明那个提权进程已经不在了（崩溃后被系统回收，或压根没起来过），
   /// 这时候调用方不能当成"隧道已关"——路由可能还挂着。
   Future<bool> requestStop({Duration timeout = const Duration(seconds: 10)}) async {
-    if (!paths.elevatedFlagFile.existsSync()) return false;
+    // PID 文件比 elevated.flag 更接近事实：flag 可能被清理工具或上一轮失败分支
+    // 提前删掉，而监护进程还在、内核也还在。只要还看得到 PID 就值得写一次停止标志。
+    if (!paths.elevatedPidFile.existsSync() &&
+        !paths.elevatedFlagFile.existsSync()) {
+      return false;
+    }
     try {
       paths.stopFlagFile.writeAsStringSync('stop');
     } catch (_) {

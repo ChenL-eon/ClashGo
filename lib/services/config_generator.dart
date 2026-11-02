@@ -5,6 +5,7 @@ import 'package:yaml/yaml.dart';
 import '../core/app_info.dart';
 import '../core/errors.dart';
 import '../models/app_settings.dart';
+import '../models/dns_config.dart';
 
 class ConfigGenerator {
   const ConfigGenerator();
@@ -27,6 +28,35 @@ class ConfigGenerator {
     'listeners',
     'tun',
   ];
+
+  /// 这些键由 ClashGo 自己接管：端口、控制接口、隧道形态和页面上的开关
+  /// 都是生成配置时写死的。允许覆写只会让界面和实际运行状态对不上。
+  static const protectedOverrideKeys = <String>{
+    'port',
+    'socks-port',
+    'redir-port',
+    'tproxy-port',
+    'mixed-port',
+    'external-controller',
+    'external-controller-tls',
+    'external-controller-unix',
+    'external-controller-pipe',
+    'external-ui',
+    'external-ui-name',
+    'external-ui-url',
+    'secret',
+    'authentication',
+    'listeners',
+    'tun',
+    'mode',
+    'log-level',
+    'ipv6',
+    'allow-lan',
+    'bind-address',
+    'profile',
+    'unified-delay',
+    'tcp-concurrent',
+  };
 
   String generate({
     required String profile,
@@ -54,6 +84,9 @@ class ConfigGenerator {
       map.remove(key);
     }
 
+    final override = _parseOverride(settings.overrideYaml);
+    if (override != null) _mergeInto(map, override);
+
     map['mixed-port'] = settings.mixedPort;
     map['allow-lan'] = settings.allowLan;
     map['bind-address'] = settings.allowLan ? '*' : '127.0.0.1';
@@ -70,10 +103,12 @@ class ConfigGenerator {
     profileSection['store-fake-ip'] = true;
     map['profile'] = profileSection;
 
+    if (settings.dns.enabled) _applyDnsConfig(map, settings.dns);
+
     if (androidTun || windowsTun) {
       map['tun'] = <String, dynamic>{
         'enable': true,
-        'stack': 'gvisor',
+        'stack': settings.tunStack,
         if (androidTun)
           // Replaced with the real descriptor by CoreVpnService right before exec.
           // Windows 没有 fd 可传：它自己建 ztun 适配器。
@@ -82,9 +117,9 @@ class ConfigGenerator {
         // 而内核不写 device 时用的是自己的默认名（这台机器实测 Meta）。
         // FlClash 走的也是这条路（device: "FlClash"）。
         if (windowsTun) 'device': AppInfo.tunDeviceName,
-        // 同一个常量也会作为 startVpn 的 mtu 参数交给 VpnService.setMtu，
-        // 内核设备 MTU 与 gvisor 切片 MTU 必须一致。
-        'mtu': AppInfo.tunMtu,
+        // 同一个设置值也会作为 startVpn 的 mtu 参数交给 VpnService.setMtu，
+        // 内核设备 MTU 与用户态协议栈切片 MTU 必须一致。
+        'mtu': settings.tunMtu,
         // 安卓由 VpnService 负责寻址和路由，内核自己再动一次路由表就是叠加；
         // Windows 则是反过来——没有 auto-route 就没有任何流量会进隧道。
         'auto-route': windowsTun,
@@ -122,6 +157,68 @@ class ConfigGenerator {
     return _YamlWriter.write(map);
   }
 
+  /// 覆写文本在保存时和生成时都会校验：保存时给用户明确报错，生成时兜住
+  /// 手改 settings.json 的情况。空文本表示不启用覆写。
+  static void validateOverride(String text) {
+    _parseOverride(text);
+  }
+
+  static Map<String, dynamic>? _parseOverride(String text) {
+    if (text.trim().isEmpty) return null;
+    dynamic document;
+    try {
+      document = loadYaml(text);
+    } catch (error) {
+      throw AppError('overrideInvalid', detail: _shorten(error.toString()));
+    }
+    if (document is! Map) {
+      throw const AppError('overrideInvalid', detail: 'Top level must be a mapping');
+    }
+    final map = _convertMap(document);
+    for (final key in map.keys) {
+      if (protectedOverrideKeys.contains(key)) {
+        throw AppError(
+          'overrideInvalid',
+          detail: 'Key "$key" is managed by ClashGo',
+        );
+      }
+    }
+    return map;
+  }
+
+  /// 映射逐层合并，列表与标量整体替换——和常见 Merge 配置的直觉一致。
+  static void _mergeInto(Map<String, dynamic> target, Map<String, dynamic> patch) {
+    patch.forEach((key, value) {
+      final existing = target[key];
+      if (existing is Map && value is Map) {
+        final nested = _convertMap(existing);
+        _mergeInto(nested, _convertMap(value));
+        target[key] = nested;
+      } else {
+        target[key] = value;
+      }
+    });
+  }
+
+  static void _applyDnsConfig(Map<String, dynamic> map, DnsConfig config) {
+    final dns = map['dns'] is Map ? _convertMap(map['dns'] as Map) : <String, dynamic>{};
+    dns['enable'] = true;
+    dns['enhanced-mode'] = config.enhancedMode;
+    if (config.enhancedMode == DnsConfig.fakeIp) {
+      dns['fake-ip-range'] = config.fakeIpRange;
+    } else {
+      dns.remove('fake-ip-range');
+    }
+    dns['nameserver'] = List<String>.of(config.nameserver);
+    dns['default-nameserver'] = List<String>.of(config.defaultNameserver);
+    if (config.fallback.isEmpty) {
+      dns.remove('fallback');
+    } else {
+      dns['fallback'] = List<String>.of(config.fallback);
+    }
+    map['dns'] = dns;
+  }
+
   /// 隧道模式下 DNS 只能由内核回答：查询是从 tun 设备/ fd 进来的，
   /// 再让 dns 段自己 listen 53 端口既没必要，还会撞上已经被占用的 53。
   /// profile 里没写解析器时补一组国内可用的，避免"连上隧道却解析不动"。
@@ -140,7 +237,7 @@ class ConfigGenerator {
     map['dns'] = dns;
   }
 
-  Map<String, dynamic> _convertMap(Map source) {
+  static Map<String, dynamic> _convertMap(Map source) {
     final result = <String, dynamic>{};
     source.forEach((key, value) {
       result[key.toString()] = _convert(value);
@@ -148,14 +245,14 @@ class ConfigGenerator {
     return result;
   }
 
-  Object? _convert(Object? value) {
+  static Object? _convert(Object? value) {
     if (value is Map) return _convertMap(value);
     if (value is List) return value.map(_convert).toList();
     if (value is YamlScalar) return value.value;
     return value;
   }
 
-  String _shorten(String text) {
+  static String _shorten(String text) {
     final singleLine = text.replaceAll(RegExp(r'\s+'), ' ').trim();
     return singleLine.length > 220 ? '${singleLine.substring(0, 220)}…' : singleLine;
   }

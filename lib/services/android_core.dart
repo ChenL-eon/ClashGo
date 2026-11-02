@@ -32,6 +32,8 @@ class AndroidCoreStatus {
     this.apiPort,
     this.subscriptionId,
     this.startedAt,
+    this.splitMode,
+    this.splitPackages = const [],
   });
 
   final String state;
@@ -42,12 +44,23 @@ class AndroidCoreStatus {
   final int? apiPort;
   final String? subscriptionId;
   final int? startedAt;
+  final String? splitMode;
+  final List<String> splitPackages;
 
   bool get isRunning => state == 'running' && pid > 0;
   bool get isStarting => state == 'starting';
   bool get isError => state == 'error';
 
+  /// 与 AppSettings.splitTunnelSignature 同格式；旧版原生层没有这两个字段时为 null。
+  String? get splitSignature {
+    final mode = splitMode;
+    if (mode == null) return null;
+    final packages = [...splitPackages]..sort();
+    return '$mode:${packages.join(',')}';
+  }
+
   factory AndroidCoreStatus.fromMap(Map<Object?, Object?> map) {
+    final rawPackages = map['splitPackages'];
     return AndroidCoreStatus(
       state: map['state'] as String? ?? 'stopped',
       pid: (map['pid'] as num?)?.toInt() ?? -1,
@@ -57,6 +70,10 @@ class AndroidCoreStatus {
       apiPort: (map['apiPort'] as num?)?.toInt(),
       subscriptionId: map['subscriptionId'] as String?,
       startedAt: (map['startedAt'] as num?)?.toInt(),
+      splitMode: map['splitMode'] as String?,
+      splitPackages: rawPackages is List
+          ? rawPackages.whereType<String>().toList(growable: false)
+          : const [],
     );
   }
 }
@@ -64,7 +81,9 @@ class AndroidCoreStatus {
 // Platform bridge to the native VpnService that owns the tun fd and the mihomo
 // child process. Keeping this in Kotlin lets the tunnel outlive the Flutter engine.
 class AndroidCore {
-  static const MethodChannel _channel = MethodChannel('com.clashgo.clash_go/core');
+  static const MethodChannel _channel = MethodChannel(
+    'com.clashgo.clash_go/core',
+  );
 
   static Future<AndroidCoreInfo> info() async {
     final map = await _channel.invokeMapMethod<Object?, Object?>('getInfo');
@@ -89,6 +108,9 @@ class AndroidCore {
     required String notificationStop,
     String apiSecret = '',
     bool bypassPrivate = true,
+    String splitTunnelMode = 'all',
+    List<String> splitTunnelPackages = const [],
+    int mtu = AppInfo.tunMtu,
   }) async {
     await _channel.invokeMethod<bool>('startVpn', {
       'configPath': configPath,
@@ -99,10 +121,13 @@ class AndroidCore {
       'subscriptionId': subscriptionId,
       'ipv6': ipv6,
       'bypassPrivate': bypassPrivate,
+      // all / allow / disallow 与设置模型里的常量同值，原生侧按字符串分派。
+      'splitMode': splitTunnelMode,
+      'splitPackages': splitTunnelPackages,
       // 通知栏要直接读 mihomo 的 /traffic、/proxies，接口需要同一个 secret。
       'apiSecret': apiSecret,
       // VpnService.setMtu 用的就是这一个值，和 config 里的 tun.mtu 同源。
-      'mtu': AppInfo.tunMtu,
+      'mtu': mtu,
       'notificationTitle': notificationTitle,
       'notificationText': notificationText,
       'notificationStop': notificationStop,

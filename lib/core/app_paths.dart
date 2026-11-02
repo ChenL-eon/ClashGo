@@ -54,6 +54,10 @@ class AppPaths {
   File get elevatedStdoutFile => File(p.join(runtimeDir.path, 'mihomo.stdout.log'));
   File get elevatedStderrFile => File(p.join(runtimeDir.path, 'mihomo.stderr.log'));
 
+  /// 应用内更新下载的内核。放在支持目录而不是安装目录：便携包与 Program Files
+  /// 都可能不可写，而这里由当前用户完全控制，升级也不需要管理员权限。
+  File get coreOverrideFile => File(p.join(supportDir.path, 'core', 'mihomo.exe'));
+
   /// 监护进程自己的流水账。提权那一层的失败全是静默的——没有控制台、管道又接不过来，
   /// 内核退出码和 `Start-Process` 的异常只能靠它自己写下来才有人看得见。
   File get elevatedSupervisorFile => File(p.join(runtimeDir.path, 'mihomo.supervisor.log'));
@@ -70,6 +74,9 @@ class AppPaths {
 
   String? get coreBinaryPath {
     if (Platform.isWindows) {
+      // 更新过的内核优先：同一个 supportDir 下升级后立即生效，删掉即回退内置版。
+      final updated = coreOverrideFile;
+      if (updated.existsSync()) return updated.path;
       final path = p.join(executableDir, 'core', 'mihomo.exe');
       return File(path).existsSync() ? path : null;
     }

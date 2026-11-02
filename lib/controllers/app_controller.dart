@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 
 import '../core/app_info.dart';
 import '../core/app_paths.dart';
@@ -10,16 +11,20 @@ import '../core/core_log.dart';
 import '../core/errors.dart';
 import '../core/formatters.dart';
 import '../core/l10n.dart';
+import '../core/subscription_link.dart';
 import '../data/local_store.dart';
 import '../models/app_settings.dart';
 import '../models/connection_info.dart';
+import '../models/dns_config.dart';
 import '../models/log_entry.dart';
 import '../models/mihomo_version.dart';
 import '../models/proxy_info.dart';
 import '../models/subscription.dart';
 import '../models/traffic_sample.dart';
+import '../services/backup_service.dart';
 import '../services/config_generator.dart';
 import '../services/core_manager.dart';
+import '../services/core_update_service.dart';
 import '../services/json_socket.dart';
 import '../services/mihomo_api.dart';
 import '../services/network.dart';
@@ -38,13 +43,17 @@ class AppNotice {
 }
 
 class AppController extends ChangeNotifier {
-  AppController(this.paths, {StartupService? startupService})
-      : store = LocalStore(paths),
-        api = MihomoApi(),
-        fetcher = SubscriptionFetcher(),
-        systemProxy = SystemProxyService(paths),
-        startup = startupService ?? StartupService(),
-        core = CoreManager(paths, CoreLog(paths.coreLogFile)) {
+  AppController(
+    this.paths, {
+    StartupService? startupService,
+    SubscriptionFetcher? fetcher,
+    CoreManager? coreManager,
+  }) : store = LocalStore(paths),
+       api = MihomoApi(),
+       fetcher = fetcher ?? SubscriptionFetcher(),
+       systemProxy = SystemProxyService(paths),
+       startup = startupService ?? StartupService(),
+       core = coreManager ?? CoreManager(paths, CoreLog(paths.coreLogFile)) {
     core.onExit = _handleCoreExit;
     core.onExternalStop = _handleExternalStop;
   }
@@ -57,7 +66,8 @@ class AppController extends ChangeNotifier {
   final StartupService startup;
   final CoreManager core;
   final ConfigGenerator _configGenerator = const ConfigGenerator();
-  final StreamController<AppNotice> _notices = StreamController<AppNotice>.broadcast();
+  final StreamController<AppNotice> _notices =
+      StreamController<AppNotice>.broadcast();
 
   late AppSettings settings;
   List<Subscription> subscriptions = [];
@@ -66,11 +76,22 @@ class AppController extends ChangeNotifier {
 
   CorePhase phase = CorePhase.stopped;
   AppError? lastError;
+
+  /// 上一次停止提权内核没得到监护进程确认：GUI 已经控制不了它，TUN 路由可能还挂着。
+  /// 这时界面不能把「已停止」当成事实；下一次成功启动或确认停止后才清除。
+  bool stopUnconfirmed = false;
+
   String? coreVersion;
   DateTime? startedAt;
   int? _exitCode;
 
-  ProxiesSnapshot proxySnapshot = const ProxiesSnapshot(proxies: {}, groups: []);
+  /// 内核启动时实际生效的分应用配置；与当前设置不一致时提示重启。
+  String? _activeSplitSignature;
+
+  ProxiesSnapshot proxySnapshot = const ProxiesSnapshot(
+    proxies: {},
+    groups: [],
+  );
   bool loadingProxies = false;
   AppError? proxyError;
   final Set<String> testingGroups = {};
@@ -82,7 +103,11 @@ class AppController extends ChangeNotifier {
   final Map<String, int> _orphanDelays = {};
   bool bulkTesting = false;
 
-  ConnectionsSnapshot connectionsSnapshot = const ConnectionsSnapshot(connections: [], uploadTotal: 0, downloadTotal: 0);
+  ConnectionsSnapshot connectionsSnapshot = const ConnectionsSnapshot(
+    connections: [],
+    uploadTotal: 0,
+    downloadTotal: 0,
+  );
   AppError? connectionsError;
 
   int uploadSpeed = 0;
@@ -103,12 +128,23 @@ class AppController extends ChangeNotifier {
   bool logsActive = false;
   bool logsPaused = false;
 
-  final Map<String, int?> latency = {for (final target in AppInfo.latencyTargets) target.label: null};
+  final Map<String, int?> latency = {
+    for (final target in AppInfo.latencyTargets) target.label: null,
+  };
   bool testingLatency = false;
 
   final Set<String> updatingSubscriptions = {};
   bool importingSubscription = false;
   bool updatingAll = false;
+
+  /// Windows 内核更新：下载期间内核照常跑，进度 0–1 只用于更新对话框。
+  bool checkingCoreUpdate = false;
+  bool updatingCore = false;
+  double coreUpdateProgress = 0;
+
+  /// 当前磁盘上那个内核自己 `-v` 报出来的版本。内核没跑时关于页也靠它显示版本；
+  /// 和 [coreVersion]（控制接口报的版本）不同，这个值在更新/回退后要重新探测。
+  String? localCoreVersion;
 
   JsonSocket? _trafficSocket;
   JsonSocket? _memorySocket;
@@ -144,7 +180,8 @@ class AppController extends ChangeNotifier {
     return null;
   }
 
-  Map<String, String> get activeSelections => activeId == null ? const {} : (selections[activeId!] ?? const {});
+  Map<String, String> get activeSelections =>
+      activeId == null ? const {} : (selections[activeId!] ?? const {});
 
   Map<String, int> get testedDelays {
     final id = activeId;
@@ -154,6 +191,13 @@ class AppController extends ChangeNotifier {
 
   bool get isRunning => phase == CorePhase.running;
   bool get isBusy => phase == CorePhase.starting || phase == CorePhase.stopping;
+
+  bool get splitTunnelNeedsRestart {
+    final active = _activeSplitSignature;
+    return phase == CorePhase.running &&
+        active != null &&
+        active != settings.splitTunnelSignature;
+  }
 
   String? get activeNode {
     final group = proxySnapshot.primaryGroup();
@@ -172,11 +216,14 @@ class AppController extends ChangeNotifier {
   int get connectionCount => connectionsSnapshot.connections.length;
 
   Future<void> initialize() async {
-    final preferChinese = PlatformDispatcher.instance.locale.languageCode == 'zh';
+    final preferChinese =
+        PlatformDispatcher.instance.locale.languageCode == 'zh';
     // 老版本（或被手工改过）的 settings.json 里可能留着"两个都开"，那种状态下系统代理
     // 那个开关是假的：chip 亮着、toast 说已保存，注册表却一个字没写。启动时先归一化，
     // 下面那次 saveSettings 会顺手把修好的状态写回盘上。
-    settings = _oneTakeover(await store.loadSettings(preferChinese: preferChinese));
+    settings = _oneTakeover(
+      await store.loadSettings(preferChinese: preferChinese),
+    );
     subscriptions = await store.loadSubscriptions();
     activeId = await store.loadActiveId();
     if (activeId == null && subscriptions.isNotEmpty) {
@@ -189,7 +236,9 @@ class AppController extends ChangeNotifier {
     final storedDelays = await store.loadTestedDelays();
     _delaysBySubscription
       ..clear()
-      ..addEntries(storedDelays.entries.where((entry) => validIds.contains(entry.key)));
+      ..addEntries(
+        storedDelays.entries.where((entry) => validIds.contains(entry.key)),
+      );
     await store.ensureCleanProfiles(validIds);
     api.configure(port: settings.apiPort, secret: settings.secret);
     try {
@@ -206,9 +255,16 @@ class AppController extends ChangeNotifier {
 
     if (Platform.isAndroid) {
       try {
-        final attached = await core.attachIfRunning(subscriptionId: activeId, apiPort: settings.apiPort);
+        final attached = await core.attachIfRunning(
+          subscriptionId: activeId,
+          apiPort: settings.apiPort,
+        );
         if (attached != null) {
           phase = CorePhase.running;
+          // 用 VpnService 实际启动时的分应用配置，而不是当前设置：进程重建后
+          // 两者可能已经不同，沿用设置会把待重启提示吞掉。
+          _activeSplitSignature =
+              attached.splitSignature ?? settings.splitTunnelSignature;
           startedAt = attached.startedAt != null
               ? DateTime.fromMillisecondsSinceEpoch(attached.startedAt!)
               : DateTime.now();
@@ -223,14 +279,19 @@ class AppController extends ChangeNotifier {
     }
     _notify();
 
-    if (settings.autoStartCore && activeSubscription != null && phase == CorePhase.stopped) {
+    if (settings.autoStartCore &&
+        activeSubscription != null &&
+        phase == CorePhase.stopped) {
       unawaited(startCore(silent: true));
     }
     _startAutoUpdateTimer();
     // 句柄必须留着：这两条一次性定时器如果在启动后几秒内就把应用切到后台，
     // 没有句柄就没人能取消它们，后台仍会跑自动更新/联网检查。
     _autoUpdateKick = Timer(const Duration(seconds: 12), _runAutoUpdates);
-    _startupUpdateTimer = Timer(const Duration(seconds: 5), _checkUpdatesOnStartup);
+    _startupUpdateTimer = Timer(
+      const Duration(seconds: 5),
+      _checkUpdatesOnStartup,
+    );
   }
 
   Future<void> _checkUpdatesOnStartup() async {
@@ -273,25 +334,41 @@ class AppController extends ChangeNotifier {
 
   void _startAutoUpdateTimer() {
     _autoUpdateTimer?.cancel();
-    _autoUpdateTimer = Timer.periodic(const Duration(minutes: 1), (_) => _runAutoUpdates());
+    _autoUpdateTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _runAutoUpdates(),
+    );
   }
 
   // ------------------------------------------------------------------ settings
 
   Future<void> applySettings(AppSettings next, {bool announce = false}) async {
     final previous = settings;
+    if (next.overrideYaml != previous.overrideYaml) {
+      ConfigGenerator.validateOverride(next.overrideYaml);
+    }
     // 改端口/主题/订阅这类保存走的是文件里现存的接管状态，不兜一下就会把"两个都开"
     // 重新写回盘上，把启动时刚归一化的结果又覆盖掉。
-    next = _oneTakeover(next).copyWith(
-      proxyBypass: AppSettings.normalizeProxyBypass(next.proxyBypass),
-    );
+    next = _oneTakeover(
+      next,
+    ).copyWith(proxyBypass: AppSettings.normalizeProxyBypass(next.proxyBypass));
     final bypassChanged = previous.proxyBypass != next.proxyBypass;
-    final coreFieldsChanged = previous.mixedPort != next.mixedPort ||
+    final coreFieldsChanged =
+        previous.mixedPort != next.mixedPort ||
         previous.apiPort != next.apiPort ||
         previous.secret != next.secret ||
         previous.allowLan != next.allowLan ||
         previous.ipv6 != next.ipv6 ||
         previous.mode != next.mode;
+    // DNS 覆写与 YAML 覆写都写进 config.yaml，重启一次才生效。
+    final configFieldsChanged =
+        previous.dns != next.dns ||
+        previous.overrideYaml != next.overrideYaml;
+    // 隧道参数写进 config.yaml，安卓还同时决定 VpnService.setMtu。系统代理模式
+    // 下的 Windows 配置里没有 tun 段，改这两个值不该白白重启一次内核。
+    final tunFieldsChanged =
+        previous.tunMtu != next.tunMtu || previous.tunStack != next.tunStack;
+    final tunInUse = Platform.isAndroid || next.tun;
     settings = next;
     api.configure(port: next.apiPort, secret: next.secret);
     await store.saveSettings(settings);
@@ -317,7 +394,8 @@ class AppController extends ChangeNotifier {
             settings = settings.copyWith(systemProxy: false);
             await store.saveSettings(settings);
             _notify();
-            if (announce) _notice(errorFrom(error).localized(l10n), error: true);
+            if (announce)
+              _notice(errorFrom(error).localized(l10n), error: true);
             rethrow;
           }
         }
@@ -333,10 +411,22 @@ class AppController extends ChangeNotifier {
         _notice(errorFrom(error).localized(l10n), error: true);
       }
     }
-    if (coreFieldsChanged && phase == CorePhase.running) {
+    if ((coreFieldsChanged ||
+            configFieldsChanged ||
+            (tunFieldsChanged && tunInUse)) &&
+        phase == CorePhase.running) {
       await restartCore();
     }
     if (announce) _notice(l10n.get('settings.saved'));
+  }
+
+  Future<void> saveDnsConfig(DnsConfig next) async {
+    await applySettings(settings.copyWith(dns: next), announce: true);
+  }
+
+  Future<void> saveOverrideYaml(String yaml) async {
+    ConfigGenerator.validateOverride(yaml);
+    await applySettings(settings.copyWith(overrideYaml: yaml), announce: true);
   }
 
   Future<void> setMode(String mode) async {
@@ -360,8 +450,14 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> resetSettings() async {
-    if (phase != CorePhase.stopped) await stopCore();
-    settings = AppSettings.defaults(zh: settings.isZh, systemProxy: Platform.isWindows);
+    if ((phase != CorePhase.stopped || stopUnconfirmed) &&
+        !await stopCore()) {
+      return;
+    }
+    settings = AppSettings.defaults(
+      zh: settings.isZh,
+      systemProxy: Platform.isWindows,
+    );
     api.configure(port: settings.apiPort, secret: settings.secret);
     await store.saveSettings(settings);
     try {
@@ -384,12 +480,14 @@ class AppController extends ChangeNotifier {
   /// 轮不上）。冲突时谁赢取决于用户刚点的是哪个，所以点击路径各自让位（见 setTun 和
   /// setSystemProxy）；这里管的是没有点击语义的两处——启动读到的旧文件、设置页保存。
   /// 那种场合留下更强的 TUN：config.yaml 里的 tun 段是启动参数，已经在生效的那一个。
-  static AppSettings _oneTakeover(AppSettings next) => Platform.isWindows && next.tun && next.systemProxy
+  static AppSettings _oneTakeover(AppSettings next) =>
+      Platform.isWindows && next.tun && next.systemProxy
       ? next.copyWith(systemProxy: false)
       : next;
 
   Future<void> setSystemProxy(bool enabled) async {
-    if (enabled && !SystemProxyService.supported) throw const AppError('unsupportedPlatform');
+    if (enabled && !SystemProxyService.supported)
+      throw const AppError('unsupportedPlatform');
     // setTun 早就单向做了"开 TUN 就把系统代理让出来"，缺的是对称的这一半。不补的话：
     // 下面会把 systemProxy: true 存盘并弹"已保存"，而内核启动时 _enableSystemProxy 见
     // tun 还开着直接 return —— 点亮的是个假开关。
@@ -399,7 +497,10 @@ class AppController extends ChangeNotifier {
     try {
       if (enabled) {
         if (phase == CorePhase.running) {
-          await systemProxy.enable(settings.mixedPort, bypass: settings.proxyBypass);
+          await systemProxy.enable(
+            settings.mixedPort,
+            bypass: settings.proxyBypass,
+          );
           _systemProxyApplied = true;
         }
       } else {
@@ -409,7 +510,13 @@ class AppController extends ChangeNotifier {
       settings = settings.copyWith(systemProxy: enabled);
       await store.saveSettings(settings);
       _notify();
-      _notice(l10n.get(enabled ? 'settings.systemProxySaved' : 'settings.systemProxyDisabled'));
+      _notice(
+        l10n.get(
+          enabled
+              ? 'settings.systemProxySaved'
+              : 'settings.systemProxyDisabled',
+        ),
+      );
     } catch (error) {
       final appError = errorFrom(error);
       _notice(appError.localized(l10n), error: true);
@@ -426,6 +533,9 @@ class AppController extends ChangeNotifier {
   Future<void> setTun(bool enabled) async {
     if (!Platform.isWindows) throw const AppError('unsupportedPlatform');
     if (settings.tun == enabled) return;
+    // 上一次提权内核的停止没被确认：现在改接管方式就是在猜它到底还在不在。
+    if (stopUnconfirmed) throw const AppError('tunStopUnconfirmed');
+    final previous = settings;
     final wasRunning = phase == CorePhase.running;
     try {
       // 只撤销我们自己写进去的那一份：初始化时 recoverIfStale 已经把上一会话残留
@@ -434,16 +544,43 @@ class AppController extends ChangeNotifier {
         await systemProxy.disable();
         _systemProxyApplied = false;
       }
-      settings = settings.copyWith(tun: enabled, systemProxy: enabled ? false : settings.systemProxy);
+      settings = settings.copyWith(
+        tun: enabled,
+        systemProxy: enabled ? false : settings.systemProxy,
+      );
       await store.saveSettings(settings);
       _notify();
       if (wasRunning) {
-        await stopCore(silent: true);
+        if (!await stopCore(silent: true)) {
+          throw const AppError('tunStopUnconfirmed');
+        }
         await startCore();
       }
       _notice(l10n.get(enabled ? 'home.tunOn' : 'home.tunOff'));
     } catch (error) {
       final appError = errorFrom(error);
+      // 启动失败时把开关恢复到实际能跑的那一档：TUN 起不来却留着 tun=true，
+      // 下次点"停止"或重启都会拿一份没生效的设置继续往下走。
+      if (settings.tun != previous.tun ||
+          settings.systemProxy != previous.systemProxy) {
+        settings = settings.copyWith(
+          tun: previous.tun,
+          systemProxy: previous.systemProxy,
+        );
+        try {
+          await store.saveSettings(settings);
+        } catch (_) {}
+        if (previous.systemProxy && phase == CorePhase.running) {
+          try {
+            await systemProxy.enable(
+              settings.mixedPort,
+              bypass: settings.proxyBypass,
+            );
+            _systemProxyApplied = true;
+          } catch (_) {}
+        }
+        _notify();
+      }
       _notice(appError.localized(l10n), error: true);
       rethrow;
     }
@@ -455,7 +592,10 @@ class AppController extends ChangeNotifier {
     if (Platform.isWindows && settings.tun) return;
     if (!settings.systemProxy || !SystemProxyService.supported) return;
     try {
-      await systemProxy.enable(settings.mixedPort, bypass: settings.proxyBypass);
+      await systemProxy.enable(
+        settings.mixedPort,
+        bypass: settings.proxyBypass,
+      );
       _systemProxyApplied = true;
     } catch (error) {
       _systemProxyApplied = false;
@@ -515,7 +655,11 @@ class AppController extends ChangeNotifier {
     _exitCode = null;
     startedAt = null;
     proxySnapshot = const ProxiesSnapshot(proxies: {}, groups: []);
-    connectionsSnapshot = const ConnectionsSnapshot(connections: [], uploadTotal: 0, downloadTotal: 0);
+    connectionsSnapshot = const ConnectionsSnapshot(
+      connections: [],
+      uploadTotal: 0,
+      downloadTotal: 0,
+    );
     trafficHistory.clear();
     uploadSpeed = 0;
     downloadSpeed = 0;
@@ -532,7 +676,8 @@ class AppController extends ChangeNotifier {
     try {
       await ensureProfile(sub);
       final profile = await store.readProfile(sub.id);
-      if (profile == null || profile.trim().isEmpty) throw const AppError('noProfile');
+      if (profile == null || profile.trim().isEmpty)
+        throw const AppError('noProfile');
       final config = _configGenerator.generate(
         profile: profile,
         settings: settings,
@@ -551,10 +696,15 @@ class AppController extends ChangeNotifier {
         notificationText: l10n.get('notification.vpnText'),
         notificationStop: l10n.get('notification.stop'),
         apiSecret: settings.secret,
+        splitTunnelMode: settings.splitTunnelMode,
+        splitTunnelPackages: settings.splitTunnelPackages,
+        tunMtu: settings.tunMtu,
       );
       final version = await _waitForApi();
       coreVersion = version.version;
       phase = CorePhase.running;
+      stopUnconfirmed = false;
+      _activeSplitSignature = settings.splitTunnelSignature;
       startedAt = DateTime.now();
       _notify();
       await _enableSystemProxy();
@@ -575,17 +725,31 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> stopCore({bool silent = false}) async {
-    if (phase == CorePhase.stopped) return;
+  /// 返回 false 表示停止请求没被提权监护进程确认。此时内核状态已经无法由
+  /// 本进程控制，调用方绝不能再按"已经停机"继续启动、替换或切换接管方式。
+  Future<bool> stopCore({bool silent = false}) async {
+    if (phase == CorePhase.stopped) {
+      if (!stopUnconfirmed) return true;
+      final error = const AppError('tunStopUnconfirmed');
+      lastError = error;
+      _notify();
+      if (!silent) _notice(error.localized(l10n), error: true);
+      return false;
+    }
     phase = CorePhase.stopping;
     _notify();
     _stopLiveFeeds();
     await _disableSystemProxy();
-    await core.stop();
+    final confirmed = await core.stop();
     phase = CorePhase.stopped;
+    _activeSplitSignature = null;
     startedAt = null;
     proxySnapshot = const ProxiesSnapshot(proxies: {}, groups: []);
-    connectionsSnapshot = const ConnectionsSnapshot(connections: [], uploadTotal: 0, downloadTotal: 0);
+    connectionsSnapshot = const ConnectionsSnapshot(
+      connections: [],
+      uploadTotal: 0,
+      downloadTotal: 0,
+    );
     connectionsError = null;
     uploadSpeed = 0;
     downloadSpeed = 0;
@@ -594,15 +758,183 @@ class AppController extends ChangeNotifier {
     memoryInUse = 0;
     trafficHistory.clear();
     latency.updateAll((key, value) => null);
+    stopUnconfirmed = !confirmed;
+    if (!confirmed) {
+      final error = const AppError('tunStopUnconfirmed');
+      lastError = error;
+      _notify();
+      if (!silent) _notice(error.localized(l10n), error: true);
+      return false;
+    }
+    if (lastError?.code == 'tunStopUnconfirmed') lastError = null;
     _notify();
     if (!silent) _notice(l10n.get('toast.coreStopped'));
+    return true;
   }
 
   Future<void> restartCore({bool silent = false}) async {
     if (isBusy) return;
     final wasRunning = phase == CorePhase.running;
-    if (wasRunning) await stopCore(silent: true);
+    if (wasRunning && !await stopCore(silent: true)) return;
     await startCore(silent: silent);
+  }
+
+  // --------------------------------------------------------------- core update
+
+  bool get usingUpdatedCore =>
+      Platform.isWindows && paths.coreOverrideFile.existsSync();
+
+  /// 让当前磁盘上的内核自己报一次版本。内核没跑时关于页也用它显示版本；
+  /// 更新/回退后这个值必须重新探测，不能沿用控制接口的旧值。
+  Future<String?> probeCoreVersion() async {
+    final path = core.binaryPath;
+    if (path == null) {
+      localCoreVersion = null;
+    } else {
+      final output = await CoreUpdateService.binaryVersion(path);
+      localCoreVersion = output == null
+          ? null
+          : CoreUpdateService.versionFromOutput(output);
+    }
+    _notify();
+    return localCoreVersion;
+  }
+
+  Future<CoreRelease?> checkCoreUpdate() async {
+    if (checkingCoreUpdate) return null;
+    checkingCoreUpdate = true;
+    _notify();
+    try {
+      return await const CoreUpdateService().latest(
+        proxyPort: _subscriptionProxyPort,
+      );
+    } finally {
+      checkingCoreUpdate = false;
+      _notify();
+    }
+  }
+
+  /// 先下载、解压、用新 exe 跑 `-v` 校验版本，全部通过后才停内核替换文件。
+  /// 下载期间内核照常工作；替换后如果它本来在跑就自动拉起来——TUN 模式除外，
+  /// 那会再弹一次 UAC，授权决定交给用户。
+  Future<void> installCoreUpdate(CoreRelease release) async {
+    if (!Platform.isWindows) throw const AppError('unsupportedPlatform');
+    if (updatingCore) return;
+    if (isBusy) throw const AppError('generic', detail: 'Core is busy');
+
+    updatingCore = true;
+    coreUpdateProgress = 0;
+    _notify();
+    final service = const CoreUpdateService();
+    final temp = File(
+      p.join(paths.coreOverrideFile.parent.path, 'mihomo-update.exe'),
+    );
+    var wasRunning = false;
+    var stoppedForReplace = false;
+    try {
+      final zip = await service.download(
+        release,
+        proxyPort: phase == CorePhase.running ? settings.mixedPort : null,
+        onProgress: (received, total) {
+          if (!updatingCore) return;
+          coreUpdateProgress = total > 0
+              ? (received / total).clamp(0.0, 1.0).toDouble()
+              : 0;
+          _notify();
+        },
+      );
+      coreUpdateProgress = 1;
+      _notify();
+
+      final bytes = CoreUpdateService.extractCore(zip);
+      await paths.coreOverrideFile.parent.create(recursive: true);
+      await temp.writeAsBytes(bytes, flush: true);
+      final output = await CoreUpdateService.binaryVersion(temp.path);
+      final reported = output == null
+          ? null
+          : CoreUpdateService.versionFromOutput(output);
+      if (reported == null ||
+          UpdateService.compareVersions(reported, release.version) != 0) {
+        throw AppError(
+          'coreUpdateVerify',
+          detail: reported == null
+              ? 'The downloaded executable did not report a version'
+              : 'Downloaded core reports $reported, expected ${release.version}',
+        );
+      }
+
+      wasRunning = phase == CorePhase.running;
+      if (phase != CorePhase.stopped || stopUnconfirmed) {
+        stoppedForReplace = true;
+        if (!await stopCore(silent: true)) {
+          throw const AppError('tunStopUnconfirmed');
+        }
+        coreVersion = null;
+      }
+      // 同目录 rename 替换的是目录项本身：不会出现目标文件被截断到一半、
+      // 进程恰好在这时启动而拿到一个坏内核的窗口。验证过的临时文件已经在同盘。
+      await temp.rename(paths.coreOverrideFile.path);
+      localCoreVersion = reported;
+      _notice(
+        l10n.get(
+          wasRunning && settings.tun
+              ? 'settings.coreUpdateTunHint'
+              : 'settings.coreUpdateInstalled',
+          [release.version],
+        ),
+      );
+      if (wasRunning && !settings.tun) {
+        await startCore(silent: true);
+      }
+    } catch (error) {
+      if (stoppedForReplace && wasRunning && !settings.tun) {
+        // 替换失败时至少把原来那个内核拉回来，别让一次更新把代理留在停机状态。
+        await startCore(silent: true);
+      }
+      final appError = errorFrom(error);
+      _notice(appError.localized(l10n), error: true);
+      rethrow;
+    } finally {
+      try {
+        if (await temp.exists()) await temp.delete();
+      } catch (_) {}
+      updatingCore = false;
+      coreUpdateProgress = 0;
+      _notify();
+    }
+  }
+
+  Future<void> restoreBundledCore() async {
+    if (!Platform.isWindows) throw const AppError('unsupportedPlatform');
+    if (updatingCore) return;
+    if (!await paths.coreOverrideFile.exists()) return;
+    if (isBusy) throw const AppError('generic', detail: 'Core is busy');
+
+    updatingCore = true;
+    _notify();
+    var wasRunning = false;
+    try {
+      wasRunning = phase == CorePhase.running;
+      if (phase != CorePhase.stopped || stopUnconfirmed) {
+        if (!await stopCore(silent: true)) {
+          throw const AppError('tunStopUnconfirmed');
+        }
+        coreVersion = null;
+      }
+      await paths.coreOverrideFile.delete();
+      await probeCoreVersion();
+      _notice(l10n.get('settings.coreRestoreDone'));
+      if (wasRunning && !settings.tun) {
+        await startCore(silent: true);
+      }
+    } catch (error) {
+      final appError = errorFrom(error);
+      _notice(appError.localized(l10n), error: true);
+      rethrow;
+    } finally {
+      updatingCore = false;
+      _notify();
+    }
   }
 
   Future<void> _toggleCore() async {
@@ -629,7 +961,11 @@ class AppController extends ChangeNotifier {
     Object? lastFailure;
     while (DateTime.now().isBefore(deadline)) {
       if (_exitCode != null) {
-        throw AppError('coreExited', statusCode: _exitCode, detail: core.log.tail(14));
+        throw AppError(
+          'coreExited',
+          statusCode: _exitCode,
+          detail: core.log.tail(14),
+        );
       }
       try {
         return await api.version();
@@ -639,7 +975,10 @@ class AppController extends ChangeNotifier {
       await Future<void>.delayed(const Duration(milliseconds: 350));
     }
     final reason = lastFailure?.toString() ?? 'unknown';
-    throw AppError('startTimeout', detail: '${api.baseUrl}: $reason\n${core.log.tail(14)}');
+    throw AppError(
+      'startTimeout',
+      detail: '${api.baseUrl}: $reason\n${core.log.tail(14)}',
+    );
   }
 
   void _handleCoreExit(int code) {
@@ -647,7 +986,11 @@ class AppController extends ChangeNotifier {
     if (_disposed) return;
     if (phase == CorePhase.running) {
       _resetRuntimeState();
-      lastError = AppError('coreExited', statusCode: code, detail: core.log.tail(10));
+      lastError = AppError(
+        'coreExited',
+        statusCode: code,
+        detail: core.log.tail(10),
+      );
       _notify();
       _notice(lastError!.localized(l10n), error: true);
     }
@@ -668,9 +1011,13 @@ class AppController extends ChangeNotifier {
     _stopLiveFeeds();
     unawaited(_disableSystemProxy());
     phase = CorePhase.stopped;
+    _activeSplitSignature = null;
     startedAt = null;
-    proxySnapshot = const ProxiesSnapshot(proxies: {}, groups: []);
-    connectionsSnapshot = const ConnectionsSnapshot(connections: [], uploadTotal: 0, downloadTotal: 0);
+    connectionsSnapshot = const ConnectionsSnapshot(
+      connections: [],
+      uploadTotal: 0,
+      downloadTotal: 0,
+    );
     uploadSpeed = 0;
     downloadSpeed = 0;
     sessionUpload = 0;
@@ -685,7 +1032,10 @@ class AppController extends ChangeNotifier {
     if (!_foreground) return;
     _syncLogFeed();
     _syncProxyTimer();
-    _latencyTimer = Timer.periodic(AppInfo.latencyProbeInterval, (_) => testLatency());
+    _latencyTimer = Timer.periodic(
+      AppInfo.latencyProbeInterval,
+      (_) => testLatency(),
+    );
     _syncHomeFeeds();
     _syncConnectionTimer();
   }
@@ -778,8 +1128,12 @@ class AppController extends ChangeNotifier {
   void _syncConnectionTimer() {
     _connectionTimer?.cancel();
     _connectionTimer = null;
-    if (!_foreground || !_connectionsActive || phase != CorePhase.running) return;
-    _connectionTimer = Timer.periodic(const Duration(seconds: 5), (_) => refreshConnections(silent: true));
+    if (!_foreground || !_connectionsActive || phase != CorePhase.running)
+      return;
+    _connectionTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => refreshConnections(silent: true),
+    );
     refreshConnections(silent: true);
   }
 
@@ -791,7 +1145,9 @@ class AppController extends ChangeNotifier {
     _proxyTimer = null;
     if (!_foreground || phase != CorePhase.running) return;
     _proxyTimer = Timer.periodic(
-      _proxyActive ? AppInfo.proxyPollVisibleInterval : AppInfo.proxyPollIdleInterval,
+      _proxyActive
+          ? AppInfo.proxyPollVisibleInterval
+          : AppInfo.proxyPollIdleInterval,
       (_) => refreshProxies(silent: true),
     );
     // 切到代理页时先把表拉回来，节点列表不该空着一个周期才填上。
@@ -870,7 +1226,8 @@ class AppController extends ChangeNotifier {
     var changed = false;
     for (final entry in saved.entries) {
       final group = proxySnapshot.proxies[entry.key];
-      if (group == null || !group.isGroup || !group.all.contains(entry.value)) continue;
+      if (group == null || !group.isGroup || !group.all.contains(entry.value))
+        continue;
       if (group.now == entry.value) continue;
       try {
         await api.selectProxy(entry.key, entry.value);
@@ -915,7 +1272,7 @@ class AppController extends ChangeNotifier {
     testingNodes.add(name);
     _notify();
     try {
-      final delay = await api.proxyDelay(name, url: AppInfo.defaultTestUrl);
+      final delay = await api.proxyDelay(name, url: settings.testUrl);
       _recordDelays({name: delay});
     } catch (_) {
       _recordDelays({name: -1});
@@ -930,7 +1287,10 @@ class AppController extends ChangeNotifier {
     testingGroups.add(group.name);
     _notify();
     try {
-      final results = await api.groupDelay(group.name, url: AppInfo.defaultTestUrl);
+      final results = await api.groupDelay(
+        group.name,
+        url: settings.testUrl,
+      );
       if (results.isEmpty) {
         // 整组超时：每个节点都应反映这次结果，而不是留着上一轮的旧数字。
         _recordDelays({for (final name in group.all) name: -1});
@@ -954,7 +1314,10 @@ class AppController extends ChangeNotifier {
     _notify();
     for (final group in proxySnapshot.groups) {
       try {
-        final results = await api.groupDelay(group.name, url: AppInfo.defaultTestUrl);
+        final results = await api.groupDelay(
+          group.name,
+          url: settings.testUrl,
+        );
         _recordDelays(results);
       } catch (_) {
         _recordDelays({for (final name in group.all) name: -1});
@@ -991,7 +1354,8 @@ class AppController extends ChangeNotifier {
     try {
       await store.saveTestedDelays({
         for (final entry in _delaysBySubscription.entries)
-          if (entry.value.isNotEmpty) entry.key: Map<String, int>.of(entry.value),
+          if (entry.value.isNotEmpty)
+            entry.key: Map<String, int>.of(entry.value),
       });
     } catch (_) {}
   }
@@ -1078,12 +1442,22 @@ class AppController extends ChangeNotifier {
   }
 
   Future<int> _probe(String url) async {
-    final client = createHttpClient(proxyPort: settings.mixedPort, timeout: const Duration(seconds: 5));
+    final client = createHttpClient(
+      proxyPort: settings.mixedPort,
+      timeout: const Duration(seconds: 5),
+    );
     final watch = Stopwatch()..start();
     try {
-      final request = await client.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 6));
-      request.headers.set(HttpHeaders.userAgentHeader, 'ClashGo/${AppInfo.version}');
-      final response = await request.close().timeout(const Duration(seconds: 6));
+      final request = await client
+          .getUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 6));
+      request.headers.set(
+        HttpHeaders.userAgentHeader,
+        'ClashGo/${AppInfo.version}',
+      );
+      final response = await request.close().timeout(
+        const Duration(seconds: 6),
+      );
       final elapsed = watch.elapsedMilliseconds;
       unawaited(response.drain<void>().catchError((_) {}));
       return response.statusCode < 500 ? elapsed : -1;
@@ -1098,7 +1472,25 @@ class AppController extends ChangeNotifier {
 
   String _randomId() {
     final random = Random.secure();
-    return List.generate(32, (_) => random.nextInt(16).toRadixString(16)).join();
+    return List.generate(
+      32,
+      (_) => random.nextInt(16).toRadixString(16),
+    ).join();
+  }
+
+  /// 外链兜底入口：clash://install-config?url=… 或直接订阅链接。
+  /// 解析失败和导入失败都走通知而不是抛错——深链没有对话框承接异常。
+  Future<void> handleIncomingLink(String raw) async {
+    final url = subscriptionUrlFromLink(raw);
+    if (url == null) {
+      _notice(l10n.get('subscriptions.linkInvalid'), error: true);
+      return;
+    }
+    try {
+      await addSubscription(url: url);
+    } catch (error) {
+      _notice(errorFrom(error).localized(l10n), error: true);
+    }
   }
 
   Future<Subscription> addSubscription({
@@ -1107,11 +1499,15 @@ class AppController extends ChangeNotifier {
     bool? autoUpdate,
     int? updateIntervalMinutes,
   }) async {
-    if (importingSubscription) throw const AppError('generic', detail: 'Another import is in progress');
+    if (importingSubscription)
+      throw const AppError('generic', detail: 'Another import is in progress');
     importingSubscription = true;
     _notify();
     try {
-      final fetched = await fetcher.fetchUrl(url.trim(), proxyPort: _subscriptionProxyPort);
+      final fetched = await fetcher.fetchUrl(
+        url.trim(),
+        proxyPort: _subscriptionProxyPort,
+      );
       fetcher.validateProfile(fetched.content);
       final subscription = await _createSubscription(
         content: fetched.content,
@@ -1131,7 +1527,8 @@ class AppController extends ChangeNotifier {
   }
 
   Future<Subscription> importLocalFile(File file) async {
-    if (importingSubscription) throw const AppError('generic', detail: 'Another import is in progress');
+    if (importingSubscription)
+      throw const AppError('generic', detail: 'Another import is in progress');
     importingSubscription = true;
     _notify();
     try {
@@ -1152,7 +1549,8 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  int? get _subscriptionProxyPort => phase == CorePhase.running ? settings.mixedPort : null;
+  int? get _subscriptionProxyPort =>
+      phase == CorePhase.running ? settings.mixedPort : null;
 
   Future<Subscription> _createSubscription({
     required String content,
@@ -1164,10 +1562,16 @@ class AppController extends ChangeNotifier {
     int? updateIntervalMinutes,
   }) async {
     final now = DateTime.now();
-    final resolvedName = _resolveName(name: name, headers: headers, content: content, url: url);
+    final resolvedName = _resolveName(
+      name: name,
+      headers: headers,
+      content: content,
+      url: url,
+    );
     // 添加对话框里显式指定的间隔优先；二维码导入等没有对话框的入口继续沿用
     // 订阅响应头（部分机场会下发），再退回 24 小时。
-    final interval = (updateIntervalMinutes != null && updateIntervalMinutes > 0)
+    final interval =
+        (updateIntervalMinutes != null && updateIntervalMinutes > 0)
         ? updateIntervalMinutes
         : (headers.updateIntervalMinutes ?? 1440);
     final subscription = Subscription(
@@ -1207,14 +1611,25 @@ class AppController extends ChangeNotifier {
     if (candidate.isEmpty) candidate = fetcher.nameFromProfile(content) ?? '';
     if (candidate.isEmpty) {
       final uri = Uri.tryParse(url);
-      candidate = uri?.host.isNotEmpty == true ? uri!.host : l10n.get('subscriptions.unnamed');
+      candidate = uri?.host.isNotEmpty == true
+          ? uri!.host
+          : l10n.get('subscriptions.unnamed');
     }
-    candidate = candidate.replaceAll(RegExp(r'\.(ya?ml)$', caseSensitive: false), '').trim();
-    if (candidate.isEmpty) candidate = l10n.get('subscriptions.autoName', [subscriptions.length + 1]);
+    candidate = candidate
+        .replaceAll(RegExp(r'\.(ya?ml)$', caseSensitive: false), '')
+        .trim();
+    if (candidate.isEmpty)
+      candidate = l10n.get('subscriptions.autoName', [
+        subscriptions.length + 1,
+      ]);
     return candidate;
   }
 
-  Future<bool> updateSubscription(String id, {bool restartIfActive = true, bool silent = false}) async {
+  Future<bool> updateSubscription(
+    String id, {
+    bool restartIfActive = true,
+    bool silent = false,
+  }) async {
     final index = subscriptions.indexWhere((sub) => sub.id == id);
     if (index < 0 || updatingSubscriptions.contains(id)) return false;
     final original = subscriptions[index];
@@ -1225,20 +1640,44 @@ class AppController extends ChangeNotifier {
       if (original.isLocal) {
         fetched = await fetcher.readFile(File(original.url));
       } else {
-        fetched = await fetcher.fetchUrl(original.url, userAgent: original.userAgent, proxyPort: _subscriptionProxyPort);
+        fetched = await fetcher.fetchUrl(
+          original.url,
+          userAgent: original.userAgent,
+          proxyPort: _subscriptionProxyPort,
+        );
       }
       fetcher.validateProfile(fetched.content);
       final now = DateTime.now();
-      final updated = original.copyWith(
+      // 抓取期间用户可能删除、排序或编辑订阅：旧下标和旧快照都已失效，
+      // 写入前必须按 id 重新定位，否则会覆盖别的订阅或把已删条目复活。
+      var currentIndex = subscriptions.indexWhere((sub) => sub.id == id);
+      if (currentIndex < 0) return false;
+      await store.writeProfile(id, fetched.content);
+      currentIndex = subscriptions.indexWhere((sub) => sub.id == id);
+      if (currentIndex < 0) {
+        // 写 profile 期间被删除：把刚写出的文件一起清掉。
+        await store.deleteProfile(id);
+        return false;
+      }
+      final current = subscriptions[currentIndex];
+      final updated = current.copyWith(
         lastUpdatedAt: now,
-        upload: fetched.headers.hasQuota ? fetched.headers.upload : original.upload,
-        download: fetched.headers.hasQuota ? fetched.headers.download : original.download,
-        total: fetched.headers.hasQuota ? fetched.headers.total : original.total,
-        expire: fetched.headers.hasQuota ? fetched.headers.expire : original.expire,
+        upload: fetched.headers.hasQuota
+            ? fetched.headers.upload
+            : current.upload,
+        download: fetched.headers.hasQuota
+            ? fetched.headers.download
+            : current.download,
+        total: fetched.headers.hasQuota
+            ? fetched.headers.total
+            : current.total,
+        expire: fetched.headers.hasQuota
+            ? fetched.headers.expire
+            : current.expire,
         clearError: true,
       );
-      await store.writeProfile(id, fetched.content);
-      subscriptions = List<Subscription>.from(subscriptions)..[index] = updated;
+      subscriptions = List<Subscription>.from(subscriptions)
+        ..[currentIndex] = updated;
       await store.saveSubscriptions(subscriptions);
       _notify();
       if (!silent) _notice(l10n.get('subscriptions.updateSuccess'));
@@ -1248,13 +1687,14 @@ class AppController extends ChangeNotifier {
       return true;
     } catch (error) {
       final appError = errorFrom(error);
-      final failed = original.copyWith(
-        lastError: appError.localized(l10n).replaceAll('\n', ' · '),
-        lastErrorAt: DateTime.now(),
-      );
       final currentIndex = subscriptions.indexWhere((sub) => sub.id == id);
       if (currentIndex >= 0) {
-        subscriptions = List<Subscription>.from(subscriptions)..[currentIndex] = failed;
+        final failed = subscriptions[currentIndex].copyWith(
+          lastError: appError.localized(l10n).replaceAll('\n', ' · '),
+          lastErrorAt: DateTime.now(),
+        );
+        subscriptions = List<Subscription>.from(subscriptions)
+          ..[currentIndex] = failed;
         await store.saveSubscriptions(subscriptions);
       }
       _notify();
@@ -1298,7 +1738,11 @@ class AppController extends ChangeNotifier {
     var updated = 0;
     var failed = 0;
     for (final sub in List<Subscription>.from(subscriptions)) {
-      final ok = await updateSubscription(sub.id, restartIfActive: false, silent: true);
+      final ok = await updateSubscription(
+        sub.id,
+        restartIfActive: false,
+        silent: true,
+      );
       if (!ok) {
         failed++;
         continue;
@@ -1316,7 +1760,10 @@ class AppController extends ChangeNotifier {
     } else if (updated == 0) {
       _notice(l10n.get('subscriptions.updateAllFailed'), error: true);
     } else {
-      _notice(l10n.get('subscriptions.updateAllPartial', [updated, failed]), error: true);
+      _notice(
+        l10n.get('subscriptions.updateAllPartial', [updated, failed]),
+        error: true,
+      );
     }
   }
 
@@ -1410,7 +1857,9 @@ class AppController extends ChangeNotifier {
           await restartCore(silent: true);
         }
       }
-      if (activeId == null) await core.clearRuntimeArtifacts();
+      if (activeId == null && !stopUnconfirmed) {
+        await core.clearRuntimeArtifacts();
+      }
     }
     _notice(l10n.get('subscriptions.deleted'));
   }
@@ -1431,15 +1880,22 @@ class AppController extends ChangeNotifier {
       final cached = await hasCachedProfile(sub.id);
       // 缓存缺失时即使没到期也补一次，否则离线页无节点可显示、内核也无法启动；
       // 刚失败过就等 10 分钟，避免订阅地址失效时每分钟重试一次。
-      final failedRecently = sub.lastErrorAt != null && now.difference(sub.lastErrorAt!) < const Duration(minutes: 10);
-      if ((next != null && next.isBefore(now)) || (!cached && !failedRecently)) due.add(sub);
+      final failedRecently =
+          sub.lastErrorAt != null &&
+          now.difference(sub.lastErrorAt!) < const Duration(minutes: 10);
+      if ((next != null && next.isBefore(now)) || (!cached && !failedRecently))
+        due.add(sub);
     }
     if (due.isEmpty) return;
     _autoUpdating = true;
     var updated = 0;
     var activeUpdated = false;
     for (final sub in due) {
-      final ok = await updateSubscription(sub.id, restartIfActive: false, silent: true);
+      final ok = await updateSubscription(
+        sub.id,
+        restartIfActive: false,
+        silent: true,
+      );
       if (ok) {
         updated++;
         if (sub.id == activeId) activeUpdated = true;
@@ -1454,12 +1910,94 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  // ------------------------------------------------------------------ backup
+
+  Future<Uint8List> exportBackup() async {
+    final profiles = <String, String>{};
+    for (final sub in subscriptions) {
+      final content = await store.readProfile(sub.id);
+      if (content != null && content.trim().isNotEmpty) {
+        profiles[sub.id] = content;
+      }
+    }
+    final delays = <String, Map<String, int>>{
+      for (final entry in _delaysBySubscription.entries)
+        if (entry.value.isNotEmpty) entry.key: Map<String, int>.of(entry.value),
+    };
+    return BackupService.encode(
+      settings: settings,
+      subscriptions: subscriptions,
+      activeId: activeId,
+      selections: selections,
+      testedDelays: delays,
+      profiles: profiles,
+    );
+  }
+
+  BackupSnapshot readBackup(Uint8List bytes) => BackupService.decode(bytes);
+
+  /// 恢复是整包替换：先停内核（端口、TUN、系统代理都可能被新设置改变），
+  /// 再落盘。不自动重启——Windows TUN 会再弹一次 UAC，交给用户决定。
+  Future<void> applyBackup(BackupSnapshot snapshot) async {
+    if (isBusy) throw const AppError('generic', detail: 'Core is busy');
+    final wasRunning = phase == CorePhase.running;
+    if ((phase != CorePhase.stopped || stopUnconfirmed) &&
+        !await stopCore(silent: true)) {
+      throw const AppError('tunStopUnconfirmed');
+    }
+
+    settings = AppSettings.fromJson(snapshot.settings.toJson());
+    settings = _oneTakeover(settings).copyWith(
+      proxyBypass: AppSettings.normalizeProxyBypass(settings.proxyBypass),
+    );
+    subscriptions = snapshot.subscriptions;
+    activeId = snapshot.activeId;
+    selections = snapshot.selections;
+    _delaysBySubscription
+      ..clear()
+      ..addEntries(
+        snapshot.testedDelays.entries.map(
+          (entry) => MapEntry(entry.key, Map<String, int>.of(entry.value)),
+        ),
+      );
+    _orphanDelays.clear();
+
+    api.configure(port: settings.apiPort, secret: settings.secret);
+    await store.saveSettings(settings);
+    await store.saveSubscriptions(subscriptions);
+    await store.saveActiveId(activeId);
+    await store.saveSelections(selections);
+    await _persistTestedDelays();
+    for (final entry in snapshot.profiles.entries) {
+      await store.writeProfile(entry.key, entry.value);
+    }
+    final validIds = subscriptions.map((sub) => sub.id).toSet();
+    await store.ensureCleanProfiles(validIds);
+    try {
+      startup.reconcile(settings.launchAtStartup);
+    } catch (_) {}
+    _notify();
+    _notice(
+      wasRunning
+          ? l10n.get('settings.backupImportedRestart', [
+              subscriptions.length,
+              snapshot.profileCount,
+            ])
+          : l10n.get('settings.backupImported', [
+              subscriptions.length,
+              snapshot.profileCount,
+            ]),
+    );
+  }
+
   // ------------------------------------------------------------------ misc
 
   String diagnostics() {
     final buffer = StringBuffer()
       ..writeln('${AppInfo.name} ${AppInfo.version}')
-      ..writeln('platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}')
+      ..writeln(
+        'platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+      )
       ..writeln('core phase: ${phase.name}')
       ..writeln('core version: ${coreVersion ?? '—'}')
       ..writeln('core binary: ${core.binaryPath ?? '—'}')

@@ -4,7 +4,7 @@ import '../../core/l10n.dart';
 import '../../core/theme.dart';
 import '../widgets/app_icon.dart';
 
-enum AppTool { dns, rules, providers, connections, logs }
+enum AppTool { dns, rules, providers, ruleProviders, connections, logs }
 
 class AppNavigation extends InheritedWidget {
   const AppNavigation({

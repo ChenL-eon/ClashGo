@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -11,17 +14,43 @@ import '../../core/formatters.dart';
 import '../../core/l10n.dart';
 import '../../core/theme.dart';
 import '../../models/app_settings.dart';
+import '../../models/dns_config.dart';
+import '../../services/android_apps.dart';
+import '../../services/core_update_service.dart';
 import '../../services/system_proxy.dart';
 import '../../services/update_service.dart';
 import '../widgets/app_icon.dart';
 import '../widgets/common.dart';
 import '../widgets/dialogs.dart';
+import '../widgets/split_tunnel_section.dart';
 import '../widgets/status_widgets.dart';
 
-enum _SettingsView { hub, theme, language, clash, behavior, about, data }
+enum _SettingsView {
+  hub,
+  theme,
+  language,
+  clash,
+  splitTunnel,
+  behavior,
+  about,
+  data,
+  dns,
+  override,
+}
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key});
+  const SettingsPage({
+    super.key,
+    this.appsLoader,
+    this.appsIconsLoader,
+    this.androidOverride,
+  });
+
+  /// 测试用注入点：非安卓宿主上也能渲染分应用代理页。
+  final Future<List<AndroidAppInfo>> Function()? appsLoader;
+  final Future<Map<String, Uint8List>> Function(List<String> packageNames)?
+  appsIconsLoader;
+  final bool? androidOverride;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -32,6 +61,9 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _search = TextEditingController();
   String _query = '';
   bool _checkingUpdate = false;
+  bool _checkingCoreUpdate = false;
+
+  bool get _android => widget.androidOverride ?? Platform.isAndroid;
 
   @override
   void dispose() {
@@ -39,7 +71,13 @@ class _SettingsPageState extends State<SettingsPage> {
     super.dispose();
   }
 
-  void _open(_SettingsView view) => setState(() => _view = view);
+  void _open(_SettingsView view) {
+    setState(() => _view = view);
+    if (view == _SettingsView.about) {
+      // 内核没跑时控制接口报不了版本，关于页的版本/来源只能靠磁盘上那个 exe 自报。
+      unawaited(context.read<AppController>().probeCoreVersion());
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,20 +89,32 @@ class _SettingsPageState extends State<SettingsPage> {
     return _buildDetail(context, controller, mobile: mobile);
   }
 
-  Widget _buildHub(BuildContext context, AppController controller, {required bool mobile}) {
+  Widget _buildHub(
+    BuildContext context,
+    AppController controller, {
+    required bool mobile,
+  }) {
     final l10n = context.l10n;
     final palette = AppPalette.of(context);
-    Widget chevron() => AppIcon('right-small-line', size: 14, color: palette.muted);
+    Widget chevron() =>
+        AppIcon('right-small-line', size: 14, color: palette.muted);
     return PageContainer(
       children: [
         if (mobile)
-          MobilePageHeader(title: l10n.get('nav.settings'), subtitle: l10n.get('settings.subtitle'))
+          MobilePageHeader(
+            title: l10n.get('nav.settings'),
+            subtitle: l10n.get('settings.subtitle'),
+          )
         else
           PageHeader(
             title: l10n.get('nav.settings'),
             subtitle: l10n.get('settings.subtitle'),
             actions: [
-              AppBadge(text: 'v${AppInfo.version}', icon: 'shield-shape-line', dense: true),
+              AppBadge(
+                text: 'v${AppInfo.version}',
+                icon: 'shield-shape-line',
+                dense: true,
+              ),
             ],
           ),
         SizedBox(height: mobile ? 16 : 20),
@@ -110,8 +160,35 @@ class _SettingsPageState extends State<SettingsPage> {
           _section(
             context,
             mobile: mobile,
+            title: l10n.get('settings.group.advanced'),
+            children: [
+              SettingRow(
+                title: l10n.get('settings.dns'),
+                subtitle: l10n.get('settings.dnsHint'),
+                trailing: chevron(),
+                onTap: () => _open(_SettingsView.dns),
+              ),
+              SettingRow(
+                title: l10n.get('settings.override'),
+                subtitle: l10n.get('settings.overrideHint'),
+                trailing: chevron(),
+                onTap: () => _open(_SettingsView.override),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          _section(
+            context,
+            mobile: mobile,
             title: l10n.get('settings.group.app'),
             children: [
+              if (_android)
+                SettingRow(
+                  title: l10n.get('settings.splitTunnel'),
+                  subtitle: l10n.get('settings.splitTunnelHint'),
+                  trailing: chevron(),
+                  onTap: () => _open(_SettingsView.splitTunnel),
+                ),
               SettingRow(
                 title: l10n.get('settings.hub.behavior'),
                 subtitle: l10n.get('settings.hub.behaviorHint'),
@@ -153,11 +230,17 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  List<Widget> _searchSections(BuildContext context, AppController controller, {required bool mobile}) {
+  List<Widget> _searchSections(
+    BuildContext context,
+    AppController controller, {
+    required bool mobile,
+  }) {
     final l10n = context.l10n;
     final palette = AppPalette.of(context);
     final query = _query.trim().toLowerCase();
-    final matches = _settingsCatalog(controller).where((entry) => entry.matches(query)).toList();
+    final matches = _settingsCatalog(controller)
+        .where((entry) => entry.matches(query))
+        .toList();
     if (matches.isEmpty) {
       return [
         SurfaceCard(
@@ -188,9 +271,15 @@ class _SettingsPageState extends State<SettingsPage> {
             for (final entry in entries)
               SettingRow(
                 title: l10n.get(entry.titleKey),
-                subtitle: entry.subtitleKey == null ? null : l10n.get(entry.subtitleKey!),
+                subtitle: entry.subtitleKey == null
+                    ? null
+                    : l10n.get(entry.subtitleKey!),
                 titleColor: entry.danger ? palette.danger : null,
-                trailing: AppIcon('right-small-line', size: 14, color: palette.muted),
+                trailing: AppIcon(
+                  'right-small-line',
+                  size: 14,
+                  color: palette.muted,
+                ),
                 onTap: () => _openFromSearch(entry.view),
               ),
           ],
@@ -206,6 +295,9 @@ class _SettingsPageState extends State<SettingsPage> {
       _query = '';
       _view = view;
     });
+    if (view == _SettingsView.about) {
+      unawaited(context.read<AppController>().probeCoreVersion());
+    }
   }
 
   Future<void> _checkUpdates(AppController controller) async {
@@ -234,8 +326,15 @@ class _SettingsPageState extends State<SettingsPage> {
           subtitle: l10n.get('settings.updateAvailable', [release.version]),
           icon: 'download-2-line',
           content: Text(
-            l10n.get('settings.updateDialogMessage', [AppInfo.version, release.version]),
-            style: TextStyle(fontSize: 13, height: 1.5, color: AppPalette.of(dialogContext).strongMuted),
+            l10n.get('settings.updateDialogMessage', [
+              AppInfo.version,
+              release.version,
+            ]),
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.5,
+              color: AppPalette.of(dialogContext).strongMuted,
+            ),
           ),
           actions: [
             TextButton(
@@ -260,8 +359,160 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _checkCoreUpdate(AppController controller) async {
+    if (_checkingCoreUpdate) return;
+    final l10n = context.l10n;
+    setState(() => _checkingCoreUpdate = true);
+    try {
+      final release = await controller.checkCoreUpdate();
+      if (!mounted) return;
+      if (release == null) {
+        showAppToast(context, l10n.get('settings.coreCheckFailed'), error: true);
+        return;
+      }
+      var current = controller.localCoreVersion;
+      if (current == null) {
+        current = await controller.probeCoreVersion();
+        if (!mounted) return;
+      }
+      if (current != null && !UpdateService.isNewer(release.version, current)) {
+        showAppToast(context, l10n.get('settings.coreUpdateLatest'));
+        return;
+      }
+      final confirmed = await showAppDialog<bool>(
+        context,
+        maxWidth: 460,
+        builder: (dialogContext) => AppDialog(
+          title: l10n.get('settings.coreUpdateDialogTitle'),
+          subtitle: l10n.get('settings.coreUpdateAvailable', [release.version]),
+          icon: 'download-2-line',
+          content: Text(
+            l10n.get('settings.coreUpdateDialogMessage', [
+              current ?? l10n.get('common.unknown'),
+              release.version,
+            ]),
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.6,
+              color: AppPalette.of(dialogContext).strongMuted,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(dialogContext.t('common.cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(dialogContext.t('settings.coreUpdateAction')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      await showAppDialog<void>(
+        context,
+        dismissible: false,
+        maxWidth: 440,
+        builder: (_) => _CoreUpdateDialog(
+          controller: controller,
+          release: release,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showAppToast(context, errorFrom(error).localized(context.l10n), error: true);
+    } finally {
+      if (mounted) setState(() => _checkingCoreUpdate = false);
+    }
+  }
+
+  Future<void> _restoreBundledCore(AppController controller) async {
+    final l10n = context.l10n;
+    final confirmed = await showConfirmDialog(
+      context,
+      title: l10n.get('settings.coreRestoreTitle'),
+      message: l10n.get('settings.coreRestoreMessage'),
+      confirmText: l10n.get('settings.coreRestore'),
+      icon: 'refresh-2-line',
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await controller.restoreBundledCore();
+    } catch (_) {
+      // 控制器已经把失败原因推成通知，这里不再重复弹一次。
+    }
+  }
+
+  Future<void> _exportBackup(AppController controller) async {
+    final l10n = context.l10n;
+    final confirmed = await showConfirmDialog(
+      context,
+      title: l10n.get('settings.backupExportTitle'),
+      message: l10n.get('settings.backupExportMessage'),
+      confirmText: l10n.get('settings.backupExport'),
+      icon: 'file-line',
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      final bytes = await controller.exportBackup();
+      final now = DateTime.now();
+      String two(int value) => value.toString().padLeft(2, '0');
+      final stamp =
+          '${now.year}${two(now.month)}${two(now.day)}-${two(now.hour)}${two(now.minute)}';
+      final uri = await FilePicker.saveFile(
+        fileName: 'ClashGo-backup-$stamp.json',
+        bytes: bytes,
+        mimeType: 'application/json',
+        dialogTitle: l10n.get('settings.backupExportTitle'),
+      );
+      if (!mounted || uri == null) return;
+      showAppToast(context, l10n.get('settings.backupExportDone'));
+    } catch (_) {
+      if (!mounted) return;
+      showAppToast(context, l10n.get('settings.backupExportFailed'), error: true);
+    }
+  }
+
+  Future<void> _importBackup(AppController controller) async {
+    final l10n = context.l10n;
+    try {
+      final picked = await FilePicker.pickFile(
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+      );
+      if (picked == null) return;
+      final snapshot = controller.readBackup(await picked.readAsBytes());
+      if (!mounted) return;
+      final confirmed = await showConfirmDialog(
+        context,
+        title: l10n.get('settings.backupImportTitle'),
+        message: l10n.get('settings.backupImportMessage', [
+          snapshot.subscriptions.length,
+          snapshot.profileCount,
+        ]),
+        confirmText: l10n.get('settings.backupImport'),
+        danger: true,
+        icon: 'file-line',
+      );
+      if (!confirmed || !mounted) return;
+      await controller.applyBackup(snapshot);
+    } catch (error) {
+      if (!mounted) return;
+      final appError = errorFrom(error);
+      showAppToast(
+        context,
+        appError.code == 'backupInvalid'
+            ? l10n.get('settings.backupImportInvalid')
+            : appError.localized(l10n),
+        error: true,
+      );
+    }
+  }
+
   List<_SettingEntry> _settingsCatalog(AppController controller) {
-    final channelKey = controller.settings.updateChannel == AppSettings.channelPreview
+    final channelKey =
+        controller.settings.updateChannel == AppSettings.channelPreview
         ? 'settings.channel.preview'
         : 'settings.channel.stable';
     return [
@@ -289,6 +540,20 @@ class _SettingsPageState extends State<SettingsPage> {
         titleKey: 'settings.language',
         subtitleKey: 'settings.languageHint',
       ),
+      if (_android)
+        _SettingEntry(
+          view: _SettingsView.splitTunnel,
+          groupKey: 'settings.group.app',
+          titleKey: 'settings.splitTunnel',
+          subtitleKey: 'settings.splitTunnelHint',
+          extraKeys: const [
+            'settings.split.mode',
+            'settings.split.mode.all',
+            'settings.split.mode.allow',
+            'settings.split.mode.disallow',
+            'settings.split.apps',
+          ],
+        ),
       const _SettingEntry(
         view: _SettingsView.clash,
         groupKey: 'settings.group.clash',
@@ -328,6 +593,24 @@ class _SettingsPageState extends State<SettingsPage> {
       const _SettingEntry(
         view: _SettingsView.clash,
         groupKey: 'settings.group.clash',
+        titleKey: 'settings.testUrl',
+        subtitleKey: 'settings.testUrlHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.tunMtu',
+        subtitleKey: 'settings.tunMtuHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.tunStack',
+        subtitleKey: 'settings.tunStackHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
         titleKey: 'settings.systemProxy',
         subtitleKey: 'settings.systemProxyHint',
       ),
@@ -342,6 +625,30 @@ class _SettingsPageState extends State<SettingsPage> {
         view: _SettingsView.clash,
         groupKey: 'settings.group.clash',
         titleKey: 'settings.runtimeDir',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.dns,
+        groupKey: 'settings.group.advanced',
+        titleKey: 'settings.dns',
+        subtitleKey: 'settings.dnsHint',
+        extraKeys: [
+          'settings.dnsEnable',
+          'settings.dnsEnhanced',
+          'settings.dnsFakeIpRange',
+          'settings.dnsNameserver',
+          'settings.dnsFallback',
+          'settings.dnsDefaultNameserver',
+        ],
+      ),
+      const _SettingEntry(
+        view: _SettingsView.override,
+        groupKey: 'settings.group.advanced',
+        titleKey: 'settings.override',
+        subtitleKey: 'settings.overrideHint',
+        extraKeys: [
+          'settings.overrideEditorHint',
+          'settings.overrideApply',
+        ],
       ),
       const _SettingEntry(
         view: _SettingsView.behavior,
@@ -392,7 +699,10 @@ class _SettingsPageState extends State<SettingsPage> {
         groupKey: 'settings.group.app',
         titleKey: 'settings.updateChannel',
         subtitleKey: channelKey,
-        extraKeys: const ['settings.channel.stable', 'settings.channel.preview'],
+        extraKeys: const [
+          'settings.channel.stable',
+          'settings.channel.preview',
+        ],
       ),
       const _SettingEntry(
         view: _SettingsView.about,
@@ -410,6 +720,25 @@ class _SettingsPageState extends State<SettingsPage> {
         groupKey: 'settings.group.app',
         titleKey: 'settings.coreBinary',
       ),
+      if (Platform.isWindows) ...[
+        const _SettingEntry(
+          view: _SettingsView.about,
+          groupKey: 'settings.group.app',
+          titleKey: 'settings.coreSource',
+        ),
+        const _SettingEntry(
+          view: _SettingsView.about,
+          groupKey: 'settings.group.app',
+          titleKey: 'settings.checkCoreUpdate',
+          subtitleKey: 'settings.checkCoreUpdateHint',
+        ),
+        const _SettingEntry(
+          view: _SettingsView.about,
+          groupKey: 'settings.group.app',
+          titleKey: 'settings.coreRestore',
+          subtitleKey: 'settings.coreRestoreHint',
+        ),
+      ],
       const _SettingEntry(
         view: _SettingsView.about,
         groupKey: 'settings.group.app',
@@ -440,6 +769,18 @@ class _SettingsPageState extends State<SettingsPage> {
       const _SettingEntry(
         view: _SettingsView.data,
         groupKey: 'settings.group.maintenance',
+        titleKey: 'settings.backupExport',
+        subtitleKey: 'settings.backupExportHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.data,
+        groupKey: 'settings.group.maintenance',
+        titleKey: 'settings.backupImport',
+        subtitleKey: 'settings.backupImportHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.data,
+        groupKey: 'settings.group.maintenance',
         titleKey: 'settings.updateAllSubs',
         subtitleKey: 'settings.updateAllSubsHint',
       ),
@@ -459,27 +800,39 @@ class _SettingsPageState extends State<SettingsPage> {
     ];
   }
 
-  Widget _buildDetail(BuildContext context, AppController controller, {required bool mobile}) {
+  Widget _buildDetail(
+    BuildContext context,
+    AppController controller, {
+    required bool mobile,
+  }) {
     final l10n = context.l10n;
     final title = switch (_view) {
       _SettingsView.theme => l10n.get('settings.theme'),
       _SettingsView.language => l10n.get('settings.language'),
       _SettingsView.clash => l10n.get('settings.hub.clash'),
+      _SettingsView.splitTunnel => l10n.get('settings.splitTunnel'),
       _SettingsView.behavior => l10n.get('settings.hub.behavior'),
       _SettingsView.about => l10n.get('settings.aboutApp'),
       _SettingsView.data => l10n.get('settings.hub.data'),
+      _SettingsView.dns => l10n.get('settings.dns'),
+      _SettingsView.override => l10n.get('settings.override'),
       _SettingsView.hub => l10n.get('nav.settings'),
     };
     final subtitle = switch (_view) {
       _SettingsView.theme => l10n.get('settings.hub.themeHint'),
       _SettingsView.language => l10n.get('settings.languageHint'),
       _SettingsView.clash => l10n.get('settings.hub.clashHint'),
+      _SettingsView.splitTunnel => l10n.get('settings.splitTunnelHint'),
       _SettingsView.behavior => l10n.get('settings.hub.behaviorHint'),
       _SettingsView.about => l10n.get('settings.aboutHint'),
       _SettingsView.data => l10n.get('settings.hub.dataHint'),
+      _SettingsView.dns => l10n.get('settings.dnsHint'),
+      _SettingsView.override => l10n.get('settings.overrideHint'),
       _SettingsView.hub => null,
     };
-    final back = _BackChip(onTap: () => setState(() => _view = _SettingsView.hub));
+    final back = _BackChip(
+      onTap: () => setState(() => _view = _SettingsView.hub),
+    );
     return PageContainer(
       // 详情页按视图换 key：否则 PageContainer 内的滚动位置会被复用，
       // 从滚到底部的 hub 点进「关于」会直接落在详情页底部。
@@ -491,7 +844,9 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               back,
               const SizedBox(width: 12),
-              Expanded(child: MobilePageHeader(title: title, subtitle: subtitle)),
+              Expanded(
+                child: MobilePageHeader(title: title, subtitle: subtitle),
+              ),
             ],
           )
         else
@@ -502,16 +857,21 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  List<Widget> _detailSections(BuildContext context, AppController controller, {required bool mobile}) {
+  List<Widget> _detailSections(
+    BuildContext context,
+    AppController controller, {
+    required bool mobile,
+  }) {
     final l10n = context.l10n;
     final palette = AppPalette.of(context);
     final settings = controller.settings;
-    Widget chevron() => AppIcon('right-small-line', size: 14, color: palette.muted);
+    Widget chevron() =>
+        AppIcon('right-small-line', size: 14, color: palette.muted);
     final systemProxyHint = SystemProxyService.supported
         ? l10n.get('settings.systemProxyHint')
         : Platform.isAndroid
-            ? l10n.get('settings.systemProxyVpn')
-            : l10n.get('settings.systemProxyUnsupported');
+        ? l10n.get('settings.systemProxyVpn')
+        : l10n.get('settings.systemProxyUnsupported');
     switch (_view) {
       case _SettingsView.theme:
         return [
@@ -522,12 +882,19 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               AppDropdown<String>(
                 options: [
-                  AppDropdownOption('system', l10n.get('settings.theme.system')),
+                  AppDropdownOption(
+                    'system',
+                    l10n.get('settings.theme.system'),
+                  ),
                   AppDropdownOption('light', l10n.get('settings.theme.light')),
                   AppDropdownOption('dark', l10n.get('settings.theme.dark')),
                 ],
                 selected: settings.themeMode,
-                onSelected: (value) => _apply(context, controller, settings.copyWith(themeMode: value)),
+                onSelected: (value) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(themeMode: value),
+                ),
                 builder: (context, toggle) => _ValueRow(
                   title: l10n.get('settings.theme'),
                   value: l10n.get('settings.theme.${settings.themeMode}'),
@@ -537,10 +904,18 @@ class _SettingsPageState extends State<SettingsPage> {
               AppDropdown<int>(
                 options: [
                   for (var i = 0; i < accentPresets.length; i++)
-                    AppDropdownOption(i, accentPresets[i].label(l10n.isZh), color: accentPresets[i].color),
+                    AppDropdownOption(
+                      i,
+                      accentPresets[i].label(l10n.isZh),
+                      color: accentPresets[i].color,
+                    ),
                 ],
                 selected: settings.accentIndex,
-                onSelected: (index) => _apply(context, controller, settings.copyWith(accentIndex: index)),
+                onSelected: (index) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(accentIndex: index),
+                ),
                 builder: (context, toggle) => SettingRow(
                   title: l10n.get('settings.accent'),
                   subtitle: l10n.get('settings.accentHint'),
@@ -553,7 +928,11 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: l10n.get('settings.pureBlackHint'),
                 value: settings.pureBlack,
                 enabled: settings.themeMode != 'light',
-                onChanged: (value) => _apply(context, controller, settings.copyWith(pureBlack: value)),
+                onChanged: (value) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(pureBlack: value),
+                ),
               ),
             ],
           ),
@@ -571,7 +950,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   AppDropdownOption('en', 'English'),
                 ],
                 selected: settings.language,
-                onSelected: (value) => _apply(context, controller, settings.copyWith(language: value)),
+                onSelected: (value) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(language: value),
+                ),
                 builder: (context, toggle) => _ValueRow(
                   title: l10n.get('settings.language'),
                   subtitle: l10n.get('settings.languageHint'),
@@ -593,13 +976,15 @@ class _SettingsPageState extends State<SettingsPage> {
                 title: l10n.get('settings.mixedPort'),
                 subtitle: l10n.get('settings.mixedPortHint'),
                 value: '${settings.mixedPort}',
-                onTap: () => _showPortDialog(context, controller, apiPort: false),
+                onTap: () =>
+                    _showPortDialog(context, controller, apiPort: false),
               ),
               _ValueRow(
                 title: l10n.get('settings.apiPort'),
                 subtitle: l10n.get('settings.apiPortHint'),
                 value: '${settings.apiPort}',
-                onTap: () => _showPortDialog(context, controller, apiPort: true),
+                onTap: () =>
+                    _showPortDialog(context, controller, apiPort: true),
               ),
               if (mobile)
                 SettingRow(
@@ -632,31 +1017,84 @@ class _SettingsPageState extends State<SettingsPage> {
                 title: l10n.get('settings.allowLan'),
                 subtitle: l10n.get('settings.allowLanHint'),
                 value: settings.allowLan,
-                onChanged: (value) => _apply(context, controller, settings.copyWith(allowLan: value)),
+                onChanged: (value) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(allowLan: value),
+                ),
               ),
               _SwitchRow(
                 title: l10n.get('settings.ipv6'),
                 subtitle: l10n.get('settings.ipv6Hint'),
                 value: settings.ipv6,
-                onChanged: (value) => _apply(context, controller, settings.copyWith(ipv6: value)),
+                onChanged: (value) =>
+                    _apply(context, controller, settings.copyWith(ipv6: value)),
+              ),
+              _ValueRow(
+                title: l10n.get('settings.testUrl'),
+                subtitle: l10n.get('settings.testUrlHint'),
+                value: settings.testUrl,
+                onTap: () => _showTestUrlDialog(context, controller),
               ),
               _SwitchRow(
                 title: l10n.get('settings.systemProxy'),
                 subtitle: systemProxyHint,
                 value: settings.systemProxy,
                 enabled: SystemProxyService.supported,
-                onChanged: (value) => _toggleSystemProxy(context, controller, value),
+                onChanged: (value) =>
+                    _toggleSystemProxy(context, controller, value),
               ),
               if (Platform.isWindows)
                 _ValueRow(
                   title: l10n.get('settings.proxyBypass'),
                   subtitle: l10n.get('settings.proxyBypassHint'),
-                  value: l10n.get(
-                    'settings.proxyBypassCount',
-                    [_bypassCount(settings.proxyBypass)],
-                  ),
+                  value: l10n.get('settings.proxyBypassCount', [
+                    _bypassCount(settings.proxyBypass),
+                  ]),
                   onTap: () => _showBypassDialog(context, controller),
                 ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          _section(
+            context,
+            mobile: mobile,
+            title: l10n.get('settings.tunParams'),
+            children: [
+              _ValueRow(
+                title: l10n.get('settings.tunMtu'),
+                subtitle: l10n.get('settings.tunMtuHint'),
+                value: '${settings.tunMtu}',
+                onTap: () => _showMtuDialog(context, controller),
+              ),
+              AppDropdown<String>(
+                options: [
+                  AppDropdownOption(
+                    AppSettings.tunStackGvisor,
+                    AppSettings.tunStackGvisor,
+                  ),
+                  AppDropdownOption(
+                    AppSettings.tunStackSystem,
+                    AppSettings.tunStackSystem,
+                  ),
+                  AppDropdownOption(
+                    AppSettings.tunStackMixed,
+                    AppSettings.tunStackMixed,
+                  ),
+                ],
+                selected: settings.tunStack,
+                onSelected: (value) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(tunStack: value),
+                ),
+                builder: (context, toggle) => _ValueRow(
+                  title: l10n.get('settings.tunStack'),
+                  subtitle: l10n.get('settings.tunStackHint'),
+                  value: settings.tunStack,
+                  onTap: toggle,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 22),
@@ -673,7 +1111,11 @@ class _SettingsPageState extends State<SettingsPage> {
                 value: controller.core.runtimeDir,
                 onTap: !Platform.isWindows
                     ? () => copyToClipboard(context, controller.core.runtimeDir)
-                    : () => _openFolder(context, controller.core.runtimeDir, l10n.get('settings.openFailed')),
+                    : () => _openFolder(
+                        context,
+                        controller.core.runtimeDir,
+                        l10n.get('settings.openFailed'),
+                      ),
                 trailingIcon: Platform.isWindows ? 'folder-line' : 'copy-line',
                 monospace: true,
               ),
@@ -688,6 +1130,14 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ],
         ];
+      case _SettingsView.splitTunnel:
+        return [
+          SplitTunnelSection(
+            controller: controller,
+            loadApps: widget.appsLoader ?? AndroidApps.list,
+            loadIcons: widget.appsIconsLoader ?? AndroidApps.icons,
+          ),
+        ];
       case _SettingsView.behavior:
         return [
           _section(
@@ -699,32 +1149,51 @@ class _SettingsPageState extends State<SettingsPage> {
                 title: l10n.get('settings.autoStart'),
                 subtitle: l10n.get('settings.autoStartHint'),
                 value: settings.autoStartCore,
-                onChanged: (value) => _apply(context, controller, settings.copyWith(autoStartCore: value)),
+                onChanged: (value) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(autoStartCore: value),
+                ),
               ),
               _SwitchRow(
                 title: l10n.get('settings.autoUpdateSubs'),
                 subtitle: l10n.get('settings.autoUpdateSubsHint'),
                 value: settings.autoUpdateSubscriptions,
-                onChanged: (value) => _apply(context, controller, settings.copyWith(autoUpdateSubscriptions: value)),
+                onChanged: (value) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(autoUpdateSubscriptions: value),
+                ),
               ),
               if (Platform.isWindows) ...[
                 _SwitchRow(
                   title: l10n.get('settings.launchAtStartup'),
                   subtitle: l10n.get('settings.launchAtStartupHint'),
                   value: settings.launchAtStartup,
-                  onChanged: (value) => _apply(context, controller, settings.copyWith(launchAtStartup: value)),
+                  onChanged: (value) => _apply(
+                    context,
+                    controller,
+                    settings.copyWith(launchAtStartup: value),
+                  ),
                 ),
                 _SwitchRow(
                   title: l10n.get('settings.closeToTray'),
                   subtitle: l10n.get('settings.closeToTrayHint'),
                   value: settings.closeToTray,
-                  onChanged: (value) => _apply(context, controller, settings.copyWith(closeToTray: value)),
+                  onChanged: (value) => _apply(
+                    context,
+                    controller,
+                    settings.copyWith(closeToTray: value),
+                  ),
                 ),
               ],
             ],
           ),
         ];
       case _SettingsView.about:
+        final coreVersion = controller.isRunning
+            ? controller.coreVersion ?? controller.localCoreVersion
+            : controller.localCoreVersion;
         return [
           _aboutHero(context, controller, mobile: mobile),
           SizedBox(height: mobile ? 24 : 28),
@@ -745,11 +1214,16 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ],
                 selected: settings.updateChannel,
-                onSelected: (value) =>
-                    _apply(context, controller, settings.copyWith(updateChannel: value)),
+                onSelected: (value) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(updateChannel: value),
+                ),
                 builder: (context, toggle) => SettingRow(
                   title: l10n.get('settings.updateChannel'),
-                  subtitle: l10n.get('settings.channel.${settings.updateChannel}'),
+                  subtitle: l10n.get(
+                    'settings.channel.${settings.updateChannel}',
+                  ),
                   trailing: chevron(),
                   onTap: toggle,
                 ),
@@ -758,8 +1232,11 @@ class _SettingsPageState extends State<SettingsPage> {
                 title: l10n.get('settings.checkUpdatesOnStartup'),
                 subtitle: l10n.get('settings.checkUpdatesOnStartupHint'),
                 value: settings.checkUpdatesOnStartup,
-                onChanged: (value) =>
-                    _apply(context, controller, settings.copyWith(checkUpdatesOnStartup: value)),
+                onChanged: (value) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(checkUpdatesOnStartup: value),
+                ),
               ),
             ],
           ),
@@ -772,9 +1249,13 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               SettingRow(
                 title: l10n.get('settings.coreVersion'),
-                subtitle: controller.isRunning && controller.coreVersion != null
-                    ? 'Mihomo ${controller.coreVersion}'
-                    : l10n.get('about.coreStopped'),
+                subtitle: coreVersion != null
+                    ? 'Mihomo $coreVersion'
+                    : l10n.get(
+                        controller.isRunning
+                            ? 'common.unknown'
+                            : 'about.coreStopped',
+                      ),
               ),
               _ValueRow(
                 title: l10n.get('settings.coreBinary'),
@@ -783,6 +1264,38 @@ class _SettingsPageState extends State<SettingsPage> {
                 trailingIcon: 'copy-line',
                 monospace: true,
               ),
+              if (Platform.isWindows) ...[
+                _ValueRow(
+                  title: l10n.get('settings.coreSource'),
+                  value: controller.usingUpdatedCore
+                      ? l10n.get('settings.coreSourceUpdated')
+                      : l10n.get('settings.coreSourceBundled'),
+                  trailingIcon: null,
+                ),
+                SettingRow(
+                  title: l10n.get('settings.checkCoreUpdate'),
+                  subtitle: l10n.get('settings.checkCoreUpdateHint'),
+                  trailing: _checkingCoreUpdate
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : chevron(),
+                  onTap: _checkingCoreUpdate || controller.updatingCore
+                      ? null
+                      : () => _checkCoreUpdate(controller),
+                ),
+                if (controller.usingUpdatedCore)
+                  SettingRow(
+                    title: l10n.get('settings.coreRestore'),
+                    subtitle: l10n.get('settings.coreRestoreHint'),
+                    trailing: chevron(),
+                    onTap: controller.updatingCore
+                        ? null
+                        : () => _restoreBundledCore(controller),
+                  ),
+              ],
             ],
           ),
           const SizedBox(height: 22),
@@ -795,13 +1308,21 @@ class _SettingsPageState extends State<SettingsPage> {
                 icon: 'link-line',
                 title: l10n.get('settings.github'),
                 subtitle: AppInfo.repository,
-                onTap: () => _openUrl(context, AppInfo.repository, l10n.get('settings.openFailed')),
+                onTap: () => _openUrl(
+                  context,
+                  AppInfo.repository,
+                  l10n.get('settings.openFailed'),
+                ),
               ),
               _AboutLinkRow(
                 icon: 'chip-line',
                 title: l10n.get('settings.core'),
                 subtitle: AppInfo.mihomoRepository,
-                onTap: () => _openUrl(context, AppInfo.mihomoRepository, l10n.get('settings.openFailed')),
+                onTap: () => _openUrl(
+                  context,
+                  AppInfo.mihomoRepository,
+                  l10n.get('settings.openFailed'),
+                ),
               ),
               _AboutLinkRow(
                 icon: 'shield-shape-line',
@@ -834,12 +1355,29 @@ class _SettingsPageState extends State<SettingsPage> {
             title: l10n.get('settings.data'),
             children: [
               SettingRow(
+                title: l10n.get('settings.backupExport'),
+                subtitle: l10n.get('settings.backupExportHint'),
+                trailing: chevron(),
+                onTap: () => _exportBackup(controller),
+              ),
+              SettingRow(
+                title: l10n.get('settings.backupImport'),
+                subtitle: l10n.get('settings.backupImportHint'),
+                trailing: chevron(),
+                onTap: controller.isBusy ? null : () => _importBackup(controller),
+              ),
+              SettingRow(
                 title: l10n.get('settings.updateAllSubs'),
                 subtitle: l10n.get('settings.updateAllSubsHint'),
                 trailing: controller.updatingAll
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : chevron(),
-                onTap: controller.updatingAll || controller.subscriptions.isEmpty
+                onTap:
+                    controller.updatingAll || controller.subscriptions.isEmpty
                     ? null
                     : () => controller.updateAllSubscriptions(),
               ),
@@ -859,9 +1397,152 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
         ];
+      case _SettingsView.dns:
+        return _dnsSections(context, controller, mobile: mobile);
+      case _SettingsView.override:
+        return _overrideSections(context, controller, mobile: mobile);
       case _SettingsView.hub:
         return const [];
     }
+  }
+
+  List<Widget> _dnsSections(
+    BuildContext context,
+    AppController controller, {
+    required bool mobile,
+  }) {
+    final l10n = context.l10n;
+    final palette = AppPalette.of(context);
+    final dns = controller.settings.dns;
+    String summary(List<String> entries) {
+      if (entries.isEmpty) return l10n.get('common.none');
+      if (entries.length == 1) return entries.first;
+      return '${entries.first}  +${entries.length - 1}';
+    }
+
+    return [
+      _section(
+        context,
+        mobile: mobile,
+        title: l10n.get('settings.dns'),
+        children: [
+          _SwitchRow(
+            title: l10n.get('settings.dnsEnable'),
+            subtitle: l10n.get('settings.dnsEnableHint'),
+            value: dns.enabled,
+            onChanged: (value) => _saveDns(
+              context,
+              controller,
+              dns.copyWith(enabled: value),
+            ),
+          ),
+          if (dns.enabled) ...[
+            AppDropdown<String>(
+              options: [
+                AppDropdownOption(
+                  DnsConfig.fakeIp,
+                  l10n.get('settings.dnsMode.fakeIp'),
+                ),
+                AppDropdownOption(
+                  DnsConfig.redirHost,
+                  l10n.get('settings.dnsMode.redirHost'),
+                ),
+              ],
+              selected: dns.enhancedMode,
+              onSelected: (value) => _saveDns(
+                context,
+                controller,
+                dns.copyWith(enhancedMode: value),
+              ),
+              builder: (context, toggle) => _ValueRow(
+                title: l10n.get('settings.dnsEnhanced'),
+                subtitle: l10n.get('settings.dnsEnhancedHint'),
+                value: l10n.get(
+                  dns.enhancedMode == DnsConfig.redirHost
+                      ? 'settings.dnsMode.redirHost'
+                      : 'settings.dnsMode.fakeIp',
+                ),
+                onTap: toggle,
+              ),
+            ),
+            if (dns.enhancedMode == DnsConfig.fakeIp)
+              _ValueRow(
+                title: l10n.get('settings.dnsFakeIpRange'),
+                subtitle: l10n.get('settings.dnsFakeIpRangeHint'),
+                value: dns.fakeIpRange,
+                monospace: true,
+                onTap: () => _showFakeIpRangeDialog(context, controller, dns),
+              ),
+            _ValueRow(
+              title: l10n.get('settings.dnsNameserver'),
+              subtitle: l10n.get('settings.dnsNameserverHint'),
+              value: summary(dns.nameserver),
+              onTap: () => _showDnsServersDialog(
+                context,
+                controller,
+                _DnsList.nameserver,
+                dns,
+              ),
+            ),
+            _ValueRow(
+              title: l10n.get('settings.dnsFallback'),
+              subtitle: l10n.get('settings.dnsFallbackHint'),
+              value: summary(dns.fallback),
+              onTap: () => _showDnsServersDialog(
+                context,
+                controller,
+                _DnsList.fallback,
+                dns,
+              ),
+            ),
+            _ValueRow(
+              title: l10n.get('settings.dnsDefaultNameserver'),
+              subtitle: l10n.get('settings.dnsDefaultNameserverHint'),
+              value: summary(dns.defaultNameserver),
+              onTap: () => _showDnsServersDialog(
+                context,
+                controller,
+                _DnsList.defaultNameserver,
+                dns,
+              ),
+            ),
+          ],
+        ],
+      ),
+      const SizedBox(height: 14),
+      InfoBanner(
+        message: l10n.get(
+          dns.enabled ? 'settings.dnsRestartHint' : 'settings.dnsDisabledHint',
+        ),
+        color: palette.muted,
+        icon: 'information-line',
+        dense: true,
+      ),
+    ];
+  }
+
+  List<Widget> _overrideSections(
+    BuildContext context,
+    AppController controller, {
+    required bool mobile,
+  }) {
+    final l10n = context.l10n;
+    final palette = AppPalette.of(context);
+    return [
+      InfoBanner(
+        message: l10n.get('settings.overrideEditorHint'),
+        color: palette.muted,
+        icon: 'information-line',
+        dense: true,
+      ),
+      const SizedBox(height: 14),
+      _section(
+        context,
+        mobile: mobile,
+        title: l10n.get('settings.override'),
+        children: [_OverrideEditor(initialText: controller.settings.overrideYaml)],
+      ),
+    ];
   }
 
   Widget _section(
@@ -873,12 +1554,20 @@ class _SettingsPageState extends State<SettingsPage> {
   }) {
     final palette = AppPalette.of(context);
     if (!mobile) {
-      return SettingSection(title: title, trailing: trailing, children: children);
+      return SettingSection(
+        title: title,
+        trailing: trailing,
+        children: children,
+      );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        MobileSectionLabel(title, trailing: trailing, color: palette.sectionLabel),
+        MobileSectionLabel(
+          title,
+          trailing: trailing,
+          color: palette.sectionLabel,
+        ),
         SurfaceCard(
           padding: EdgeInsets.zero,
           radius: 18,
@@ -889,7 +1578,11 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _aboutHero(BuildContext context, AppController controller, {required bool mobile}) {
+  Widget _aboutHero(
+    BuildContext context,
+    AppController controller, {
+    required bool mobile,
+  }) {
     final l10n = context.l10n;
     final palette = AppPalette.of(context);
     return Padding(
@@ -922,14 +1615,22 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Text(
               l10n.get('about.tagline'),
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, height: 1.6, color: palette.strongMuted),
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.6,
+                color: palette.strongMuted,
+              ),
             ),
           ),
           const SizedBox(height: 18),
           OutlinedButton.icon(
             onPressed: _checkingUpdate ? null : () => _checkUpdates(controller),
             icon: _checkingUpdate
-                ? const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 15,
+                    height: 15,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const AppIcon('refresh-2-line', size: 15),
             label: Text(l10n.get('settings.checkUpdates')),
             style: OutlinedButton.styleFrom(
@@ -938,7 +1639,10 @@ class _SettingsPageState extends State<SettingsPage> {
               side: BorderSide(color: palette.border),
               shape: const StadiumBorder(),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              textStyle: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
+              textStyle: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -1022,7 +1726,13 @@ class _BackChip extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: palette.border),
             ),
-            child: Center(child: AppIcon('arrow-left-line', size: 17, color: palette.strongMuted)),
+            child: Center(
+              child: AppIcon(
+                'arrow-left-line',
+                size: 17,
+                color: palette.strongMuted,
+              ),
+            ),
           ),
         ),
       ),
@@ -1177,10 +1887,7 @@ class _SwitchRow extends StatelessWidget {
     return SettingRow(
       title: title,
       subtitle: subtitle,
-      trailing: Switch(
-        value: value,
-        onChanged: enabled ? onChanged : null,
-      ),
+      trailing: Switch(value: value, onChanged: enabled ? onChanged : null),
     );
   }
 }
@@ -1190,10 +1897,14 @@ int _bypassCount(String value) {
   return normalized.isEmpty ? 0 : normalized.split(';').length;
 }
 
-Future<void> _showBypassDialog(BuildContext context, AppController controller) async {
+Future<void> _showBypassDialog(
+  BuildContext context,
+  AppController controller,
+) async {
   final l10n = context.l10n;
   final field = TextEditingController(
-    text: AppSettings.normalizeProxyBypass(controller.settings.proxyBypass).replaceAll(';', '\n'),
+    text: AppSettings.normalizeProxyBypass(controller.settings.proxyBypass)
+        .replaceAll(';', '\n'),
   )..selection = const TextSelection.collapsed(offset: 0);
   await showAppDialog<void>(
     context,
@@ -1220,6 +1931,7 @@ Future<void> _showBypassDialog(BuildContext context, AppController controller) a
               );
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
             } catch (applyError) {
+              if (!dialogContext.mounted) return;
               setState(() {
                 saving = false;
                 error = errorFrom(applyError).localized(l10n);
@@ -1240,17 +1952,31 @@ Future<void> _showBypassDialog(BuildContext context, AppController controller) a
                   enabled: !saving,
                   minLines: 6,
                   maxLines: 10,
-                  style: const TextStyle(fontSize: 13, fontFamily: 'Consolas', height: 1.5),
-                  decoration: const InputDecoration(hintText: 'localhost\n127.*\n192.168.*'),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontFamily: 'Consolas',
+                    height: 1.5,
+                  ),
+                  decoration: const InputDecoration(
+                    hintText: 'localhost\n127.*\n192.168.*',
+                  ),
                 ),
                 if (error.isNotEmpty) ...[
                   const SizedBox(height: 10),
-                  InfoBanner(message: error, color: AppPalette.of(dialogContext).danger, dense: true),
+                  InfoBanner(
+                    message: error,
+                    color: AppPalette.of(dialogContext).danger,
+                    dense: true,
+                  ),
                 ],
                 const SizedBox(height: 10),
                 Text(
                   l10n.get('settings.proxyBypassMessage'),
-                  style: TextStyle(fontSize: 11, height: 1.5, color: AppPalette.of(dialogContext).muted),
+                  style: TextStyle(
+                    fontSize: 11,
+                    height: 1.5,
+                    color: AppPalette.of(dialogContext).muted,
+                  ),
                 ),
               ],
             ),
@@ -1259,19 +1985,31 @@ Future<void> _showBypassDialog(BuildContext context, AppController controller) a
                 onPressed: saving
                     ? null
                     : () => setState(() {
-                          field.text = AppSettings.defaultProxyBypass.replaceAll(';', '\n');
-                          error = '';
-                        }),
+                        field.text = AppSettings.defaultProxyBypass.replaceAll(
+                          ';',
+                          '\n',
+                        );
+                        error = '';
+                      }),
                 child: Text(dialogContext.t('settings.proxyBypassReset')),
               ),
               TextButton(
-                onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+                onPressed: saving
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(),
                 child: Text(dialogContext.t('common.cancel')),
               ),
               FilledButton(
                 onPressed: saving ? null : save,
                 child: saving
-                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                     : Text(dialogContext.t('common.save')),
               ),
             ],
@@ -1283,10 +2021,16 @@ Future<void> _showBypassDialog(BuildContext context, AppController controller) a
   field.dispose();
 }
 
-Future<void> _showPortDialog(BuildContext context, AppController controller, {required bool apiPort}) async {
+Future<void> _showPortDialog(
+  BuildContext context,
+  AppController controller, {
+  required bool apiPort,
+}) async {
   final l10n = context.l10n;
   final settings = controller.settings;
-  final field = TextEditingController(text: '${apiPort ? settings.apiPort : settings.mixedPort}');
+  final field = TextEditingController(
+    text: '${apiPort ? settings.apiPort : settings.mixedPort}',
+  );
   await showAppDialog<void>(
     context,
     maxWidth: 420,
@@ -1301,7 +2045,9 @@ Future<void> _showPortDialog(BuildContext context, AppController controller, {re
               setState(() => error = l10n.get('settings.invalidPort'));
               return;
             }
-            final other = apiPort ? controller.settings.mixedPort : controller.settings.apiPort;
+            final other = apiPort
+                ? controller.settings.mixedPort
+                : controller.settings.apiPort;
             if (value == other) {
               setState(() => error = l10n.get('settings.portConflict'));
               return;
@@ -1312,11 +2058,14 @@ Future<void> _showPortDialog(BuildContext context, AppController controller, {re
             });
             try {
               await controller.applySettings(
-                apiPort ? controller.settings.copyWith(apiPort: value) : controller.settings.copyWith(mixedPort: value),
+                apiPort
+                    ? controller.settings.copyWith(apiPort: value)
+                    : controller.settings.copyWith(mixedPort: value),
                 announce: true,
               );
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
             } catch (applyError) {
+              if (!dialogContext.mounted) return;
               setState(() {
                 saving = false;
                 error = errorFrom(applyError).localized(l10n);
@@ -1325,8 +2074,12 @@ Future<void> _showPortDialog(BuildContext context, AppController controller, {re
           }
 
           return AppDialog(
-            title: l10n.get(apiPort ? 'settings.apiPort' : 'settings.mixedPort'),
-            subtitle: l10n.get(apiPort ? 'settings.apiPortHint' : 'settings.mixedPortHint'),
+            title: l10n.get(
+              apiPort ? 'settings.apiPort' : 'settings.mixedPort',
+            ),
+            subtitle: l10n.get(
+              apiPort ? 'settings.apiPortHint' : 'settings.mixedPortHint',
+            ),
             icon: apiPort ? 'terminal-line' : 'link-line',
             content: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1342,24 +2095,40 @@ Future<void> _showPortDialog(BuildContext context, AppController controller, {re
                 ),
                 if (error.isNotEmpty) ...[
                   const SizedBox(height: 10),
-                  InfoBanner(message: error, color: AppPalette.of(dialogContext).danger, dense: true),
+                  InfoBanner(
+                    message: error,
+                    color: AppPalette.of(dialogContext).danger,
+                    dense: true,
+                  ),
                 ],
                 const SizedBox(height: 10),
                 Text(
                   l10n.get('settings.restartRequired'),
-                  style: TextStyle(fontSize: 11, color: AppPalette.of(dialogContext).muted),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppPalette.of(dialogContext).muted,
+                  ),
                 ),
               ],
             ),
             actions: [
               TextButton(
-                onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+                onPressed: saving
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(),
                 child: Text(dialogContext.t('common.cancel')),
               ),
               FilledButton(
                 onPressed: saving ? null : save,
                 child: saving
-                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                     : Text(dialogContext.t('common.save')),
               ),
             ],
@@ -1371,7 +2140,236 @@ Future<void> _showPortDialog(BuildContext context, AppController controller, {re
   field.dispose();
 }
 
-Future<void> _regenerateSecret(BuildContext context, AppController controller) async {
+Future<void> _showTestUrlDialog(
+  BuildContext context,
+  AppController controller,
+) async {
+  final l10n = context.l10n;
+  final field = TextEditingController(text: controller.settings.testUrl);
+  await showAppDialog<void>(
+    context,
+    maxWidth: 460,
+    builder: (dialogContext) {
+      var error = '';
+      var saving = false;
+      return StatefulBuilder(
+        builder: (context, setState) {
+          Future<void> save() async {
+            final text = field.text.trim();
+            final uri = Uri.tryParse(text);
+            final valid =
+                uri != null &&
+                uri.host.isNotEmpty &&
+                (uri.scheme == 'http' || uri.scheme == 'https');
+            if (!valid) {
+              setState(() => error = l10n.get('settings.testUrlInvalid'));
+              return;
+            }
+            setState(() {
+              saving = true;
+              error = '';
+            });
+            try {
+              await controller.applySettings(
+                controller.settings.copyWith(testUrl: text),
+                announce: true,
+              );
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+            } catch (applyError) {
+              if (!dialogContext.mounted) return;
+              setState(() {
+                saving = false;
+                error = errorFrom(applyError).localized(l10n);
+              });
+            }
+          }
+
+          return AppDialog(
+            title: l10n.get('settings.testUrlTitle'),
+            subtitle: l10n.get('settings.testUrlHint'),
+            icon: 'link-line',
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: field,
+                  autofocus: true,
+                  enabled: !saving,
+                  keyboardType: TextInputType.url,
+                  onSubmitted: (_) => save(),
+                  style: const TextStyle(fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: AppInfo.defaultTestUrl,
+                  ),
+                ),
+                if (error.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  InfoBanner(
+                    message: error,
+                    color: AppPalette.of(dialogContext).danger,
+                    dense: true,
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving
+                    ? null
+                    : () => setState(() {
+                        field.text = AppInfo.defaultTestUrl;
+                        error = '';
+                      }),
+                child: Text(dialogContext.t('settings.proxyBypassReset')),
+              ),
+              TextButton(
+                onPressed: saving
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(),
+                child: Text(dialogContext.t('common.cancel')),
+              ),
+              FilledButton(
+                onPressed: saving ? null : save,
+                child: saving
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(dialogContext.t('common.save')),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+  field.dispose();
+}
+
+Future<void> _showMtuDialog(
+  BuildContext context,
+  AppController controller,
+) async {
+  final l10n = context.l10n;
+  final field = TextEditingController(text: '${controller.settings.tunMtu}');
+  final tunInUse = Platform.isAndroid || controller.settings.tun;
+  await showAppDialog<void>(
+    context,
+    maxWidth: 420,
+    builder: (dialogContext) {
+      var error = '';
+      var saving = false;
+      return StatefulBuilder(
+        builder: (context, setState) {
+          Future<void> save() async {
+            final value = int.tryParse(field.text.trim());
+            if (value == null ||
+                value < AppSettings.minTunMtu ||
+                value > AppSettings.maxTunMtu) {
+              setState(() => error = l10n.get('settings.tunMtuInvalid'));
+              return;
+            }
+            setState(() {
+              saving = true;
+              error = '';
+            });
+            try {
+              await controller.applySettings(
+                controller.settings.copyWith(tunMtu: value),
+                announce: true,
+              );
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+            } catch (applyError) {
+              if (!dialogContext.mounted) return;
+              setState(() {
+                saving = false;
+                error = errorFrom(applyError).localized(l10n);
+              });
+            }
+          }
+
+          return AppDialog(
+            title: l10n.get('settings.tunMtuTitle'),
+            subtitle: l10n.get('settings.tunMtuHint'),
+            icon: 'settings-3-line',
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: field,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  enabled: !saving,
+                  onSubmitted: (_) => save(),
+                  style: const TextStyle(fontSize: 15),
+                  decoration: const InputDecoration(prefixText: 'MTU '),
+                ),
+                if (error.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  InfoBanner(
+                    message: error,
+                    color: AppPalette.of(dialogContext).danger,
+                    dense: true,
+                  ),
+                ],
+                if (tunInUse) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    l10n.get('settings.tunRestartHint'),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppPalette.of(dialogContext).muted,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving
+                    ? null
+                    : () => setState(() {
+                        field.text = '${AppInfo.tunMtu}';
+                        error = '';
+                      }),
+                child: Text(dialogContext.t('settings.proxyBypassReset')),
+              ),
+              TextButton(
+                onPressed: saving
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(),
+                child: Text(dialogContext.t('common.cancel')),
+              ),
+              FilledButton(
+                onPressed: saving ? null : save,
+                child: saving
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(dialogContext.t('common.save')),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+  field.dispose();
+}
+
+Future<void> _regenerateSecret(
+  BuildContext context,
+  AppController controller,
+) async {
   final l10n = context.l10n;
   final confirmed = await showConfirmDialog(
     context,
@@ -1391,7 +2389,11 @@ Future<void> _regenerateSecret(BuildContext context, AppController controller) a
   }
 }
 
-Future<void> _apply(BuildContext context, AppController controller, AppSettings next) async {
+Future<void> _apply(
+  BuildContext context,
+  AppController controller,
+  AppSettings next,
+) async {
   final l10n = context.l10n;
   try {
     await controller.applySettings(next);
@@ -1401,7 +2403,11 @@ Future<void> _apply(BuildContext context, AppController controller, AppSettings 
   }
 }
 
-Future<void> _toggleSystemProxy(BuildContext context, AppController controller, bool value) async {
+Future<void> _toggleSystemProxy(
+  BuildContext context,
+  AppController controller,
+  bool value,
+) async {
   try {
     await controller.setSystemProxy(value);
   } catch (_) {
@@ -1409,7 +2415,10 @@ Future<void> _toggleSystemProxy(BuildContext context, AppController controller, 
   }
 }
 
-Future<void> _resetSettings(BuildContext context, AppController controller) async {
+Future<void> _resetSettings(
+  BuildContext context,
+  AppController controller,
+) async {
   final l10n = context.l10n;
   final confirmed = await showConfirmDialog(
     context,
@@ -1423,7 +2432,11 @@ Future<void> _resetSettings(BuildContext context, AppController controller) asyn
   await controller.resetSettings();
 }
 
-Future<void> _openFolder(BuildContext context, String path, String failureMessage) async {
+Future<void> _openFolder(
+  BuildContext context,
+  String path,
+  String failureMessage,
+) async {
   if (!Platform.isWindows) {
     showAppToast(context, failureMessage, error: true);
     return;
@@ -1436,9 +2449,16 @@ Future<void> _openFolder(BuildContext context, String path, String failureMessag
   }
 }
 
-Future<void> _openUrl(BuildContext context, String url, String failureMessage) async {
+Future<void> _openUrl(
+  BuildContext context,
+  String url,
+  String failureMessage,
+) async {
   try {
-    final launched = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    final launched = await launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    );
     if (!launched) throw Exception('launch failed');
   } catch (_) {
     if (!context.mounted) return;
@@ -1458,7 +2478,9 @@ class _AboutPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: filled ? Theme.of(context).colorScheme.primary : Colors.transparent,
+        color: filled
+            ? Theme.of(context).colorScheme.primary
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(7),
         border: filled ? null : Border.all(color: palette.border),
       ),
@@ -1470,6 +2492,109 @@ class _AboutPill extends StatelessWidget {
           height: 1.2,
           color: filled ? palette.onAccent : palette.strongMuted,
         ),
+      ),
+    );
+  }
+}
+
+class _CoreUpdateDialog extends StatefulWidget {
+  const _CoreUpdateDialog({required this.controller, required this.release});
+
+  final AppController controller;
+  final CoreRelease release;
+
+  @override
+  State<_CoreUpdateDialog> createState() => _CoreUpdateDialogState();
+}
+
+class _CoreUpdateDialogState extends State<_CoreUpdateDialog> {
+  String? _error;
+  bool _started = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_run());
+    });
+  }
+
+  Future<void> _run() async {
+    if (_started) return;
+    _started = true;
+    try {
+      await widget.controller.installCoreUpdate(widget.release);
+      if (mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (!mounted) return;
+      setState(
+        () => _error = errorFrom(error).localized(widget.controller.l10n),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final palette = AppPalette.of(context);
+    return PopScope(
+      canPop: _error != null,
+      child: AppDialog(
+        title: l10n.get('settings.coreUpdateDialogTitle'),
+        subtitle: 'mihomo ${widget.release.version}',
+        icon: 'download-2-line',
+        content: AnimatedBuilder(
+          animation: widget.controller,
+          builder: (context, _) {
+            if (_error != null) {
+              return InfoBanner(
+                message: _error!,
+                color: palette.danger,
+                dense: true,
+              );
+            }
+            final progress = widget.controller.coreUpdateProgress;
+            final percent = (progress * 100).round();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(5),
+                  child: LinearProgressIndicator(
+                    value: progress > 0 && progress < 1 ? progress : null,
+                    minHeight: 6,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        l10n.get('settings.coreUpdateProgress'),
+                        style: TextStyle(fontSize: 12, color: palette.muted),
+                      ),
+                    ),
+                    Text(
+                      progress > 0 ? '$percent%' : '',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: palette.strongMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+        actions: [
+          if (_error != null)
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.get('common.close')),
+            ),
+        ],
       ),
     );
   }
@@ -1500,14 +2625,20 @@ class _AboutLinkRow extends StatelessWidget {
         onTap: onTap,
         hoverColor: palette.hover,
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: mobile ? 16 : 18, vertical: mobile ? 13 : 12),
+          padding: EdgeInsets.symmetric(
+            horizontal: mobile ? 16 : 18,
+            vertical: mobile ? 13 : 12,
+          ),
           child: Row(
             children: [
               Container(
                 width: 34,
                 height: 34,
                 alignment: Alignment.center,
-                decoration: BoxDecoration(color: palette.cardAlt, borderRadius: BorderRadius.circular(11)),
+                decoration: BoxDecoration(
+                  color: palette.cardAlt,
+                  borderRadius: BorderRadius.circular(11),
+                ),
                 child: AppIcon(icon, size: 16, color: palette.strongMuted),
               ),
               const SizedBox(width: 12),
@@ -1517,14 +2648,21 @@ class _AboutLinkRow extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: TextStyle(fontSize: mobile ? 15 : 13.5, fontWeight: FontWeight.w600, color: palette.text),
+                      style: TextStyle(
+                        fontSize: mobile ? 15 : 13.5,
+                        fontWeight: FontWeight.w600,
+                        color: palette.text,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: mobile ? 12.5 : 12, color: palette.muted),
+                      style: TextStyle(
+                        fontSize: mobile ? 12.5 : 12,
+                        color: palette.muted,
+                      ),
                     ),
                   ],
                 ),
@@ -1535,6 +2673,429 @@ class _AboutLinkRow extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+enum _DnsList { nameserver, fallback, defaultNameserver }
+
+String _dnsListTitle(L10n l10n, _DnsList kind) {
+  switch (kind) {
+    case _DnsList.nameserver:
+      return l10n.get('settings.dnsNameserver');
+    case _DnsList.fallback:
+      return l10n.get('settings.dnsFallback');
+    case _DnsList.defaultNameserver:
+      return l10n.get('settings.dnsDefaultNameserver');
+  }
+}
+
+List<String> _dnsListValue(DnsConfig dns, _DnsList kind) {
+  switch (kind) {
+    case _DnsList.nameserver:
+      return dns.nameserver;
+    case _DnsList.fallback:
+      return dns.fallback;
+    case _DnsList.defaultNameserver:
+      return dns.defaultNameserver;
+  }
+}
+
+List<String> _dnsListDefaults(_DnsList kind) {
+  switch (kind) {
+    case _DnsList.nameserver:
+      return DnsConfig.defaultPrimaryNameservers;
+    case _DnsList.fallback:
+      return const [];
+    case _DnsList.defaultNameserver:
+      return DnsConfig.defaultBootstrapNameservers;
+  }
+}
+
+DnsConfig _dnsListCopy(DnsConfig dns, _DnsList kind, List<String> entries) {
+  switch (kind) {
+    case _DnsList.nameserver:
+      return dns.copyWith(nameserver: entries);
+    case _DnsList.fallback:
+      return dns.copyWith(fallback: entries);
+    case _DnsList.defaultNameserver:
+      return dns.copyWith(defaultNameserver: entries);
+  }
+}
+
+Future<void> _saveDns(
+  BuildContext context,
+  AppController controller,
+  DnsConfig next,
+) async {
+  try {
+    await controller.saveDnsConfig(next);
+  } catch (error) {
+    if (context.mounted) {
+      showAppToast(
+        context,
+        errorFrom(error).localized(context.l10n),
+        error: true,
+      );
+    }
+  }
+}
+
+Future<void> _showFakeIpRangeDialog(
+  BuildContext context,
+  AppController controller,
+  DnsConfig dns,
+) async {
+  final l10n = context.l10n;
+  final field = TextEditingController(text: dns.fakeIpRange)
+    ..selection = TextSelection.collapsed(offset: dns.fakeIpRange.length);
+  await showAppDialog<void>(
+    context,
+    maxWidth: 420,
+    builder: (dialogContext) {
+      var error = '';
+      var saving = false;
+      return StatefulBuilder(
+        builder: (context, setState) {
+          Future<void> save() async {
+            final text = field.text.trim();
+            if (DnsConfig.normalizeFakeIpRange(text) != text) {
+              setState(() => error = l10n.get('settings.dnsInvalidRange'));
+              return;
+            }
+            setState(() {
+              saving = true;
+              error = '';
+            });
+            try {
+              final current = controller.settings.dns;
+              await controller.saveDnsConfig(current.copyWith(fakeIpRange: text));
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+            } catch (saveError) {
+              if (!dialogContext.mounted) return;
+              setState(() {
+                saving = false;
+                error = errorFrom(saveError).localized(l10n);
+              });
+            }
+          }
+
+          return AppDialog(
+            title: l10n.get('settings.dnsFakeIpRange'),
+            subtitle: l10n.get('settings.dnsFakeIpRangeHint'),
+            icon: 'globe-line',
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: field,
+                  autofocus: true,
+                  enabled: !saving,
+                  onSubmitted: (_) => save(),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontFamily: 'Consolas',
+                  ),
+                  decoration: const InputDecoration(
+                    hintText: DnsConfig.defaultFakeIpRange,
+                  ),
+                ),
+                if (error.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  InfoBanner(
+                    message: error,
+                    color: AppPalette.of(dialogContext).danger,
+                    dense: true,
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(),
+                child: Text(dialogContext.t('common.cancel')),
+              ),
+              FilledButton(
+                onPressed: saving ? null : save,
+                child: Text(dialogContext.t('common.save')),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+  field.dispose();
+}
+
+Future<void> _showDnsServersDialog(
+  BuildContext context,
+  AppController controller,
+  _DnsList kind,
+  DnsConfig dns,
+) async {
+  final l10n = context.l10n;
+  final entries = _dnsListValue(dns, kind);
+  final field = TextEditingController(text: entries.join('\n'))
+    ..selection = const TextSelection.collapsed(offset: 0);
+  await showAppDialog<void>(
+    context,
+    maxWidth: 460,
+    builder: (dialogContext) {
+      var error = '';
+      var saving = false;
+      return StatefulBuilder(
+        builder: (context, setState) {
+          Future<void> save() async {
+            final parsed = DnsConfig.normalizeServers(field.text);
+            if (parsed.isEmpty && kind != _DnsList.fallback) {
+              setState(() => error = l10n.get('settings.dnsServersEmpty'));
+              return;
+            }
+            setState(() {
+              saving = true;
+              error = '';
+            });
+            try {
+              final current = controller.settings.dns;
+              await controller.saveDnsConfig(_dnsListCopy(current, kind, parsed));
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+            } catch (saveError) {
+              if (!dialogContext.mounted) return;
+              setState(() {
+                saving = false;
+                error = errorFrom(saveError).localized(l10n);
+              });
+            }
+          }
+
+          return AppDialog(
+            title: _dnsListTitle(l10n, kind),
+            subtitle: kind == _DnsList.fallback
+                ? l10n.get('settings.dnsFallbackHint')
+                : l10n.get('settings.dnsServersHint'),
+            icon: 'globe-line',
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: field,
+                  autofocus: true,
+                  enabled: !saving,
+                  minLines: 6,
+                  maxLines: 12,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontFamily: 'Consolas',
+                    height: 1.5,
+                  ),
+                  decoration: const InputDecoration(
+                    hintText: 'https://doh.pub/dns-query\n223.5.5.5',
+                  ),
+                ),
+                if (error.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  InfoBanner(
+                    message: error,
+                    color: AppPalette.of(dialogContext).danger,
+                    dense: true,
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Text(
+                  l10n.get('settings.dnsServersFormat'),
+                  style: TextStyle(
+                    fontSize: 11,
+                    height: 1.5,
+                    color: AppPalette.of(dialogContext).muted,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving
+                    ? null
+                    : () => setState(() {
+                        field.text = _dnsListDefaults(kind).join('\n');
+                        error = '';
+                      }),
+                child: Text(dialogContext.t('settings.proxyBypassReset')),
+              ),
+              TextButton(
+                onPressed: saving
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(),
+                child: Text(dialogContext.t('common.cancel')),
+              ),
+              FilledButton(
+                onPressed: saving ? null : save,
+                child: Text(dialogContext.t('common.save')),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+  field.dispose();
+}
+
+class _OverrideEditor extends StatefulWidget {
+  const _OverrideEditor({required this.initialText});
+
+  final String initialText;
+
+  @override
+  State<_OverrideEditor> createState() => _OverrideEditorState();
+}
+
+class _OverrideEditorState extends State<_OverrideEditor> {
+  late final TextEditingController _field = TextEditingController(
+    text: widget.initialText,
+  )..addListener(_onChanged);
+  late String _saved = widget.initialText;
+  String _error = '';
+  bool _saving = false;
+
+  bool get _dirty => _field.text != _saved;
+
+  void _onChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(covariant _OverrideEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_dirty && widget.initialText != _saved) {
+      _saved = widget.initialText;
+      _field.removeListener(_onChanged);
+      _field.text = _saved;
+      _field.addListener(_onChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final l10n = context.l10n;
+    setState(() {
+      _saving = true;
+      _error = '';
+    });
+    try {
+      await context.read<AppController>().saveOverrideYaml(_field.text);
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _saved = _field.text;
+      });
+      showAppToast(context, l10n.get('settings.overrideSaved'));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = errorFrom(error).localized(l10n);
+      });
+    }
+  }
+
+  Future<void> _clear() async {
+    final l10n = context.l10n;
+    final confirmed = await showConfirmDialog(
+      context,
+      title: l10n.get('settings.overrideClearTitle'),
+      message: l10n.get('settings.overrideClearMessage'),
+      confirmText: l10n.get('settings.overrideClear'),
+      danger: true,
+      icon: 'delete-2-line',
+    );
+    if (!confirmed || !mounted) return;
+    setState(() {
+      _saving = true;
+      _error = '';
+    });
+    try {
+      await context.read<AppController>().saveOverrideYaml('');
+      if (!mounted) return;
+      _field.text = '';
+      setState(() {
+        _saving = false;
+        _saved = '';
+      });
+      showAppToast(context, l10n.get('settings.overrideCleared'));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = errorFrom(error).localized(l10n);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final palette = AppPalette.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: palette.cardAlt,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: palette.border),
+          ),
+          padding: const EdgeInsets.all(12),
+          child: TextField(
+            controller: _field,
+            enabled: !_saving,
+            minLines: 12,
+            maxLines: 30,
+            style: const TextStyle(
+              fontSize: 12.5,
+              height: 1.55,
+              fontFamily: 'Consolas',
+            ),
+            decoration: InputDecoration(
+              hintText: l10n.get('settings.overridePlaceholder'),
+              border: InputBorder.none,
+              isDense: true,
+            ),
+          ),
+        ),
+        if (_error.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          InfoBanner(message: _error, color: palette.danger, dense: true),
+        ],
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(
+              onPressed: _saving ? null : _clear,
+              child: Text(l10n.get('settings.overrideClear')),
+            ),
+            const SizedBox(width: 10),
+            FilledButton(
+              onPressed: _saving || !_dirty ? null : _save,
+              child: Text(
+                l10n.get(
+                  _saving
+                      ? 'settings.overrideApplying'
+                      : 'settings.overrideApply',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

@@ -8,6 +8,7 @@ import 'app.dart';
 import 'controllers/app_controller.dart';
 import 'core/app_info.dart';
 import 'core/app_paths.dart';
+import 'services/deep_link_service.dart';
 import 'services/startup_service.dart';
 import 'services/tray_service.dart';
 import 'ui/shell/window_title_bar.dart';
@@ -46,6 +47,12 @@ Future<void> main(List<String> args) async {
   }
 
   runApp(ClashGoApp(controller: controller));
+
+  unawaited(DeepLinkService.initialize(controller.handleIncomingLink));
+  final commandLineLink = DeepLinkService.linkFromArguments(args);
+  if (commandLineLink != null) {
+    unawaited(controller.handleIncomingLink(commandLineLink));
+  }
 
   if (Platform.isWindows) {
     // 开机自启带 --autostart：托盘可用时直接驻留后台，不弹主窗口。

@@ -9,6 +9,7 @@ import '../models/mihomo_version.dart';
 import '../models/provider_info.dart';
 import '../models/proxy_info.dart';
 import '../models/rule_item.dart';
+import '../models/rule_provider_info.dart';
 
 class MihomoApi {
   MihomoApi({int port = 19090, String secret = ''}) {
@@ -158,6 +159,26 @@ class MihomoApi {
         await _dio.get(
           '/providers/proxies/${Uri.encodeComponent(name)}/healthcheck',
           options: Options(receiveTimeout: const Duration(seconds: 40)),
+        );
+      });
+
+  Future<List<RuleProviderInfo>> ruleProviders() => _guard(() async {
+        final data = await _get<Map<String, dynamic>>('/providers/rules');
+        final raw = data?['providers'];
+        if (raw is! Map) return <RuleProviderInfo>[];
+        return raw.entries
+            .where((entry) => entry.value is Map)
+            .map((entry) => RuleProviderInfo.fromJson(
+                  entry.key.toString(),
+                  Map<String, dynamic>.from(entry.value as Map),
+                ))
+            .toList();
+      });
+
+  Future<void> updateRuleProvider(String name) => _guard(() async {
+        await _dio.put(
+          '/providers/rules/${Uri.encodeComponent(name)}',
+          options: Options(receiveTimeout: const Duration(seconds: 60)),
         );
       });
 

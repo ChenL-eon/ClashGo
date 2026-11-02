@@ -4,6 +4,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- 分应用代理需要枚举已安装的可启动应用；Android 11+ 的包可见性规则
+         没有这条权限时 queryIntentActivities 只能看到一小部分包。 -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
     <!-- 订阅页「扫描二维码」需要摄像头；未授予时应用会退回选择二维码图片。 -->
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
@@ -33,6 +36,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- 浏览器/订阅页里的 clash://install-config?url=… 直接回到应用导入。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="clash"/>
             </intent-filter>
         </activity>
         <service

@@ -1,5 +1,8 @@
 import 'dart:math';
 
+import '../core/app_info.dart';
+import 'dns_config.dart';
+
 class AppSettings {
   AppSettings({
     required this.language,
@@ -26,6 +29,13 @@ class AppSettings {
     this.launchAtStartup = false,
     this.closeToTray = true,
     this.proxyBypass = defaultProxyBypass,
+    this.splitTunnelMode = splitTunnelAll,
+    this.splitTunnelPackages = const [],
+    this.testUrl = AppInfo.defaultTestUrl,
+    this.tunMtu = AppInfo.tunMtu,
+    this.tunStack = tunStackGvisor,
+    this.dns = DnsConfig.defaults,
+    this.overrideYaml = '',
   });
 
   factory AppSettings.defaults({bool zh = true, bool systemProxy = true}) {
@@ -58,7 +68,9 @@ class AppSettings {
       pureBlack: json['pureBlack'] as bool? ?? false,
       mixedPort: (json['mixedPort'] as num?)?.toInt() ?? defaults.mixedPort,
       apiPort: (json['apiPort'] as num?)?.toInt() ?? defaults.apiPort,
-      secret: (json['secret'] as String?)?.isNotEmpty == true ? json['secret'] as String : defaults.secret,
+      secret: (json['secret'] as String?)?.isNotEmpty == true
+          ? json['secret'] as String
+          : defaults.secret,
       allowLan: json['allowLan'] as bool? ?? false,
       ipv6: json['ipv6'] as bool? ?? false,
       systemProxy: json['systemProxy'] as bool? ?? false,
@@ -76,6 +88,19 @@ class AppSettings {
       launchAtStartup: json['launchAtStartup'] as bool? ?? false,
       closeToTray: json['closeToTray'] as bool? ?? true,
       proxyBypass: json['proxyBypass'] as String? ?? defaultProxyBypass,
+      splitTunnelMode: normalizeSplitTunnelMode(
+        json['splitTunnelMode'] as String?,
+      ),
+      splitTunnelPackages: normalizeSplitTunnelPackages(
+        json['splitTunnelPackages'],
+      ),
+      testUrl: normalizeTestUrl(json['testUrl']),
+      tunMtu: normalizeTunMtu(json['tunMtu']),
+      tunStack: normalizeTunStack(json['tunStack']),
+      dns: DnsConfig.fromJson(json['dns']),
+      overrideYaml: json['overrideYaml'] is String
+          ? json['overrideYaml'] as String
+          : '',
     );
   }
 
@@ -118,10 +143,44 @@ class AppSettings {
   /// Windows 系统代理的 ProxyOverride，分号分隔，支持 `*` 与 `<local>`。
   String proxyBypass;
 
+  /// 安卓分应用代理：all 全部应用、allow 仅所选应用、disallow 排除所选应用。
+  String splitTunnelMode;
+  List<String> splitTunnelPackages;
+
+  /// 节点/分组测速的目标地址。内核的 /proxies/{name}/delay 会经代理访问它，
+  /// 所以留空或写坏都会让整页延迟停在超时；写入前统一校验。
+  String testUrl;
+
+  /// 隧道参数：VpnService.setMtu 与 tun.mtu 必须同值，见 config_generator。
+  int tunMtu;
+  String tunStack;
+
+  /// 开启后覆盖订阅里的 dns 段；关闭则保持订阅原样（TUN 仍会自动补缺）。
+  DnsConfig dns;
+
+  /// 全局 YAML 覆写：深度合并进生成配置，受保护的控制项不允许改。
+  String overrideYaml;
+
   bool get isZh => language == 'zh';
 
   static const String channelStable = 'stable';
   static const String channelPreview = 'preview';
+
+  static const String tunStackGvisor = 'gvisor';
+  static const String tunStackSystem = 'system';
+  static const String tunStackMixed = 'mixed';
+  static const int minTunMtu = 1280;
+  static const int maxTunMtu = 9000;
+
+  static const String splitTunnelAll = 'all';
+  static const String splitTunnelAllow = 'allow';
+  static const String splitTunnelDisallow = 'disallow';
+
+  /// 供内核重启判断用：成员的顺序不影响分流结果，签名里排序后再拼。
+  String get splitTunnelSignature {
+    final packages = [...splitTunnelPackages]..sort();
+    return '$splitTunnelMode:${packages.join(',')}';
+  }
 
   static const String defaultProxyBypass =
       'localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>';
@@ -136,6 +195,59 @@ class AppSettings {
       entries.add(item);
     }
     return entries.join(';');
+  }
+
+  static String normalizeSplitTunnelMode(String? value) {
+    return const [
+          splitTunnelAll,
+          splitTunnelAllow,
+          splitTunnelDisallow,
+        ].contains(value)
+        ? value!
+        : splitTunnelAll;
+  }
+
+  /// 手改过的 settings.json 可能混进空串、重复包名或非字符串；启动前统一清掉，
+  /// 免得把无效包名递到 VpnService.Builder 里，一次启动失败还找不到原因。
+  static List<String> normalizeSplitTunnelPackages(Object? value) {
+    if (value is! List) return <String>[];
+    final seen = <String>{};
+    final entries = <String>[];
+    for (final item in value) {
+      if (item is! String) continue;
+      final packageName = item.trim();
+      if (packageName.isEmpty || !seen.add(packageName)) continue;
+      entries.add(packageName);
+    }
+    return entries;
+  }
+
+  static String normalizeTestUrl(Object? value) {
+    if (value is! String) return AppInfo.defaultTestUrl;
+    final text = value.trim();
+    final uri = Uri.tryParse(text);
+    if (uri == null || uri.host.isEmpty) return AppInfo.defaultTestUrl;
+    if (uri.scheme != 'http' && uri.scheme != 'https') {
+      return AppInfo.defaultTestUrl;
+    }
+    return text;
+  }
+
+  static int normalizeTunMtu(Object? value) {
+    final mtu = value is num ? value.toInt() : int.tryParse('${value ?? ''}');
+    if (mtu == null || mtu < minTunMtu || mtu > maxTunMtu) return AppInfo.tunMtu;
+    return mtu;
+  }
+
+  static String normalizeTunStack(Object? value) {
+    final text = value is String ? value : '';
+    return const [
+          tunStackGvisor,
+          tunStackSystem,
+          tunStackMixed,
+        ].contains(text)
+        ? text
+        : tunStackGvisor;
   }
 
   static const String styleTabs = 'tabs';
@@ -177,6 +289,13 @@ class AppSettings {
     bool? launchAtStartup,
     bool? closeToTray,
     String? proxyBypass,
+    String? splitTunnelMode,
+    List<String>? splitTunnelPackages,
+    String? testUrl,
+    int? tunMtu,
+    String? tunStack,
+    DnsConfig? dns,
+    String? overrideYaml,
   }) {
     return AppSettings(
       language: language ?? this.language,
@@ -191,7 +310,8 @@ class AppSettings {
       systemProxy: systemProxy ?? this.systemProxy,
       tun: tun ?? this.tun,
       autoStartCore: autoStartCore ?? this.autoStartCore,
-      autoUpdateSubscriptions: autoUpdateSubscriptions ?? this.autoUpdateSubscriptions,
+      autoUpdateSubscriptions:
+          autoUpdateSubscriptions ?? this.autoUpdateSubscriptions,
       mode: mode ?? this.mode,
       proxyStyle: proxyStyle ?? this.proxyStyle,
       proxySort: proxySort ?? this.proxySort,
@@ -199,42 +319,58 @@ class AppSettings {
       proxyNodeSize: proxyNodeSize ?? this.proxyNodeSize,
       hideTimeoutProxies: hideTimeoutProxies ?? this.hideTimeoutProxies,
       updateChannel: updateChannel ?? this.updateChannel,
-      checkUpdatesOnStartup: checkUpdatesOnStartup ?? this.checkUpdatesOnStartup,
+      checkUpdatesOnStartup:
+          checkUpdatesOnStartup ?? this.checkUpdatesOnStartup,
       launchAtStartup: launchAtStartup ?? this.launchAtStartup,
       closeToTray: closeToTray ?? this.closeToTray,
       proxyBypass: proxyBypass ?? this.proxyBypass,
+      splitTunnelMode: splitTunnelMode ?? this.splitTunnelMode,
+      splitTunnelPackages: splitTunnelPackages ?? this.splitTunnelPackages,
+      testUrl: testUrl ?? this.testUrl,
+      tunMtu: tunMtu ?? this.tunMtu,
+      tunStack: tunStack ?? this.tunStack,
+      dns: dns ?? this.dns,
+      overrideYaml: overrideYaml ?? this.overrideYaml,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'language': language,
-        'themeMode': themeMode,
-        'accentIndex': accentIndex,
-        'pureBlack': pureBlack,
-        'mixedPort': mixedPort,
-        'apiPort': apiPort,
-        'secret': secret,
-        'allowLan': allowLan,
-        'ipv6': ipv6,
-        'systemProxy': systemProxy,
-        'tun': tun,
-        'autoStartCore': autoStartCore,
-        'autoUpdateSubscriptions': autoUpdateSubscriptions,
-        'mode': mode,
-        if (proxyStyle != null) 'proxyStyle': proxyStyle,
-        if (proxySort != null) 'proxySort': proxySort,
-        if (proxyLayout != null) 'proxyLayout': proxyLayout,
-        if (proxyNodeSize != null) 'proxyNodeSize': proxyNodeSize,
-        'hideTimeoutProxies': hideTimeoutProxies,
-        'updateChannel': updateChannel,
-        'checkUpdatesOnStartup': checkUpdatesOnStartup,
-        'launchAtStartup': launchAtStartup,
-        'closeToTray': closeToTray,
-        'proxyBypass': proxyBypass,
-      };
+    'language': language,
+    'themeMode': themeMode,
+    'accentIndex': accentIndex,
+    'pureBlack': pureBlack,
+    'mixedPort': mixedPort,
+    'apiPort': apiPort,
+    'secret': secret,
+    'allowLan': allowLan,
+    'ipv6': ipv6,
+    'systemProxy': systemProxy,
+    'tun': tun,
+    'autoStartCore': autoStartCore,
+    'autoUpdateSubscriptions': autoUpdateSubscriptions,
+    'mode': mode,
+    if (proxyStyle != null) 'proxyStyle': proxyStyle,
+    if (proxySort != null) 'proxySort': proxySort,
+    if (proxyLayout != null) 'proxyLayout': proxyLayout,
+    if (proxyNodeSize != null) 'proxyNodeSize': proxyNodeSize,
+    'hideTimeoutProxies': hideTimeoutProxies,
+    'updateChannel': updateChannel,
+    'checkUpdatesOnStartup': checkUpdatesOnStartup,
+    'launchAtStartup': launchAtStartup,
+    'closeToTray': closeToTray,
+    'proxyBypass': proxyBypass,
+    'splitTunnelMode': splitTunnelMode,
+    'splitTunnelPackages': splitTunnelPackages,
+    'testUrl': testUrl,
+    'tunMtu': tunMtu,
+    'tunStack': tunStack,
+    'dns': dns.toJson(),
+    'overrideYaml': overrideYaml,
+  };
 
   static String generateSecret() {
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const chars =
+        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final random = Random.secure();
     return List.generate(20, (_) => chars[random.nextInt(chars.length)]).join();
   }
