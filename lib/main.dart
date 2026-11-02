@@ -73,6 +73,7 @@ Future<void> main(List<String> args) async {
       await windowManager.show();
       await windowManager.focus();
     });
+    controller.setWindowVisible(!startHidden);
   }
 }
 
@@ -95,5 +96,25 @@ class _AppWindowListener extends WindowListener {
       return;
     }
     await onQuit();
+  }
+
+  @override
+  void onWindowMinimize() {
+    controller.setWindowVisible(false);
+  }
+
+  @override
+  void onWindowRestore() {
+    controller.setWindowVisible(true);
+  }
+
+  @override
+  void onWindowEvent(String eventName) {
+    // 托盘唤起/收起走的是 ShowWindow，没有单独回调，靠原生事件兜住。
+    if (eventName == 'show') {
+      controller.setWindowVisible(true);
+    } else if (eventName == 'hide') {
+      controller.setWindowVisible(false);
+    }
   }
 }

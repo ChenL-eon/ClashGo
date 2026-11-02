@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
@@ -77,6 +78,15 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _controller.setProxyActive(_index == 1);
       _controller.setConnectionsActive(_index == 3);
       _controller.setLogsActive(_index == 4);
+      // 安卓首帧不会补发初始的 resumed：binding 初始化时就消费掉了那条状态，
+      // 观察者此时还没注册。按当前生命周期主动对齐一次，预览内核才会在启动时起来。
+      if (Platform.isAndroid) {
+        final lifecycle = WidgetsBinding.instance.lifecycleState;
+        final visible = lifecycle != AppLifecycleState.paused &&
+            lifecycle != AppLifecycleState.hidden &&
+            lifecycle != AppLifecycleState.detached;
+        _controller.setWindowVisible(visible);
+      }
     });
   }
 
@@ -91,12 +101,19 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _controller.setForeground(true);
+      // Windows 的窗口可见性由 window_manager 的 show/hide/minimize/restore
+      // 驱动（最小化不一定发 hidden/paused）；安卓就用生命周期本身。
+      if (Platform.isAndroid) _controller.setWindowVisible(true);
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         // Windows 最小化只会上报 inactive（不发 hidden/paused）；安卓下拉通知栏、
         // 弹权限框同样只给 inactive。两端都按后台处理，回到前台由 resumed 还原。
         state == AppLifecycleState.inactive) {
       _controller.setForeground(false);
+      // 不可见才停预览内核：inactive（失焦、通知栏、权限框）仍算可见。
+      if (Platform.isAndroid && state != AppLifecycleState.inactive) {
+        _controller.setWindowVisible(false);
+      }
     }
   }
 
@@ -529,15 +546,7 @@ class _SidebarCoreCard extends StatelessWidget {
         color: palette.card,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: palette.border),
-        boxShadow: palette.isDark
-            ? null
-            : [
-                BoxShadow(
-                  color: palette.shadow,
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+        boxShadow: palette.cardShadows,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

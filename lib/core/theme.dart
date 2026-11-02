@@ -67,6 +67,17 @@ class AppPalette extends ThemeExtension<AppPalette> {
   static AppPalette of(BuildContext context) =>
       Theme.of(context).extension<AppPalette>() ?? AppPalette.light(const Color(0xFF3B82F6));
 
+  // 深色/纯黑继续靠描边分层，卡片不再叠阴影。
+  List<BoxShadow>? get cardShadows => isDark
+      ? null
+      : [
+          BoxShadow(
+            color: shadow.withValues(alpha: 0.16),
+            blurRadius: 1.5,
+            offset: const Offset(0, 2),
+          ),
+        ];
+
   static AppPalette light(Color accent) => AppPalette(
         background: const Color(0xFFF3F5F9),
         card: Colors.white,
@@ -418,9 +429,7 @@ BoxDecoration appCardDecoration(
     color: color ?? palette.card,
     borderRadius: BorderRadius.circular(radius),
     border: border ?? Border.all(color: palette.border),
-    boxShadow: elevated && !palette.isDark
-        ? [BoxShadow(color: palette.shadow, blurRadius: 22, offset: const Offset(0, 8))]
-        : null,
+    boxShadow: elevated ? palette.cardShadows : null,
   );
 }
 

@@ -35,7 +35,12 @@ class AppSettings {
     this.tunMtu = AppInfo.tunMtu,
     this.tunStack = tunStackGvisor,
     this.dns = DnsConfig.defaults,
+    this.appendSystemDns = false,
     this.overrideYaml = '',
+    this.unifiedDelay = true,
+    this.tcpConcurrent = true,
+    this.geoLowMemory = true,
+    this.hosts = const <String, String>{},
   });
 
   factory AppSettings.defaults({bool zh = true, bool systemProxy = true}) {
@@ -73,6 +78,9 @@ class AppSettings {
           : defaults.secret,
       allowLan: json['allowLan'] as bool? ?? false,
       ipv6: json['ipv6'] as bool? ?? false,
+      unifiedDelay: json['unifiedDelay'] as bool? ?? true,
+      tcpConcurrent: json['tcpConcurrent'] as bool? ?? true,
+      geoLowMemory: json['geoLowMemory'] as bool? ?? true,
       systemProxy: json['systemProxy'] as bool? ?? false,
       tun: json['tun'] as bool? ?? false,
       autoStartCore: json['autoStartCore'] as bool? ?? false,
@@ -98,9 +106,11 @@ class AppSettings {
       tunMtu: normalizeTunMtu(json['tunMtu']),
       tunStack: normalizeTunStack(json['tunStack']),
       dns: DnsConfig.fromJson(json['dns']),
+      appendSystemDns: json['appendSystemDns'] as bool? ?? false,
       overrideYaml: json['overrideYaml'] is String
           ? json['overrideYaml'] as String
           : '',
+      hosts: normalizeHosts(json['hosts']),
     );
   }
 
@@ -113,6 +123,9 @@ class AppSettings {
   String secret;
   bool allowLan;
   bool ipv6;
+  bool unifiedDelay;
+  bool tcpConcurrent;
+  bool geoLowMemory;
   bool systemProxy;
 
   /// Windows 专用：true 时内核以提权方式跑 TUN 接管（建网卡 + 改路由 + 劫持 53）。
@@ -158,8 +171,15 @@ class AppSettings {
   /// 开启后覆盖订阅里的 dns 段；关闭则保持订阅原样（TUN 仍会自动补缺）。
   DnsConfig dns;
 
+  /// 只要最终生效的 dns 段是启用的，就把系统解析器 system:// 追加到主列表末尾。
+  /// 独立于自定义 DNS 开关：订阅自带 DNS 或 TUN 补全的解析器也会被追加。
+  bool appendSystemDns;
+
   /// 全局 YAML 覆写：深度合并进生成配置，受保护的控制项不允许改。
   String overrideYaml;
+
+  /// 顶层 hosts：域名到 IP/目标域名的本地映射，生成配置时覆盖同名订阅条目。
+  Map<String, String> hosts;
 
   bool get isZh => language == 'zh';
 
@@ -250,6 +270,40 @@ class AppSettings {
         : tunStackGvisor;
   }
 
+  static final RegExp _hostDomainPattern = RegExp(r'^[A-Za-z0-9_*+.-]+$');
+  static final RegExp _hostTargetPattern = RegExp(r'^[A-Za-z0-9_.-]+$');
+  static final RegExp _hostIpv6Pattern = RegExp(r'^[0-9A-Fa-f:.]+$');
+
+  static bool isValidHostDomain(Object? value) {
+    final text = value is String ? value.trim() : '';
+    if (text.isEmpty || text.length > 253) return false;
+    if (!_hostDomainPattern.hasMatch(text)) return false;
+    return !text.contains('..');
+  }
+
+  static bool isValidHostTarget(Object? value) {
+    final text = value is String ? value.trim() : '';
+    if (text.isEmpty || text.length > 253) return false;
+    if (text.contains(':')) return _hostIpv6Pattern.hasMatch(text);
+    if (!_hostTargetPattern.hasMatch(text)) return false;
+    return !text.contains('..');
+  }
+
+  /// 手改 settings.json、旧备份或对话框输入统一走这里：丢掉无效项，
+  /// 域名与目标都小写化，同名键以后出现的为准。
+  static Map<String, String> normalizeHosts(Object? value) {
+    if (value is! Map) return <String, String>{};
+    final hosts = <String, String>{};
+    value.forEach((key, item) {
+      if (key is! String || item is! String) return;
+      final domain = key.trim().toLowerCase();
+      final target = item.trim().toLowerCase();
+      if (!isValidHostDomain(domain) || !isValidHostTarget(target)) return;
+      hosts[domain] = target;
+    });
+    return hosts;
+  }
+
   static const String styleTabs = 'tabs';
   static const String styleList = 'list';
   static const String sizeLoose = 'loose';
@@ -274,6 +328,9 @@ class AppSettings {
     String? secret,
     bool? allowLan,
     bool? ipv6,
+    bool? unifiedDelay,
+    bool? tcpConcurrent,
+    bool? geoLowMemory,
     bool? systemProxy,
     bool? tun,
     bool? autoStartCore,
@@ -295,7 +352,9 @@ class AppSettings {
     int? tunMtu,
     String? tunStack,
     DnsConfig? dns,
+    bool? appendSystemDns,
     String? overrideYaml,
+    Map<String, String>? hosts,
   }) {
     return AppSettings(
       language: language ?? this.language,
@@ -307,6 +366,9 @@ class AppSettings {
       secret: secret ?? this.secret,
       allowLan: allowLan ?? this.allowLan,
       ipv6: ipv6 ?? this.ipv6,
+      unifiedDelay: unifiedDelay ?? this.unifiedDelay,
+      tcpConcurrent: tcpConcurrent ?? this.tcpConcurrent,
+      geoLowMemory: geoLowMemory ?? this.geoLowMemory,
       systemProxy: systemProxy ?? this.systemProxy,
       tun: tun ?? this.tun,
       autoStartCore: autoStartCore ?? this.autoStartCore,
@@ -330,7 +392,9 @@ class AppSettings {
       tunMtu: tunMtu ?? this.tunMtu,
       tunStack: tunStack ?? this.tunStack,
       dns: dns ?? this.dns,
+      appendSystemDns: appendSystemDns ?? this.appendSystemDns,
       overrideYaml: overrideYaml ?? this.overrideYaml,
+      hosts: hosts ?? this.hosts,
     );
   }
 
@@ -344,6 +408,9 @@ class AppSettings {
     'secret': secret,
     'allowLan': allowLan,
     'ipv6': ipv6,
+    'unifiedDelay': unifiedDelay,
+    'tcpConcurrent': tcpConcurrent,
+    'geoLowMemory': geoLowMemory,
     'systemProxy': systemProxy,
     'tun': tun,
     'autoStartCore': autoStartCore,
@@ -365,7 +432,9 @@ class AppSettings {
     'tunMtu': tunMtu,
     'tunStack': tunStack,
     'dns': dns.toJson(),
+    'appendSystemDns': appendSystemDns,
     'overrideYaml': overrideYaml,
+    'hosts': hosts,
   };
 
   static String generateSecret() {

@@ -35,6 +35,7 @@ enum _SettingsView {
   about,
   data,
   dns,
+  hosts,
   override,
 }
 
@@ -163,6 +164,12 @@ class _SettingsPageState extends State<SettingsPage> {
             title: l10n.get('settings.group.advanced'),
             children: [
               SettingRow(
+                title: l10n.get('settings.hosts'),
+                subtitle: l10n.get('settings.hostsHint'),
+                trailing: chevron(),
+                onTap: () => _open(_SettingsView.hosts),
+              ),
+              SettingRow(
                 title: l10n.get('settings.dns'),
                 subtitle: l10n.get('settings.dnsHint'),
                 trailing: chevron(),
@@ -246,7 +253,6 @@ class _SettingsPageState extends State<SettingsPage> {
         SurfaceCard(
           padding: EdgeInsets.zero,
           radius: 18,
-          elevated: false,
           child: EmptyState(
             compact: true,
             icon: 'search-line',
@@ -587,8 +593,26 @@ class _SettingsPageState extends State<SettingsPage> {
       const _SettingEntry(
         view: _SettingsView.clash,
         groupKey: 'settings.group.clash',
+        titleKey: 'settings.unifiedDelay',
+        subtitleKey: 'settings.unifiedDelayHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.tcpConcurrent',
+        subtitleKey: 'settings.tcpConcurrentHint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
         titleKey: 'settings.ipv6',
         subtitleKey: 'settings.ipv6Hint',
+      ),
+      const _SettingEntry(
+        view: _SettingsView.clash,
+        groupKey: 'settings.group.clash',
+        titleKey: 'settings.geoLowMemory',
+        subtitleKey: 'settings.geoLowMemoryHint',
       ),
       const _SettingEntry(
         view: _SettingsView.clash,
@@ -627,12 +651,26 @@ class _SettingsPageState extends State<SettingsPage> {
         titleKey: 'settings.runtimeDir',
       ),
       const _SettingEntry(
+        view: _SettingsView.hosts,
+        groupKey: 'settings.group.advanced',
+        titleKey: 'settings.hosts',
+        subtitleKey: 'settings.hostsHint',
+        extraKeys: [
+          'settings.hostsEmpty',
+          'settings.hostsAdd',
+          'settings.hostsDomain',
+          'settings.hostsTarget',
+        ],
+      ),
+      const _SettingEntry(
         view: _SettingsView.dns,
         groupKey: 'settings.group.advanced',
         titleKey: 'settings.dns',
         subtitleKey: 'settings.dnsHint',
         extraKeys: [
           'settings.dnsEnable',
+          'settings.appendSystemDns',
+          'settings.appendSystemDnsHint',
           'settings.dnsEnhanced',
           'settings.dnsFakeIpRange',
           'settings.dnsNameserver',
@@ -815,6 +853,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _SettingsView.about => l10n.get('settings.aboutApp'),
       _SettingsView.data => l10n.get('settings.hub.data'),
       _SettingsView.dns => l10n.get('settings.dns'),
+      _SettingsView.hosts => l10n.get('settings.hosts'),
       _SettingsView.override => l10n.get('settings.override'),
       _SettingsView.hub => l10n.get('nav.settings'),
     };
@@ -827,6 +866,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _SettingsView.about => l10n.get('settings.aboutHint'),
       _SettingsView.data => l10n.get('settings.hub.dataHint'),
       _SettingsView.dns => l10n.get('settings.dnsHint'),
+      _SettingsView.hosts => l10n.get('settings.hostsHint'),
       _SettingsView.override => l10n.get('settings.overrideHint'),
       _SettingsView.hub => null,
     };
@@ -1023,13 +1063,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   settings.copyWith(allowLan: value),
                 ),
               ),
-              _SwitchRow(
-                title: l10n.get('settings.ipv6'),
-                subtitle: l10n.get('settings.ipv6Hint'),
-                value: settings.ipv6,
-                onChanged: (value) =>
-                    _apply(context, controller, settings.copyWith(ipv6: value)),
-              ),
               _ValueRow(
                 title: l10n.get('settings.testUrl'),
                 subtitle: l10n.get('settings.testUrlHint'),
@@ -1054,6 +1087,58 @@ class _SettingsPageState extends State<SettingsPage> {
                   onTap: () => _showBypassDialog(context, controller),
                 ),
             ],
+          ),
+          const SizedBox(height: 22),
+          _section(
+            context,
+            mobile: mobile,
+            title: l10n.get('settings.coreOptions'),
+            children: [
+              _SwitchRow(
+                title: l10n.get('settings.unifiedDelay'),
+                subtitle: l10n.get('settings.unifiedDelayHint'),
+                value: settings.unifiedDelay,
+                onChanged: (value) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(unifiedDelay: value),
+                ),
+              ),
+              _SwitchRow(
+                title: l10n.get('settings.tcpConcurrent'),
+                subtitle: l10n.get('settings.tcpConcurrentHint'),
+                value: settings.tcpConcurrent,
+                onChanged: (value) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(tcpConcurrent: value),
+                ),
+              ),
+              _SwitchRow(
+                title: l10n.get('settings.ipv6'),
+                subtitle: l10n.get('settings.ipv6Hint'),
+                value: settings.ipv6,
+                onChanged: (value) =>
+                    _apply(context, controller, settings.copyWith(ipv6: value)),
+              ),
+              _SwitchRow(
+                title: l10n.get('settings.geoLowMemory'),
+                subtitle: l10n.get('settings.geoLowMemoryHint'),
+                value: settings.geoLowMemory,
+                onChanged: (value) => _apply(
+                  context,
+                  controller,
+                  settings.copyWith(geoLowMemory: value),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          InfoBanner(
+            message: l10n.get('settings.coreOptionsHint'),
+            color: palette.muted,
+            icon: 'information-line',
+            dense: true,
           ),
           const SizedBox(height: 22),
           _section(
@@ -1399,6 +1484,8 @@ class _SettingsPageState extends State<SettingsPage> {
         ];
       case _SettingsView.dns:
         return _dnsSections(context, controller, mobile: mobile);
+      case _SettingsView.hosts:
+        return _hostsSections(context, controller, mobile: mobile);
       case _SettingsView.override:
         return _overrideSections(context, controller, mobile: mobile);
       case _SettingsView.hub:
@@ -1434,6 +1521,17 @@ class _SettingsPageState extends State<SettingsPage> {
               context,
               controller,
               dns.copyWith(enabled: value),
+            ),
+          ),
+          _SwitchRow(
+            title: l10n.get('settings.appendSystemDns'),
+            subtitle: l10n.get('settings.appendSystemDnsHint'),
+            value: controller.settings.appendSystemDns,
+            onChanged: (value) => _apply(
+              context,
+              controller,
+              controller.settings.copyWith(appendSystemDns: value),
+              announce: true,
             ),
           ),
           if (dns.enabled) ...[
@@ -1521,6 +1619,83 @@ class _SettingsPageState extends State<SettingsPage> {
     ];
   }
 
+  List<Widget> _hostsSections(
+    BuildContext context,
+    AppController controller, {
+    required bool mobile,
+  }) {
+    final l10n = context.l10n;
+    final palette = AppPalette.of(context);
+    final hosts = controller.settings.hosts;
+    return [
+      _section(
+        context,
+        mobile: mobile,
+        title: l10n.get('settings.hosts'),
+        trailing: hosts.isEmpty
+            ? null
+            : Text(
+                l10n.get('settings.hostsCount', ['${hosts.length}']),
+                style: TextStyle(fontSize: 12, color: palette.muted),
+              ),
+        children: [
+          for (final entry in hosts.entries)
+            SettingRow(
+              title: entry.key,
+              subtitle: entry.value,
+              trailing: AppIconButton(
+                icon: 'delete-2-line',
+                size: 15,
+                tooltip: l10n.get('common.delete'),
+                onTap: () => _removeHost(context, controller, entry.key),
+              ),
+              onTap: () =>
+                  _showHostDialog(context, controller, domain: entry.key),
+            ),
+          SettingRow(
+            title: l10n.get('settings.hostsAdd'),
+            trailing: AppIcon('add-line', size: 14, color: palette.muted),
+            onTap: () => _showHostDialog(context, controller),
+          ),
+        ],
+      ),
+      if (hosts.isEmpty) ...[
+        const SizedBox(height: 14),
+        InfoBanner(
+          message: l10n.get('settings.hostsEmpty'),
+          color: palette.muted,
+          icon: 'information-line',
+          dense: true,
+        ),
+      ],
+      const SizedBox(height: 14),
+      InfoBanner(
+        message: l10n.get('settings.hostsScope'),
+        color: palette.muted,
+        icon: 'information-line',
+        dense: true,
+      ),
+    ];
+  }
+
+  Future<void> _removeHost(
+    BuildContext context,
+    AppController controller,
+    String domain,
+  ) async {
+    final next = Map<String, String>.of(controller.settings.hosts)
+      ..remove(domain);
+    try {
+      await controller.applySettings(
+        controller.settings.copyWith(hosts: next),
+        announce: true,
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      showAppToast(context, errorFrom(error).localized(context.l10n), error: true);
+    }
+  }
+
   List<Widget> _overrideSections(
     BuildContext context,
     AppController controller, {
@@ -1571,7 +1746,6 @@ class _SettingsPageState extends State<SettingsPage> {
         SurfaceCard(
           padding: EdgeInsets.zero,
           radius: 18,
-          elevated: false,
           child: Column(children: children),
         ),
       ],
@@ -1661,7 +1835,6 @@ class _SettingsPageState extends State<SettingsPage> {
           child: SurfaceCard(
             padding: EdgeInsets.zero,
             radius: 22,
-            elevated: false,
             child: SafeArea(
               top: false,
               child: Column(
@@ -2019,6 +2192,136 @@ Future<void> _showBypassDialog(
     },
   );
   field.dispose();
+}
+
+Future<void> _showHostDialog(
+  BuildContext context,
+  AppController controller, {
+  String? domain,
+}) async {
+  final l10n = context.l10n;
+  final editing = domain != null;
+  final domainField = TextEditingController(text: domain ?? '');
+  final targetField = TextEditingController(
+    text: editing ? controller.settings.hosts[domain] ?? '' : '',
+  );
+  await showAppDialog<void>(
+    context,
+    maxWidth: 440,
+    builder: (dialogContext) {
+      var error = '';
+      var saving = false;
+      return StatefulBuilder(
+        builder: (context, setState) {
+          Future<void> save() async {
+            final key = domainField.text.trim().toLowerCase();
+            final target = targetField.text.trim().toLowerCase();
+            if (!AppSettings.isValidHostDomain(key)) {
+              setState(() => error = l10n.get('settings.hostsDomainInvalid'));
+              return;
+            }
+            if (!AppSettings.isValidHostTarget(target)) {
+              setState(() => error = l10n.get('settings.hostsTargetInvalid'));
+              return;
+            }
+            final current = controller.settings.hosts;
+            if (key != domain && current.containsKey(key)) {
+              setState(() => error = l10n.get('settings.hostsDuplicate'));
+              return;
+            }
+            setState(() {
+              saving = true;
+              error = '';
+            });
+            final next = Map<String, String>.of(current);
+            if (editing && domain != key) next.remove(domain);
+            next[key] = target;
+            try {
+              await controller.applySettings(
+                controller.settings.copyWith(hosts: next),
+                announce: true,
+              );
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+            } catch (applyError) {
+              if (!dialogContext.mounted) return;
+              setState(() {
+                saving = false;
+                error = errorFrom(applyError).localized(l10n);
+              });
+            }
+          }
+
+          return AppDialog(
+            title: l10n.get(
+              editing ? 'settings.hostsEdit' : 'settings.hostsAdd',
+            ),
+            subtitle: l10n.get('settings.hostsDialogHint'),
+            icon: 'terminal-line',
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: domainField,
+                  autofocus: true,
+                  enabled: !saving,
+                  keyboardType: TextInputType.url,
+                  textInputAction: TextInputAction.next,
+                  style: const TextStyle(fontSize: 14),
+                  decoration: InputDecoration(
+                    labelText: l10n.get('settings.hostsDomain'),
+                    hintText: l10n.get('settings.hostsDomainHint'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: targetField,
+                  enabled: !saving,
+                  keyboardType: TextInputType.url,
+                  onSubmitted: (_) => save(),
+                  style: const TextStyle(fontSize: 14),
+                  decoration: InputDecoration(
+                    labelText: l10n.get('settings.hostsTarget'),
+                    hintText: l10n.get('settings.hostsTargetHint'),
+                  ),
+                ),
+                if (error.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  InfoBanner(
+                    message: error,
+                    color: AppPalette.of(dialogContext).danger,
+                    dense: true,
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(),
+                child: Text(dialogContext.t('common.cancel')),
+              ),
+              FilledButton(
+                onPressed: saving ? null : save,
+                child: saving
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(dialogContext.t('common.save')),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+  domainField.dispose();
+  targetField.dispose();
 }
 
 Future<void> _showPortDialog(
@@ -2392,11 +2695,12 @@ Future<void> _regenerateSecret(
 Future<void> _apply(
   BuildContext context,
   AppController controller,
-  AppSettings next,
-) async {
+  AppSettings next, {
+  bool announce = false,
+}) async {
   final l10n = context.l10n;
   try {
-    await controller.applySettings(next);
+    await controller.applySettings(next, announce: announce);
   } catch (error) {
     if (!context.mounted) return;
     showAppToast(context, errorFrom(error).localized(l10n), error: true);

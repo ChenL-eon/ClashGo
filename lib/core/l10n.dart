@@ -114,6 +114,7 @@ class L10n {
     'status.starting': {'zh': '启动中', 'en': 'Starting'},
     'status.running': {'zh': '运行中', 'en': 'Running'},
     'status.stopping': {'zh': '停止中', 'en': 'Stopping'},
+    'status.ready': {'zh': '已就绪', 'en': 'Ready'},
     'status.stopUnconfirmed': {'zh': '停止未确认', 'en': 'Stop unconfirmed'},
     'mode.rule': {'zh': '规则', 'en': 'Rule'},
     'mode.global': {'zh': '全局', 'en': 'Global'},
@@ -216,6 +217,10 @@ class L10n {
       'zh': '已运行 {0} · {1} 条连接',
       'en': 'Running {0} · {1} connections',
     },
+    'home.coreReadyHint': {
+      'zh': '预览内核已就绪：节点延迟为真实代理延迟，但流量尚未被接管',
+      'en': 'Preview core ready: node delays are real proxy latency, system traffic is not intercepted',
+    },
     'home.coreMemoryHint': {'zh': '内存占用 {0}', 'en': 'Memory {0}'},
     'home.coreNotRunning': {'zh': '内核未运行', 'en': 'Core is not running'},
     'home.portListening': {'zh': '混合端口监听中', 'en': 'Mixed port is listening'},
@@ -285,6 +290,10 @@ class L10n {
     'proxy.offlineTcpHint': {
       'zh': '代理未启动：可选择订阅中的节点，启动内核后生效；测速结果为 TCP 连接延迟',
       'en': 'Proxy is not running: you can pick nodes now, applied when the core starts; delays are TCP connection latency',
+    },
+    'proxy.previewHint': {
+      'zh': '预览内核已就绪：节点数据与延迟都来自真实代理，但流量尚未被接管；窗口最小化或收进托盘后预览内核会自动停止',
+      'en': 'Preview core ready: nodes and delays come from the real proxy, but traffic is not intercepted; the preview core stops when the window is minimized or hidden to tray',
     },
     'proxy.offlineSelected': {
       'zh': '已选择，启动内核后生效',
@@ -432,6 +441,11 @@ class L10n {
     'subscriptions.expire': {'zh': '到期', 'en': 'Expires'},
     'subscriptions.lastUpdated': {'zh': '最近更新', 'en': 'Last updated'},
     'subscriptions.autoUpdate': {'zh': '自动更新', 'en': 'Auto update'},
+    'subscriptions.updateViaProxy': {'zh': '更新走代理', 'en': 'Update via proxy'},
+    'subscriptions.updateViaProxyHint': {
+      'zh': '默认直连；开启后经内核代理更新',
+      'en': 'Direct by default; use the core proxy when enabled',
+    },
     'subscriptions.interval': {'zh': '更新间隔', 'en': 'Interval'},
     'subscriptions.intervalOff': {'zh': '手动', 'en': 'Manual'},
     'subscriptions.intervalMinutes': {'zh': '{0} 分钟', 'en': '{0} minutes'},
@@ -796,6 +810,26 @@ class L10n {
       'zh': '启用 IPv6 解析与连接',
       'en': 'Enable IPv6 resolution',
     },
+    'settings.coreOptions': {'zh': '内核选项', 'en': 'Core options'},
+    'settings.unifiedDelay': {'zh': '统一延迟', 'en': 'Unified delay'},
+    'settings.unifiedDelayHint': {
+      'zh': '计算延迟时消除连接握手等差异，便于比较不同协议的节点',
+      'en': 'Normalize latency by excluding handshake differences so protocols are comparable',
+    },
+    'settings.tcpConcurrent': {'zh': 'TCP 并发', 'en': 'TCP concurrent'},
+    'settings.tcpConcurrentHint': {
+      'zh': '同时连接 DNS 解析出的所有地址，采用最先成功的连接',
+      'en': 'Connect to all resolved addresses at once and use the first connection that succeeds',
+    },
+    'settings.geoLowMemory': {'zh': 'Geo 低内存模式', 'en': 'Geo low-memory mode'},
+    'settings.geoLowMemoryHint': {
+      'zh': '使用省内存的 Geo 数据加载器；关闭后改用标准加载器，内存占用更高',
+      'en': 'Use the memory-saving Geo data loader; turn off for the standard loader, which uses more memory',
+    },
+    'settings.coreOptionsHint': {
+      'zh': '修改后会重启内核以写入 config.yaml；Geo 加载器只在启动时读取。',
+      'en': 'Changes restart the core to rewrite config.yaml; the Geo loader is read only at startup.',
+    },
     'settings.testUrl': {'zh': '测速 URL', 'en': 'Test URL'},
     'settings.testUrlHint': {
       'zh': '节点测速时访问的目标地址',
@@ -1108,6 +1142,14 @@ class L10n {
       'zh': '关闭时沿用订阅中的 dns 段',
       'en': 'When off, the dns section from your subscription is kept',
     },
+    'settings.appendSystemDns': {
+      'zh': '追加系统 DNS',
+      'en': 'Append system DNS',
+    },
+    'settings.appendSystemDnsHint': {
+      'zh': '把系统解析器 system:// 追加到主 DNS 列表末尾；仅在 DNS 已启用（自定义 DNS、订阅 DNS 或 TUN）时生效。',
+      'en': 'Append the OS resolver system:// to the nameserver list. Only takes effect when DNS is enabled (custom, subscription, or TUN).',
+    },
     'settings.dnsEnhanced': {'zh': '解析模式', 'en': 'Enhanced mode'},
     'settings.dnsEnhancedHint': {
       'zh': 'fake-ip 兼容性最好，redir-host 返回真实 IP',
@@ -1143,8 +1185,8 @@ class L10n {
       'en': 'Changes restart the core to rewrite config.yaml; TUN mode re-takes over DNS.',
     },
     'settings.dnsDisabledHint': {
-      'zh': '自定义 DNS 已关闭，订阅里的 dns 段保持不变。',
-      'en': 'Custom DNS is off; the dns section from your subscription is unchanged.',
+      'zh': '自定义 DNS 已关闭，订阅里的 dns 段保持不变；TUN 补全和追加系统 DNS 仍会在其基础上生效。',
+      'en': 'Custom DNS is off; the subscription dns section is unchanged. TUN fallback and append system DNS still apply on top.',
     },
     'settings.dnsServersEmpty': {
       'zh': '至少填写一个 DNS 服务器',
@@ -1158,6 +1200,50 @@ class L10n {
     'settings.dnsInvalidRange': {
       'zh': '请输入合法的 IPv4 CIDR，例如 198.18.0.1/16',
       'en': 'Enter a valid IPv4 CIDR, e.g. 198.18.0.1/16',
+    },
+
+    // ---------------------------------------------------------------- hosts
+    'settings.hosts': {'zh': 'Hosts 覆盖', 'en': 'Hosts override'},
+    'settings.hostsHint': {
+      'zh': '为指定域名固定解析结果，优先于 DNS',
+      'en': 'Pin domains to specific addresses ahead of DNS',
+    },
+    'settings.hostsEmpty': {
+      'zh': '还没有自定义映射。保存后只影响进入内核的连接。',
+      'en': 'No custom mappings yet. Saved entries only affect traffic through the core.',
+    },
+    'settings.hostsAdd': {'zh': '添加映射', 'en': 'Add mapping'},
+    'settings.hostsEdit': {'zh': '编辑映射', 'en': 'Edit mapping'},
+    'settings.hostsCount': {'zh': '{0} 条映射', 'en': '{0} mappings'},
+    'settings.hostsDialogHint': {
+      'zh': '域名支持 *.example.com 通配符；目标可填 IP 或域名。',
+      'en': 'Domains may use *.example.com wildcards; the target can be an IP or a domain.',
+    },
+    'settings.hostsDomain': {'zh': '域名', 'en': 'Domain'},
+    'settings.hostsDomainHint': {
+      'zh': 'example.com 或 *.example.com',
+      'en': 'example.com or *.example.com',
+    },
+    'settings.hostsTarget': {'zh': '目标地址', 'en': 'Target'},
+    'settings.hostsTargetHint': {
+      'zh': '127.0.0.1 或 local.example.com',
+      'en': '127.0.0.1 or local.example.com',
+    },
+    'settings.hostsDomainInvalid': {
+      'zh': '域名格式不正确',
+      'en': 'Enter a valid domain',
+    },
+    'settings.hostsTargetInvalid': {
+      'zh': '目标需为合法的 IP 或域名',
+      'en': 'Enter a valid IP or domain',
+    },
+    'settings.hostsDuplicate': {
+      'zh': '该域名已有映射，请直接编辑原条目',
+      'en': 'That domain already has a mapping; edit the existing entry',
+    },
+    'settings.hostsScope': {
+      'zh': '只影响进入内核的连接：系统代理模式下仅被代理的连接生效，TUN 模式全局生效；删除条目会恢复订阅或 YAML 覆写里的同名映射。',
+      'en': 'Only traffic through the core is affected: proxied connections in system-proxy mode, all traffic under TUN. Removing an entry restores any same-name mapping from the subscription or YAML override.',
     },
 
     // --------------------------------------------------------- YAML override

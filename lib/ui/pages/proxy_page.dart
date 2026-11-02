@@ -493,7 +493,8 @@ class _ProxyPageState extends State<ProxyPage> {
     final l10n = context.l10n;
     final palette = AppPalette.of(context);
     final mobile = MediaQuery.sizeOf(context).width < appDesktopBreakpoint;
-    final offline = !controller.isRunning;
+    // 预览内核在线时节点列表与延迟都来自真实代理；只有内核完全没起才退回离线快照。
+    final offline = !controller.coreOnline;
     if (mobile) {
       if (offline) _ensureOffline(controller);
       final snapshot = offline
@@ -641,6 +642,13 @@ class _ProxyPageState extends State<ProxyPage> {
               ),
             ],
           ),
+        ] else if (controller.isPreviewing) ...[
+          const SizedBox(height: 14),
+          InfoBanner(
+            message: l10n.get('proxy.previewHint'),
+            color: palette.success,
+            icon: 'information-line',
+          ),
         ],
         if (!offline && controller.proxyError != null) ...[
           const SizedBox(height: 14),
@@ -741,6 +749,14 @@ class _ProxyPageState extends State<ProxyPage> {
           ],
         ),
         const SizedBox(height: 14),
+        if (controller.isPreviewing) ...[
+          InfoBanner(
+            message: l10n.get('proxy.previewHint'),
+            color: palette.success,
+            icon: 'information-line',
+          ),
+          const SizedBox(height: 12),
+        ],
         if (group != null && view.tabs) ...[
           _groupTabBar(snapshot, group),
           if (offline)
@@ -1448,6 +1464,7 @@ String _groupCardIcon(ProxyInfo group) {
 
 /// 「标签页」风格的分组条：文字标签横排，选中项用强调色 + 底部下划线；
 /// 自动测速类分组在名字前挂绿色回收图标，与列表卡片的类型标识一致。
+/// 标签超出可用宽度时换行，而不是藏进桌面端无法横向滚动的单行滚动区。
 class _GroupTabBar extends StatelessWidget {
   const _GroupTabBar({
     required this.groups,
@@ -1461,21 +1478,18 @@ class _GroupTabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          for (var i = 0; i < groups.length; i++) ...[
-            if (i > 0) const SizedBox(width: 22),
-            _GroupTabItem(
-              group: groups[i],
-              selected: groups[i].name == selected,
-              onTap: () => onSelect(groups[i].name),
-            ),
-          ],
-        ],
-      ),
+    return Wrap(
+      spacing: 22,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.end,
+      children: [
+        for (final group in groups)
+          _GroupTabItem(
+            group: group,
+            selected: group.name == selected,
+            onTap: () => onSelect(group.name),
+          ),
+      ],
     );
   }
 }

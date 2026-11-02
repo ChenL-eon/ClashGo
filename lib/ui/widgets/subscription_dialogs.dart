@@ -37,6 +37,7 @@ class _AddSubscriptionDialogState extends State<_AddSubscriptionDialog> {
   final _urlController = TextEditingController();
   final _minutesController = TextEditingController(text: '1440');
   bool _autoUpdate = true;
+  bool _updateViaProxy = false;
   bool _busy = false;
   String? _error;
 
@@ -68,6 +69,7 @@ class _AddSubscriptionDialogState extends State<_AddSubscriptionDialog> {
         url: url,
         name: _nameController.text.trim(),
         autoUpdate: _autoUpdate,
+        updateViaProxy: _updateViaProxy,
         updateIntervalMinutes: minutes <= 0 ? 1440 : minutes,
       );
       if (!mounted) return;
@@ -156,6 +158,31 @@ class _AddSubscriptionDialogState extends State<_AddSubscriptionDialog> {
               ),
             ),
           ],
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      context.t('subscriptions.updateViaProxy'),
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      context.t('subscriptions.updateViaProxyHint'),
+                      style: TextStyle(fontSize: 11.5, color: palette.muted),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: _updateViaProxy,
+                onChanged: _busy ? null : (value) => setState(() => _updateViaProxy = value),
+              ),
+            ],
+          ),
           const SizedBox(height: 14),
           if (_error != null) ...[
             InfoBanner(message: _error!, color: palette.danger, icon: 'close-circle-line'),
@@ -215,6 +242,7 @@ class _EditSubscriptionDialogState extends State<_EditSubscriptionDialog> {
   late final TextEditingController _urlController;
   late final TextEditingController _minutesController;
   late bool _autoUpdate;
+  late bool _updateViaProxy;
   String? _error;
 
   @override
@@ -227,6 +255,7 @@ class _EditSubscriptionDialogState extends State<_EditSubscriptionDialog> {
       text: (subscription.updateIntervalMinutes <= 0 ? 1440 : subscription.updateIntervalMinutes).toString(),
     );
     _autoUpdate = subscription.autoUpdate && !subscription.isLocal;
+    _updateViaProxy = subscription.updateViaProxy && !subscription.isLocal;
   }
 
   @override
@@ -252,6 +281,7 @@ class _EditSubscriptionDialogState extends State<_EditSubscriptionDialog> {
       name: _nameController.text,
       url: _urlController.text,
       autoUpdate: _autoUpdate,
+      updateViaProxy: _updateViaProxy,
       updateIntervalMinutes: minutes <= 0 ? 1440 : minutes,
     );
     if (!mounted) return;
@@ -337,6 +367,28 @@ class _EditSubscriptionDialogState extends State<_EditSubscriptionDialog> {
                 ),
               ),
             ],
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        context.t('subscriptions.updateViaProxy'),
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        context.t('subscriptions.updateViaProxyHint'),
+                        style: TextStyle(fontSize: 11.5, color: palette.muted),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(value: _updateViaProxy, onChanged: (value) => setState(() => _updateViaProxy = value)),
+              ],
+            ),
           ],
           if (widget.subscription.isLocal) ...[
             InfoBanner(

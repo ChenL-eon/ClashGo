@@ -24,6 +24,8 @@ static void child_fail(const char *message, int code) {
 // mihomo without a queue (it only logs a TUN error and keeps running).
 static void child_prepare_tun_fd(int tunFd, int childTunFd) {
     char buf[192];
+    // 预览内核没有 tun：Kotlin 传 -1/-1 表示"不要 fd"，子进程照常 exec。
+    if (tunFd < 0 && childTunFd < 0) return;
     if (tunFd <= 2 || childTunFd <= 2) {
         child_fail("invalid tun fd\n", 125);
     }

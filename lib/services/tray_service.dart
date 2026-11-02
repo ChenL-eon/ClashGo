@@ -74,10 +74,12 @@ class TrayService {
   Future<void> showWindow() async {
     await windowManager.show();
     await windowManager.focus();
+    controller.setWindowVisible(true);
   }
 
   Future<void> hideToTray() async {
     await windowManager.hide();
+    controller.setWindowVisible(false);
   }
 
   Future<void> quit() async {

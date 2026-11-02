@@ -25,6 +25,15 @@ class CoreManager {
   bool _monitorEnabled = true;
   int? _androidPid;
 
+  // 预览内核：不走接管（Windows 普通进程 / Android 无 VpnService 的 fork+exec），
+  // 只提供 /proxies 与真实代理延迟。它和接管内核互斥，由控制器串行调度。
+  bool _previewMode = false;
+  Timer? _androidPreviewMonitor;
+  bool _androidPreviewRunning = false;
+  bool _androidPreviewStopping = false;
+  bool _androidPreviewPolling = false;
+  int? _androidPreviewPid;
+
   // Windows TUN：内核跑在提权上下文里，这边既拿不到它的句柄也 kill 不掉它，
   // 存活与日志全靠"文件协议 + 轮询"，形状和安卓那条 VpnService 通路最像。
   Timer? _elevatedMonitor;
@@ -41,13 +50,21 @@ class CoreManager {
       _elevatedLauncher ??= WindowsCoreLauncher(paths);
 
   Process? get process => _process;
-  int? get pid => _process?.pid ?? _androidPid ?? _elevatedPid;
+  int? get pid =>
+      _process?.pid ?? _androidPid ?? _elevatedPid ?? _androidPreviewPid;
   String? get binaryPath => paths.coreBinaryPath;
   bool get supported => Platform.isWindows || Platform.isAndroid;
+  // 桌面测试要跑安卓 VpnService 的拉起时序，平台判断留一个可覆盖的开关。
+  bool get isAndroidPlatform => Platform.isAndroid;
   String get runtimeDir => paths.runtimeDir.path;
 
   Future<void> initializePlatform() async {
     if (!Platform.isAndroid) return;
+    // 上个界面会话被系统杀掉时预览内核可能还活着：它是普通子进程，没有
+    // VpnService 托底，开着会一直占住 mixed/api 端口。先按 pid 文件收掉。
+    try {
+      await AndroidCore.cleanupPreview(paths.runtimeDir.path);
+    } catch (_) {}
     final info = await AndroidCore.info();
     AppPaths.androidNativeLibraryDir = info.nativeLibraryDir;
     if (!info.binaryExists) {
@@ -121,8 +138,19 @@ class CoreManager {
     String splitTunnelMode = 'all',
     List<String> splitTunnelPackages = const [],
     int tunMtu = AppInfo.tunMtu,
+    bool preview = false,
   }) async {
-    if (Platform.isAndroid) {
+    if (isAndroidPlatform) {
+      if (preview) {
+        await _startAndroidPreview(
+          config: config,
+          mixedPort: mixedPort,
+          apiPort: apiPort,
+          subscriptionId: subscriptionId,
+        );
+        return;
+      }
+      _previewMode = false;
       await _startAndroid(
         config: config,
         mixedPort: mixedPort,
@@ -143,6 +171,7 @@ class CoreManager {
     final exe = binaryPath;
     if (exe == null) throw const AppError('coreMissing');
 
+    _previewMode = preview;
     await prepareRuntime();
     await writeConfig(config);
     // 先清掉上次崩溃留下的内核：它往往正占着 mixed/api 端口，先探测端口
@@ -157,8 +186,10 @@ class CoreManager {
     log.append('Using core $exe');
     log.append('Runtime ${paths.runtimeDir.path}');
     log.append('Mixed port $mixedPort, API port $apiPort');
+    if (preview) log.append('Preview mode: no TUN, no system proxy');
 
-    if (windowsTun) {
+    // 预览内核永远走普通权限：它不接管任何流量，不能为了测速弹 UAC。
+    if (windowsTun && !preview) {
       await _startWindowsElevated(exe);
       return;
     }
@@ -319,6 +350,9 @@ class CoreManager {
       mtu: tunMtu,
     );
 
+    const serviceStartGrace = Duration(seconds: 2);
+    final startedAt = DateTime.now();
+    var sawServiceUp = false;
     final deadline = DateTime.now().add(const Duration(seconds: 20));
     while (DateTime.now().isBefore(deadline)) {
       final status = await AndroidCore.status();
@@ -337,9 +371,23 @@ class CoreManager {
           detail: _androidFailureDetail(status.error),
         );
       }
+      if (status.state == 'starting' || status.serviceRunning) {
+        sawServiceUp = true;
+      }
       if (status.state == 'stopped' && !status.serviceRunning) {
-        await _ingestAndroidLog();
-        throw AppError('startFailed', detail: _androidFailureDetail(null));
+        // 服务是异步创建的，onCreate 之前 status 就是初始的 stopped/false。
+        // 从没见过服务上线就先给宽限期，别把初始快照当成启动失败。
+        if (sawServiceUp) {
+          await _ingestAndroidLog();
+          throw AppError('startFailed', detail: _androidFailureDetail(null));
+        }
+        if (DateTime.now().difference(startedAt) >= serviceStartGrace) {
+          await _ingestAndroidLog();
+          throw AppError(
+            'startFailed',
+            detail: _androidFailureDetail('Android VPN service did not start'),
+          );
+        }
       }
       await Future<void>.delayed(const Duration(milliseconds: 200));
     }
@@ -348,6 +396,158 @@ class CoreManager {
       'startTimeout',
       detail: 'Android VPN service did not report a running core',
     );
+  }
+
+  /// 安卓预览内核：不建 VpnService、不建 TUN、没有前台通知，只 fork 一个
+  /// mihomo 子进程给界面测速用。tun fd 传 -1，C helper 会跳过 fd 处理。
+  Future<void> _startAndroidPreview({
+    required String config,
+    required int mixedPort,
+    required int apiPort,
+    required String? subscriptionId,
+  }) async {
+    final exe = binaryPath;
+    if (exe == null) throw const AppError('coreMissing');
+    if (!await waitPortAvailable(mixedPort))
+      throw AppError('portInUse', statusCode: mixedPort);
+    if (!await waitPortAvailable(apiPort))
+      throw AppError('portInUse', statusCode: apiPort);
+
+    await prepareRuntime();
+    await writeConfig(config);
+    try {
+      if (await paths.androidCoreLogFile.exists()) {
+        await paths.androidCoreLogFile.writeAsString('', flush: true);
+      }
+    } catch (_) {}
+
+    log.reset();
+    log.append('Using core $exe');
+    log.append('Runtime ${paths.runtimeDir.path}');
+    log.append('Mixed port $mixedPort, API port $apiPort');
+    log.append('Preview mode: no VPN service, no TUN');
+
+    final accepted = await AndroidCore.startPreview(
+      configPath: paths.configFile.path,
+      runtimeDir: paths.runtimeDir.path,
+      binaryPath: exe,
+      logPath: paths.androidCoreLogFile.path,
+      apiPort: apiPort,
+      subscriptionId: subscriptionId,
+    );
+    if (!accepted) {
+      throw AppError('startFailed', detail: 'Android preview core is busy');
+    }
+
+    final deadline = DateTime.now().add(const Duration(seconds: 20));
+    while (DateTime.now().isBefore(deadline)) {
+      final status = await AndroidCore.previewStatus();
+      if (status.isRunning) {
+        _previewMode = true;
+        _androidPreviewRunning = true;
+        _androidPreviewPid = status.pid;
+        log.append('Preview core started (pid ${status.pid})');
+        await _ingestAndroidLog();
+        _startAndroidPreviewMonitor();
+        return;
+      }
+      if (status.isError) {
+        await _ingestAndroidLog();
+        throw AppError(
+          'startFailed',
+          detail: _androidFailureDetail(status.error),
+        );
+      }
+      if (status.state == 'stopped') {
+        await _ingestAndroidLog();
+        throw AppError('startFailed', detail: _androidFailureDetail(null));
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    await _ingestAndroidLog();
+    throw const AppError(
+      'startTimeout',
+      detail: 'Android preview core did not report a running core',
+    );
+  }
+
+  Future<void> _stopAndroidPreview({required bool removePid}) async {
+    _androidPreviewStopping = true;
+    _androidPreviewMonitor?.cancel();
+    _androidPreviewMonitor = null;
+    try {
+      await AndroidCore.stopPreview();
+    } catch (error) {
+      log.append('Failed to stop Android preview core: $error');
+    }
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final status = await AndroidCore.previewStatus();
+        if (!status.isRunning &&
+            status.state != 'stopping' &&
+            status.state != 'starting') {
+          break;
+        }
+      } catch (_) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
+    _androidPreviewRunning = false;
+    _androidPreviewPid = null;
+    _previewMode = false;
+    _androidPreviewStopping = false;
+    if (removePid) await _removePidFile();
+    await _ingestAndroidLog();
+    log.append('Preview core stopped');
+  }
+
+  void _startAndroidPreviewMonitor() {
+    _androidPreviewMonitor?.cancel();
+    if (!_monitorEnabled) return;
+    _androidPreviewMonitor = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _pollAndroidPreviewStatus(),
+    );
+  }
+
+  Future<void> _pollAndroidPreviewStatus() async {
+    if (!_androidPreviewRunning ||
+        _androidPreviewPolling ||
+        _androidPreviewStopping) {
+      return;
+    }
+    _androidPreviewPolling = true;
+    try {
+      final status = await AndroidCore.previewStatus();
+      if (status.isRunning) {
+        _androidPreviewPid = status.pid;
+        return;
+      }
+      if (status.state == 'stopping' || status.state == 'starting') return;
+      _androidPreviewRunning = false;
+      _androidPreviewPid = null;
+      _previewMode = false;
+      _androidPreviewMonitor?.cancel();
+      _androidPreviewMonitor = null;
+      await _ingestAndroidLog();
+      if (_androidPreviewStopping) return;
+      onExit?.call(status.exitCode ?? -1);
+    } catch (_) {
+      // 通道瞬时失败不算内核退出，继续轮询。
+    } finally {
+      _androidPreviewPolling = false;
+    }
+  }
+
+  /// 只停预览内核（安卓界面销毁 / 退出时兜底），不影响正在接管的 VpnService。
+  Future<void> stopPreview() async {
+    if (Platform.isAndroid) {
+      await _stopAndroidPreview(removePid: true);
+    } else if (_previewMode) {
+      await stop();
+    }
   }
 
   String _androidFailureDetail(String? message) {
@@ -403,6 +603,8 @@ class CoreManager {
       // 否则最小化之后每两秒仍要唤醒一次去做同一次"文件在不在"的检查。
       _elevatedMonitor?.cancel();
       _elevatedMonitor = null;
+      _androidPreviewMonitor?.cancel();
+      _androidPreviewMonitor = null;
       return;
     }
     if (_androidRunning) {
@@ -412,6 +614,10 @@ class CoreManager {
     if (_elevatedPid != null) {
       _startElevatedMonitor();
       unawaited(_pollElevatedCore());
+    }
+    if (_androidPreviewRunning) {
+      _startAndroidPreviewMonitor();
+      unawaited(_pollAndroidPreviewStatus());
     }
   }
 
@@ -493,11 +699,16 @@ class CoreManager {
   /// 系统里的 TUN 路由和 DNS 劫持可能还挂着。
   Future<bool> stop({bool removePid = true}) async {
     if (Platform.isAndroid) {
+      if (_previewMode || _androidPreviewRunning || _androidPreviewStopping) {
+        await _stopAndroidPreview(removePid: removePid);
+        return true;
+      }
       await _stopAndroid(removePid: removePid);
       return true;
     }
     final process = _process;
     _process = null;
+    _previewMode = false;
     if (process != null) {
       log.append('Stopping core (pid ${process.pid})');
       try {

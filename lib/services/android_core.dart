@@ -142,4 +142,42 @@ class AndroidCore {
     final map = await _channel.invokeMapMethod<Object?, Object?>('status');
     return AndroidCoreStatus.fromMap(map ?? const {});
   }
+
+  // 预览内核不走 VpnService：只是应用进程里 fork 出来的 mihomo 子进程，
+  // 没有 tun、没有前台服务通知，界面不可见时由 Dart 侧停掉。
+  static Future<bool> startPreview({
+    required String configPath,
+    required String runtimeDir,
+    required String binaryPath,
+    required String logPath,
+    required int apiPort,
+    required String? subscriptionId,
+  }) async {
+    final result = await _channel.invokeMethod<bool>('startPreview', {
+      'configPath': configPath,
+      'runtimeDir': runtimeDir,
+      'binaryPath': binaryPath,
+      'logPath': logPath,
+      'apiPort': apiPort,
+      'subscriptionId': subscriptionId,
+    });
+    return result ?? false;
+  }
+
+  static Future<void> stopPreview() async {
+    await _channel.invokeMethod<bool>('stopPreview');
+  }
+
+  static Future<AndroidCoreStatus> previewStatus() async {
+    final map = await _channel.invokeMapMethod<Object?, Object?>(
+      'previewStatus',
+    );
+    return AndroidCoreStatus.fromMap(map ?? const {});
+  }
+
+  static Future<void> cleanupPreview(String runtimeDir) async {
+    await _channel.invokeMethod<bool>('cleanupPreview', {
+      'runtimeDir': runtimeDir,
+    });
+  }
 }

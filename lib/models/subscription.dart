@@ -7,6 +7,7 @@ class Subscription {
     required this.createdAt,
     this.lastUpdatedAt,
     this.autoUpdate = true,
+    this.updateViaProxy = false,
     this.updateIntervalMinutes = 1440,
     this.upload = 0,
     this.download = 0,
@@ -26,6 +27,7 @@ class Subscription {
       createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
       lastUpdatedAt: DateTime.tryParse(json['lastUpdatedAt'] as String? ?? ''),
       autoUpdate: json['autoUpdate'] as bool? ?? true,
+      updateViaProxy: json['updateViaProxy'] as bool? ?? false,
       updateIntervalMinutes: (json['updateIntervalMinutes'] as num?)?.toInt() ?? 1440,
       upload: (json['upload'] as num?)?.toInt() ?? 0,
       download: (json['download'] as num?)?.toInt() ?? 0,
@@ -44,6 +46,9 @@ class Subscription {
   final DateTime createdAt;
   final DateTime? lastUpdatedAt;
   final bool autoUpdate;
+
+  /// 订阅更新是否经内核代理；默认直连。添加/编辑订阅时单独选择。
+  final bool updateViaProxy;
   final int updateIntervalMinutes;
   final int upload;
   final int download;
@@ -82,6 +87,7 @@ class Subscription {
     String? url,
     DateTime? lastUpdatedAt,
     bool? autoUpdate,
+    bool? updateViaProxy,
     int? updateIntervalMinutes,
     int? upload,
     int? download,
@@ -100,6 +106,7 @@ class Subscription {
       createdAt: createdAt,
       lastUpdatedAt: lastUpdatedAt ?? this.lastUpdatedAt,
       autoUpdate: autoUpdate ?? this.autoUpdate,
+      updateViaProxy: updateViaProxy ?? this.updateViaProxy,
       updateIntervalMinutes: updateIntervalMinutes ?? this.updateIntervalMinutes,
       upload: upload ?? this.upload,
       download: download ?? this.download,
@@ -119,6 +126,7 @@ class Subscription {
         'createdAt': createdAt.toIso8601String(),
         'lastUpdatedAt': lastUpdatedAt?.toIso8601String(),
         'autoUpdate': autoUpdate,
+        'updateViaProxy': updateViaProxy,
         'updateIntervalMinutes': updateIntervalMinutes,
         'upload': upload,
         'download': download,

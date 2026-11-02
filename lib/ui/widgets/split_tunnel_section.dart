@@ -429,7 +429,6 @@ class _SplitTunnelSectionState extends State<SplitTunnelSection> {
         SurfaceCard(
           padding: EdgeInsets.zero,
           radius: 18,
-          elevated: false,
           child: Column(children: children),
         ),
       ],

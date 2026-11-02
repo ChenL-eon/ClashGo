@@ -172,7 +172,7 @@ class _MobileHome extends StatelessWidget {
                   size: 15,
                   padding: 5,
                   tooltip: l10n.get('home.latencyTest'),
-                  onTap: controller.isRunning ? controller.testLatency : null,
+                  onTap: controller.coreOnline ? controller.testLatency : null,
                 ),
         ),
         SurfaceCard(
@@ -211,6 +211,7 @@ class _MobileHeroCard extends StatelessWidget {
         ? (palette.danger, l10n.get('status.stopUnconfirmed'))
         : switch (controller.phase) {
             CorePhase.running => (palette.success, l10n.get('status.running')),
+            CorePhase.preview => (palette.success, l10n.get('status.ready')),
             CorePhase.starting => (palette.warning, l10n.get('status.starting')),
             CorePhase.stopping => (palette.warning, l10n.get('status.stopping')),
             CorePhase.stopped => (palette.danger, l10n.get('status.stopped')),
@@ -1131,6 +1132,7 @@ class _CoreStatusCard extends StatelessWidget {
         ? l10n.get('status.stopUnconfirmed')
         : switch (controller.phase) {
             CorePhase.running => l10n.get('status.running'),
+            CorePhase.preview => l10n.get('status.ready'),
             CorePhase.starting => l10n.get('status.starting'),
             CorePhase.stopping => l10n.get('status.stopping'),
             CorePhase.stopped => l10n.get('home.notRunning'),
@@ -1142,6 +1144,7 @@ class _CoreStatusCard extends StatelessWidget {
               'home.coreRunningHint',
               [uptime, '${controller.connectionCount}'],
             ),
+            CorePhase.preview => l10n.get('home.coreReadyHint'),
             CorePhase.starting => l10n.get('home.statusHint.starting'),
             CorePhase.stopping => l10n.get('home.statusHint.stopping'),
             CorePhase.stopped => subscription == null
@@ -1432,7 +1435,7 @@ class _LatencyCard extends StatelessWidget {
                 AppIconButton(
                   icon: 'refresh-2-line',
                   tooltip: l10n.get('home.latencyTest'),
-                  onTap: controller.isRunning ? controller.testLatency : null,
+                  onTap: controller.coreOnline ? controller.testLatency : null,
                 ),
             ],
           ),

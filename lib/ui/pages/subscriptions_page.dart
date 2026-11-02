@@ -255,10 +255,20 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
     return l10n.get('subscriptions.intervalMinutes', [minutes]);
   }
 
+  Widget _blankTapUnfocus(Widget child) {
+    // 弹窗/菜单收起后焦点可能留在卡片里，点空白处统一清掉；
+    // 页面内容不足一屏时也要铺满，否则下方的空白点不到这里。
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+      child: SizedBox.expand(child: child),
+    );
+  }
+
   Widget _buildMobile(BuildContext context, AppController controller) {
     final l10n = context.l10n;
     final subscriptions = controller.subscriptions;
-    return PageContainer(
+    return _blankTapUnfocus(PageContainer(
       children: [
         MobilePageHeader(
           title: l10n.get('subscriptions.title'),
@@ -307,7 +317,7 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
             if (subscription != subscriptions.last) const SizedBox(height: 12),
           ],
       ],
-    );
+    ));
   }
 
   @override
@@ -319,7 +329,7 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
     if (MediaQuery.sizeOf(context).width < appDesktopBreakpoint) {
       return _buildMobile(context, controller);
     }
-    return PageContainer(
+    return _blankTapUnfocus(PageContainer(
       children: [
         PageHeader(
           title: l10n.get('nav.subscriptions'),
@@ -387,7 +397,7 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
             },
           ),
       ],
-    );
+    ));
   }
 }
 

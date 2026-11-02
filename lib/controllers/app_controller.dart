@@ -33,7 +33,10 @@ import '../services/subscription_fetcher.dart';
 import '../services/system_proxy.dart';
 import '../services/update_service.dart';
 
-enum CorePhase { stopped, starting, running, stopping }
+/// [preview] 是「没有接管流量、只为节点测速而运行」的内核：窗口/应用可见时存在，
+/// 退到后台、最小化或收进托盘就停掉。它和 [running]（用户启动、要常驻）区分开，
+/// 所有「启动/停止」语义仍然只认后者。
+enum CorePhase { stopped, starting, running, preview, stopping }
 
 class AppNotice {
   const AppNotice(this.message, {this.error = false});
@@ -161,6 +164,13 @@ class AppController extends ChangeNotifier {
   bool _disposed = false;
   bool _systemProxyApplied = false;
   bool _foreground = true;
+  // 窗口/应用是否可见与「前台轮询」分开：Windows 失焦只停轮询，最小化/进托盘
+  // 才停预览内核；安卓下拉通知栏（inactive）同样不该把测速内核收掉。
+  bool _windowVisible = false;
+  bool _previewIntent = false;
+  bool _previewCancelled = false;
+  bool _takeoverStartRequested = false;
+  Future<void> _previewQueue = Future<void>.value();
   bool _connectionsPolling = false;
   bool _proxiesPolling = false;
   // 默认值对齐 AppShell 的初始页（_index = 0 即主页）：主页可见、连接页不可见。
@@ -190,6 +200,8 @@ class AppController extends ChangeNotifier {
   }
 
   bool get isRunning => phase == CorePhase.running;
+  bool get isPreviewing => phase == CorePhase.preview;
+  bool get coreOnline => isRunning || isPreviewing;
   bool get isBusy => phase == CorePhase.starting || phase == CorePhase.stopping;
 
   bool get splitTunnelNeedsRestart {
@@ -299,7 +311,7 @@ class AppController extends ChangeNotifier {
     try {
       final release = await const UpdateService().latest(
         channel: settings.updateChannel,
-        proxyPort: phase == CorePhase.running ? settings.mixedPort : null,
+        proxyPort: coreOnline ? settings.mixedPort : null,
       );
       if (_disposed || release == null) return;
       if (UpdateService.isNewer(release.version, AppInfo.version)) {
@@ -325,11 +337,30 @@ class AppController extends ChangeNotifier {
       return;
     }
     _startAutoUpdateTimer();
-    if (phase == CorePhase.running) {
+    if (coreOnline) {
       _startLiveFeeds();
       unawaited(refreshProxies(silent: true));
     }
     unawaited(_runAutoUpdates());
+  }
+
+  /// 窗口/应用可见时才保留预览内核；用户启动并接管中的内核不受影响。
+  /// 与 [setForeground] 分开：Windows 失焦仍算可见，只有最小化/进托盘才算不可见。
+  void setWindowVisible(bool visible) {
+    if (_disposed || _windowVisible == visible) return;
+    _windowVisible = visible;
+    if (!visible) {
+      _previewCancelled = true;
+      if (phase == CorePhase.preview || _previewIntent) {
+        unawaited(_runPreview(_stopPreviewInternal));
+      }
+      return;
+    }
+    // 上一次隐藏可能把取消标志留在 true（启动还没走到内核那一步就被取消），
+    // 重新可见时必须清掉，否则预览永远起不来。
+    _previewCancelled = false;
+    if (phase == CorePhase.stopped)
+      unawaited(_runPreview(_startPreviewInternal));
   }
 
   void _startAutoUpdateTimer() {
@@ -351,7 +382,10 @@ class AppController extends ChangeNotifier {
     // 重新写回盘上，把启动时刚归一化的结果又覆盖掉。
     next = _oneTakeover(
       next,
-    ).copyWith(proxyBypass: AppSettings.normalizeProxyBypass(next.proxyBypass));
+    ).copyWith(
+      proxyBypass: AppSettings.normalizeProxyBypass(next.proxyBypass),
+      hosts: AppSettings.normalizeHosts(next.hosts),
+    );
     final bypassChanged = previous.proxyBypass != next.proxyBypass;
     final coreFieldsChanged =
         previous.mixedPort != next.mixedPort ||
@@ -359,11 +393,17 @@ class AppController extends ChangeNotifier {
         previous.secret != next.secret ||
         previous.allowLan != next.allowLan ||
         previous.ipv6 != next.ipv6 ||
+        previous.unifiedDelay != next.unifiedDelay ||
+        previous.tcpConcurrent != next.tcpConcurrent ||
+        previous.geoLowMemory != next.geoLowMemory ||
         previous.mode != next.mode;
-    // DNS 覆写与 YAML 覆写都写进 config.yaml，重启一次才生效。
+    // DNS 覆写、追加系统 DNS、YAML 覆写与 hosts 都写进 config.yaml，
+    // 重启一次才生效。
     final configFieldsChanged =
         previous.dns != next.dns ||
-        previous.overrideYaml != next.overrideYaml;
+        previous.appendSystemDns != next.appendSystemDns ||
+        previous.overrideYaml != next.overrideYaml ||
+        !mapEquals(previous.hosts, next.hosts);
     // 隧道参数写进 config.yaml，安卓还同时决定 VpnService.setMtu。系统代理模式
     // 下的 Windows 配置里没有 tun 段，改这两个值不该白白重启一次内核。
     final tunFieldsChanged =
@@ -414,7 +454,7 @@ class AppController extends ChangeNotifier {
     if ((coreFieldsChanged ||
             configFieldsChanged ||
             (tunFieldsChanged && tunInUse)) &&
-        phase == CorePhase.running) {
+        coreOnline) {
       await restartCore();
     }
     if (announce) _notice(l10n.get('settings.saved'));
@@ -434,7 +474,7 @@ class AppController extends ChangeNotifier {
     settings = settings.copyWith(mode: mode);
     await store.saveSettings(settings);
     _notify();
-    if (phase == CorePhase.running) {
+    if (coreOnline) {
       try {
         await api.patchConfigs({'mode': mode});
         _scheduleLatencyTest();
@@ -465,6 +505,7 @@ class AppController extends ChangeNotifier {
     } catch (_) {}
     _notify();
     _notice(l10n.get('settings.resetDone'));
+    _ensurePreview();
   }
 
   Future<void> clearSelections() async {
@@ -611,10 +652,138 @@ class AppController extends ChangeNotifier {
     } catch (_) {}
   }
 
+  // ------------------------------------------------------------- preview core
+
+  /// 预览内核的所有启动/停止都排进同一条队列：窗口显隐、用户点「启动」、
+  /// 设置变更可能同时发生，串行化后不用在两处各维护一套互斥标志。
+  Future<void> _runPreview(Future<void> Function() action) {
+    final next = _previewQueue.then((_) => action());
+    _previewQueue = next.catchError((_) {});
+    return next;
+  }
+
+  bool get _previewWanted =>
+      !_disposed && _windowVisible && !_previewCancelled && !stopUnconfirmed;
+
+  void _ensurePreview() {
+    if (!_windowVisible || _disposed) return;
+    unawaited(_runPreview(_startPreviewInternal));
+  }
+
+  /// 没有接管流量、也不写入系统代理/TUN，只让内核把订阅配置加载好，
+  /// 这样代理页的节点测速走 `/proxies/{name}/delay`，是真实的代理延迟。
+  Future<void> _startPreviewInternal() async {
+    if (!_previewWanted || phase != CorePhase.stopped) return;
+    final sub = activeSubscription;
+    if (sub == null || !core.supported) return;
+    if (core.binaryPath == null && Platform.isAndroid) {
+      try {
+        await core.initializePlatform();
+      } catch (_) {}
+    }
+    if (core.binaryPath == null || !_previewWanted) return;
+
+    _previewIntent = true;
+    _previewCancelled = false;
+    phase = CorePhase.starting;
+    _exitCode = null;
+    startedAt = null;
+    testingNodes.clear();
+    testingGroups.clear();
+    _notify();
+
+    try {
+      await ensureProfile(sub);
+      if (!_previewWanted) return;
+      final profile = await store.readProfile(sub.id);
+      if (profile == null || profile.trim().isEmpty) return;
+      final config = _configGenerator.generate(
+        profile: profile,
+        settings: settings,
+        mode: settings.mode,
+        androidTun: false,
+        windowsTun: false,
+      );
+      await core.start(
+        config: config,
+        mixedPort: settings.mixedPort,
+        apiPort: settings.apiPort,
+        subscriptionId: sub.id,
+        ipv6: settings.ipv6,
+        windowsTun: false,
+        preview: true,
+        apiSecret: settings.secret,
+        notificationTitle: l10n.get('notification.vpnTitle'),
+        notificationText: l10n.get('notification.vpnText'),
+        notificationStop: l10n.get('notification.stop'),
+      );
+      if (!_previewWanted) return;
+      final version = await _waitForApi();
+      if (!_previewWanted) return;
+      coreVersion = version.version;
+      phase = CorePhase.preview;
+      startedAt = DateTime.now();
+      _notify();
+      _startLiveFeeds();
+      await refreshProxies(silent: true);
+      await _applySavedSelections();
+      unawaited(testLatency());
+    } catch (error) {
+      // 预览是静默能力：失败就退回离线 TCP 测速，不抢用户的提示区。
+      core.log.append('Preview core unavailable: ${errorFrom(error).code}');
+    } finally {
+      if (phase == CorePhase.starting) {
+        // 启动没走完（失败或被隐藏取消）：start 可能已经 fork/exec 出内核，
+        // 不能只看它有没有正常返回，必须让 CoreManager 收一遍，别留下占端口的幽灵进程。
+        try {
+          await core.stopPreview();
+        } catch (_) {}
+        phase = CorePhase.stopped;
+        startedAt = null;
+        _notify();
+      }
+      _previewIntent = false;
+    }
+  }
+
+  /// [restart] 为 false 只用于真正的停止（备份恢复、退出、内核替换）：
+  /// 换订阅/改端口这类重启必须让新配置生效，所以默认停完就重建。
+  Future<void> _stopPreviewInternal({bool restart = true}) async {
+    _previewCancelled = true;
+    if (phase != CorePhase.preview) {
+      _previewCancelled = false;
+      return;
+    }
+    _stopLiveFeeds();
+    await core.stopPreview();
+    _resetRuntimeState();
+    _notify();
+    _previewCancelled = false;
+    if (restart && _windowVisible && !_takeoverStartRequested && !_disposed) {
+      await _startPreviewInternal();
+    }
+  }
+
   // --------------------------------------------------------------------- core
 
   Future<void> startCore({bool silent = false}) async {
-    if (phase != CorePhase.stopped) return;
+    // 预览内核占着同一组端口：先按顺序收掉，再走用户启动那条完整通路。
+    var wasPreviewing = false;
+    if (_previewIntent || phase == CorePhase.preview) {
+      wasPreviewing = true;
+      _takeoverStartRequested = true;
+      _previewCancelled = true;
+      try {
+        await _runPreview(_stopPreviewInternal);
+      } finally {
+        _previewCancelled = false;
+      }
+    }
+    if (phase != CorePhase.stopped) {
+      _takeoverStartRequested = false;
+      return;
+    }
+    _takeoverStartRequested = false;
     final sub = activeSubscription;
     if (subscriptions.isEmpty) {
       final error = const AppError('noSubscription');
@@ -721,13 +890,24 @@ class AppController extends ChangeNotifier {
       startedAt = null;
       lastError = appError;
       _notify();
+      // 接管没起来（比如 UAC 被拒、端口被占）时把预览内核放回去：窗口还开着，
+      // 节点数据没必要退回离线 TCP 测速。
+      if (wasPreviewing) _ensurePreview();
       if (!silent) throw appError;
     }
   }
 
   /// 返回 false 表示停止请求没被提权监护进程确认。此时内核状态已经无法由
   /// 本进程控制，调用方绝不能再按"已经停机"继续启动、替换或切换接管方式。
-  Future<bool> stopCore({bool silent = false}) async {
+  ///
+  /// [keepPreview] 只给用户主动停止用：接管停了但窗口还开着时，立刻换成
+  /// 预览内核，节点延迟继续是真实值；重启、关机、清数据这些内部调用保持全停。
+  Future<bool> stopCore({bool silent = false, bool keepPreview = false}) async {
+    if (_previewIntent || phase == CorePhase.preview) {
+      _previewCancelled = true;
+      await _runPreview(() => _stopPreviewInternal(restart: false));
+      return true;
+    }
     if (phase == CorePhase.stopped) {
       if (!stopUnconfirmed) return true;
       final error = const AppError('tunStopUnconfirmed');
@@ -769,11 +949,22 @@ class AppController extends ChangeNotifier {
     if (lastError?.code == 'tunStopUnconfirmed') lastError = null;
     _notify();
     if (!silent) _notice(l10n.get('toast.coreStopped'));
+    if (keepPreview) {
+      _previewCancelled = false;
+      _ensurePreview();
+    }
     return true;
   }
 
   Future<void> restartCore({bool silent = false}) async {
     if (isBusy) return;
+    // 预览内核重启后仍是预览内核：设置页改端口、换订阅都走这里。
+    if (_previewIntent || phase == CorePhase.preview) {
+      _previewCancelled = true;
+      await _runPreview(_stopPreviewInternal);
+      _previewCancelled = false;
+      return;
+    }
     final wasRunning = phase == CorePhase.running;
     if (wasRunning && !await stopCore(silent: true)) return;
     await startCore(silent: silent);
@@ -830,11 +1021,12 @@ class AppController extends ChangeNotifier {
       p.join(paths.coreOverrideFile.parent.path, 'mihomo-update.exe'),
     );
     var wasRunning = false;
+    var wasPreviewing = false;
     var stoppedForReplace = false;
     try {
       final zip = await service.download(
         release,
-        proxyPort: phase == CorePhase.running ? settings.mixedPort : null,
+        proxyPort: coreOnline ? settings.mixedPort : null,
         onProgress: (received, total) {
           if (!updatingCore) return;
           coreUpdateProgress = total > 0
@@ -864,6 +1056,7 @@ class AppController extends ChangeNotifier {
       }
 
       wasRunning = phase == CorePhase.running;
+      wasPreviewing = phase == CorePhase.preview;
       if (phase != CorePhase.stopped || stopUnconfirmed) {
         stoppedForReplace = true;
         if (!await stopCore(silent: true)) {
@@ -885,11 +1078,15 @@ class AppController extends ChangeNotifier {
       );
       if (wasRunning && !settings.tun) {
         await startCore(silent: true);
+      } else if (wasPreviewing) {
+        _ensurePreview();
       }
     } catch (error) {
       if (stoppedForReplace && wasRunning && !settings.tun) {
         // 替换失败时至少把原来那个内核拉回来，别让一次更新把代理留在停机状态。
         await startCore(silent: true);
+      } else if (stoppedForReplace && wasPreviewing) {
+        _ensurePreview();
       }
       final appError = errorFrom(error);
       _notice(appError.localized(l10n), error: true);
@@ -913,8 +1110,10 @@ class AppController extends ChangeNotifier {
     updatingCore = true;
     _notify();
     var wasRunning = false;
+    var wasPreviewing = false;
     try {
       wasRunning = phase == CorePhase.running;
+      wasPreviewing = phase == CorePhase.preview;
       if (phase != CorePhase.stopped || stopUnconfirmed) {
         if (!await stopCore(silent: true)) {
           throw const AppError('tunStopUnconfirmed');
@@ -926,6 +1125,8 @@ class AppController extends ChangeNotifier {
       _notice(l10n.get('settings.coreRestoreDone'));
       if (wasRunning && !settings.tun) {
         await startCore(silent: true);
+      } else if (wasPreviewing) {
+        _ensurePreview();
       }
     } catch (error) {
       final appError = errorFrom(error);
@@ -938,10 +1139,10 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _toggleCore() async {
-    if (phase == CorePhase.stopped) {
+    if (phase == CorePhase.stopped || phase == CorePhase.preview) {
       await startCore();
     } else if (phase == CorePhase.running) {
-      await stopCore();
+      await stopCore(keepPreview: true);
     }
   }
 
@@ -984,6 +1185,12 @@ class AppController extends ChangeNotifier {
   void _handleCoreExit(int code) {
     _exitCode = code;
     if (_disposed) return;
+    if (phase == CorePhase.preview) {
+      core.log.append('Preview core exited with code $code');
+      _resetRuntimeState();
+      _notify();
+      return;
+    }
     if (phase == CorePhase.running) {
       _resetRuntimeState();
       lastError = AppError(
@@ -1045,7 +1252,7 @@ class AppController extends ChangeNotifier {
   /// 任何人看得见，和当初 /traffic 常连是同一个问题源。所以走同一条规矩：日志页
   /// 不可见就整条断开。缓冲区不清空，切回来先看到离开前的尾巴，之后的实时接上。
   void _syncLogFeed() {
-    final shouldRun = _foreground && logsActive && phase == CorePhase.running;
+    final shouldRun = _foreground && logsActive && coreOnline;
     if (!shouldRun) {
       _logSocket?.dispose();
       _logSocket = null;
@@ -1079,7 +1286,7 @@ class AppController extends ChangeNotifier {
   /// 流量和内存曲线只有主页在用。离开主页就把这两条 WebSocket 整个断开——
   /// 留着等于让内核每秒推一条、把 isolate 唤醒一次，却没有任何人看。
   void _syncHomeFeeds() {
-    final shouldRun = _foreground && _homeActive && phase == CorePhase.running;
+    final shouldRun = _foreground && _homeActive && coreOnline;
     if (!shouldRun) {
       _trafficSocket?.dispose();
       _trafficSocket = null;
@@ -1128,8 +1335,7 @@ class AppController extends ChangeNotifier {
   void _syncConnectionTimer() {
     _connectionTimer?.cancel();
     _connectionTimer = null;
-    if (!_foreground || !_connectionsActive || phase != CorePhase.running)
-      return;
+    if (!_foreground || !_connectionsActive || !coreOnline) return;
     _connectionTimer = Timer.periodic(
       const Duration(seconds: 5),
       (_) => refreshConnections(silent: true),
@@ -1143,7 +1349,7 @@ class AppController extends ChangeNotifier {
   void _syncProxyTimer() {
     _proxyTimer?.cancel();
     _proxyTimer = null;
-    if (!_foreground || phase != CorePhase.running) return;
+    if (!_foreground || !coreOnline) return;
     _proxyTimer = Timer.periodic(
       _proxyActive
           ? AppInfo.proxyPollVisibleInterval
@@ -1204,7 +1410,7 @@ class AppController extends ChangeNotifier {
   // -------------------------------------------------------------------- proxy
 
   Future<void> refreshProxies({bool silent = false}) async {
-    if (phase != CorePhase.running || _proxiesPolling) return;
+    if (!coreOnline || _proxiesPolling) return;
     _proxiesPolling = true;
     loadingProxies = true;
     if (!silent) _notify();
@@ -1238,7 +1444,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> selectProxy(ProxyInfo group, String node) async {
-    if (phase != CorePhase.running) return;
+    if (!coreOnline) return;
     try {
       await api.selectProxy(group.name, node);
       if (activeId != null) {
@@ -1268,7 +1474,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> testNode(String name) async {
-    if (phase != CorePhase.running) return;
+    if (!coreOnline) return;
     testingNodes.add(name);
     _notify();
     try {
@@ -1283,7 +1489,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> testGroup(ProxyInfo group) async {
-    if (phase != CorePhase.running) return;
+    if (!coreOnline) return;
     testingGroups.add(group.name);
     _notify();
     try {
@@ -1306,7 +1512,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> testAllGroups() async {
-    if (phase != CorePhase.running || bulkTesting) return;
+    if (!coreOnline || bulkTesting) return;
     bulkTesting = true;
     for (final group in proxySnapshot.groups) {
       testingGroups.add(group.name);
@@ -1315,9 +1521,9 @@ class AppController extends ChangeNotifier {
     for (final group in proxySnapshot.groups) {
       try {
         final results = await api.groupDelay(
-          group.name,
-          url: settings.testUrl,
-        );
+        group.name,
+        url: settings.testUrl,
+      );
         _recordDelays(results);
       } catch (_) {
         _recordDelays({for (final name in group.all) name: -1});
@@ -1363,7 +1569,7 @@ class AppController extends ChangeNotifier {
   // ---------------------------------------------------------------- connections
 
   Future<void> refreshConnections({bool silent = false}) async {
-    if (phase != CorePhase.running || _connectionsPolling) return;
+    if (!coreOnline || _connectionsPolling) return;
     _connectionsPolling = true;
     try {
       connectionsSnapshot = await api.connections();
@@ -1422,7 +1628,7 @@ class AppController extends ChangeNotifier {
   Future<void> testLatency() async {
     // 不可见不发起：首页和代理页都看不到时，那排状态点没有消费者，
     // 一轮探测却是三条经 mixed-port 的真实出网连接。
-    if (!_foreground || phase != CorePhase.running || testingLatency) return;
+    if (!_foreground || !coreOnline || testingLatency) return;
     if (!_homeActive && !_proxyActive) return;
     testingLatency = true;
     _notify();
@@ -1497,6 +1703,7 @@ class AppController extends ChangeNotifier {
     required String url,
     String? name,
     bool? autoUpdate,
+    bool updateViaProxy = false,
     int? updateIntervalMinutes,
   }) async {
     if (importingSubscription)
@@ -1506,7 +1713,7 @@ class AppController extends ChangeNotifier {
     try {
       final fetched = await fetcher.fetchUrl(
         url.trim(),
-        proxyPort: _subscriptionProxyPort,
+        proxyPort: _subscriptionFetchProxyPort(updateViaProxy),
       );
       fetcher.validateProfile(fetched.content);
       final subscription = await _createSubscription(
@@ -1516,6 +1723,7 @@ class AppController extends ChangeNotifier {
         name: name,
         headers: fetched.headers,
         autoUpdate: autoUpdate,
+        updateViaProxy: updateViaProxy,
         updateIntervalMinutes: updateIntervalMinutes,
       );
       _notice(l10n.get('subscriptions.addSuccess'));
@@ -1549,8 +1757,11 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  int? get _subscriptionProxyPort =>
-      phase == CorePhase.running ? settings.mixedPort : null;
+  int? get _subscriptionProxyPort => coreOnline ? settings.mixedPort : null;
+
+  /// 订阅更新默认直连；只有订阅自己选了走代理且内核在线时才经混合端口。
+  int? _subscriptionFetchProxyPort(bool viaProxy) =>
+      viaProxy && coreOnline ? settings.mixedPort : null;
 
   Future<Subscription> _createSubscription({
     required String content,
@@ -1559,6 +1770,7 @@ class AppController extends ChangeNotifier {
     required SubscriptionHeaders headers,
     String? name,
     bool? autoUpdate,
+    bool updateViaProxy = false,
     int? updateIntervalMinutes,
   }) async {
     final now = DateTime.now();
@@ -1582,6 +1794,7 @@ class AppController extends ChangeNotifier {
       createdAt: now,
       lastUpdatedAt: now,
       autoUpdate: !isLocal && interval > 0 && (autoUpdate ?? true),
+      updateViaProxy: !isLocal && updateViaProxy,
       updateIntervalMinutes: interval,
       upload: headers.upload,
       download: headers.download,
@@ -1597,6 +1810,8 @@ class AppController extends ChangeNotifier {
     }
     await store.saveSubscriptions(subscriptions);
     _notify();
+    // 首次导入时窗口可能已经开着但之前没有订阅、预览起不来；订阅一落盘就补起。
+    _ensurePreview();
     return subscription;
   }
 
@@ -1643,7 +1858,7 @@ class AppController extends ChangeNotifier {
         fetched = await fetcher.fetchUrl(
           original.url,
           userAgent: original.userAgent,
-          proxyPort: _subscriptionProxyPort,
+          proxyPort: _subscriptionFetchProxyPort(original.updateViaProxy),
         );
       }
       fetcher.validateProfile(fetched.content);
@@ -1681,7 +1896,7 @@ class AppController extends ChangeNotifier {
       await store.saveSubscriptions(subscriptions);
       _notify();
       if (!silent) _notice(l10n.get('subscriptions.updateSuccess'));
-      if (restartIfActive && activeId == id && phase == CorePhase.running) {
+      if (restartIfActive && activeId == id && coreOnline) {
         await restartCore(silent: true);
       }
       return true;
@@ -1752,7 +1967,7 @@ class AppController extends ChangeNotifier {
     }
     updatingAll = false;
     _notify();
-    if (activeUpdated && phase == CorePhase.running) {
+    if (activeUpdated && coreOnline) {
       await restartCore(silent: true);
     }
     if (failed == 0) {
@@ -1772,6 +1987,7 @@ class AppController extends ChangeNotifier {
     required String name,
     required String url,
     required bool autoUpdate,
+    bool? updateViaProxy,
     required int updateIntervalMinutes,
   }) async {
     final index = subscriptions.indexWhere((sub) => sub.id == id);
@@ -1785,6 +2001,7 @@ class AppController extends ChangeNotifier {
       createdAt: sub.createdAt,
       lastUpdatedAt: sub.lastUpdatedAt,
       autoUpdate: autoUpdate,
+      updateViaProxy: !sub.isLocal && (updateViaProxy ?? sub.updateViaProxy),
       updateIntervalMinutes: updateIntervalMinutes,
       upload: sub.upload,
       download: sub.download,
@@ -1804,7 +2021,7 @@ class AppController extends ChangeNotifier {
     activeId = id;
     await store.saveActiveId(activeId);
     _notify();
-    if (phase == CorePhase.running) {
+    if (coreOnline) {
       await restartCore(silent: true);
     }
     _notice(l10n.get('subscriptions.setActive'));
@@ -1850,7 +2067,7 @@ class AppController extends ChangeNotifier {
     await _persistTestedDelays();
     _notify();
     if (wasActive) {
-      if (phase == CorePhase.running) {
+      if (coreOnline) {
         if (activeId == null) {
           await stopCore(silent: true);
         } else {
@@ -1904,7 +2121,7 @@ class AppController extends ChangeNotifier {
     _autoUpdating = false;
     if (updated > 0) {
       _notice(l10n.get('toast.subscriptionAutoUpdated', [updated]));
-      if (activeUpdated && phase == CorePhase.running) {
+      if (activeUpdated && coreOnline) {
         await restartCore(silent: true);
       }
     }
@@ -1988,6 +2205,8 @@ class AppController extends ChangeNotifier {
               snapshot.profileCount,
             ]),
     );
+    // 新设置已经落盘，预览内核按新端口/新订阅重建；不重启接管内核（TUN 会再弹 UAC）。
+    _ensurePreview();
   }
 
   // ------------------------------------------------------------------ misc
@@ -2063,10 +2282,13 @@ class AppController extends ChangeNotifier {
     _delaySaveTimer = null;
     _stopLiveFeeds();
     // On Android the VpnService deliberately outlives the Flutter engine so the
-    // tunnel keeps running in the background; only the UI stops here.
+    // tunnel keeps running in the background; only the UI stops here. 预览内核
+    // 没有 VpnService 托底，界面没了就必须收掉，否则它会一直悄悄占着端口。
     if (!Platform.isAndroid) {
       unawaited(_disableSystemProxy());
       unawaited(core.stop());
+    } else {
+      unawaited(core.stopPreview());
     }
     unawaited(_notices.close());
     live.dispose();

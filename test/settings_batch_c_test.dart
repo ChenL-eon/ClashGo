@@ -12,6 +12,7 @@ import 'package:clash_go/models/rule_provider_info.dart';
 import 'package:clash_go/services/config_generator.dart';
 import 'package:clash_go/ui/pages/rule_providers_page.dart';
 import 'package:clash_go/ui/pages/settings_page.dart';
+import 'package:clash_go/ui/widgets/common.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -440,13 +441,9 @@ rules:
         findsNothing,
       );
 
-      final toggle = tester.widget<Switch>(
-        find.descendant(
-          of: find.byType(SettingsPage),
-          matching: find.byType(Switch),
-        ),
-      );
-      await tester.tap(find.byWidget(toggle));
+      final toggle = _switchFor(l10n, 'settings.dnsEnable');
+      expect(tester.widget<Switch>(toggle).value, isFalse);
+      await tester.tap(toggle);
       await tester.pump();
       await _settleUi(tester);
       expect(controller.settings.dns.enabled, isTrue);
@@ -513,13 +510,8 @@ rules:
       await _openSettingsPageAt(tester, controller, const Size(360, 800));
       final overflowed = await _captureOverflow(tester, () async {
         await _openSettingsTile(tester, controller, 'settings.dns');
-        final toggle = tester.widget<Switch>(
-          find.descendant(
-            of: find.byType(SettingsPage),
-            matching: find.byType(Switch),
-          ),
-        );
-        await tester.tap(find.byWidget(toggle));
+        final toggle = _switchFor(l10n, 'settings.dnsEnable');
+        await tester.tap(toggle);
         await tester.pump();
         await _settleUi(tester);
       });
@@ -631,6 +623,18 @@ Object? _plain(Object? value) {
   }
   if (value is List) return value.map(_plain).toList();
   return value;
+}
+
+Finder _switchFor(L10n l10n, String titleKey) {
+  return find.descendant(
+    of: find
+        .ancestor(
+          of: find.text(l10n.get(titleKey)),
+          matching: find.byType(SettingRow),
+        )
+        .first,
+    matching: find.byType(Switch),
+  );
 }
 
 Future<void> _openSettingsPage(WidgetTester tester, AppController controller) {

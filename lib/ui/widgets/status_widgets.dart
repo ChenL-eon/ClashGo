@@ -99,6 +99,7 @@ class CoreStatusBadge extends StatelessWidget {
         ? (palette.danger, l10n.get('status.stopUnconfirmed'))
         : switch (controller.phase) {
             CorePhase.running => (palette.success, l10n.get('status.running')),
+            CorePhase.preview => (palette.strongMuted, l10n.get('status.ready')),
             CorePhase.starting => (palette.warning, l10n.get('status.starting')),
             CorePhase.stopping => (palette.warning, l10n.get('status.stopping')),
             CorePhase.stopped => (palette.muted, l10n.get('status.stopped')),

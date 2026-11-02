@@ -29,6 +29,8 @@ class ConfigGenerator {
     'tun',
   ];
 
+  static const String _systemDnsServer = 'system://';
+
   /// 这些键由 ClashGo 自己接管：端口、控制接口、隧道形态和页面上的开关
   /// 都是生成配置时写死的。允许覆写只会让界面和实际运行状态对不上。
   static const protectedOverrideKeys = <String>{
@@ -95,8 +97,21 @@ class ConfigGenerator {
     map['ipv6'] = settings.ipv6;
     map['external-controller'] = '127.0.0.1:${settings.apiPort}';
     map['secret'] = settings.secret;
-    map['unified-delay'] = true;
-    map['tcp-concurrent'] = true;
+    map['unified-delay'] = settings.unifiedDelay;
+    map['tcp-concurrent'] = settings.tcpConcurrent;
+    map['geodata-loader'] = settings.geoLowMemory
+        ? 'memconservative'
+        : 'standard';
+
+    // 订阅和 YAML 覆写里的 hosts 先保留，界面上的条目同名覆盖、其余不动：
+    // 这样用户只改自己关心的域名，不会把订阅自带的映射整段抹掉。
+    if (settings.hosts.isNotEmpty) {
+      final hosts = map['hosts'] is Map
+          ? _convertMap(map['hosts'] as Map)
+          : <String, dynamic>{};
+      hosts.addAll(settings.hosts);
+      map['hosts'] = hosts;
+    }
 
     final profileSection = map['profile'] is Map ? _convertMap(map['profile'] as Map) : <String, dynamic>{};
     profileSection['store-selected'] = true;
@@ -138,6 +153,8 @@ class ConfigGenerator {
       };
       _applyTunDns(map);
     }
+
+    if (settings.appendSystemDns) _appendSystemDns(map);
 
     final rules = map['rules'];
     if (rules is! List || rules.isEmpty) {
@@ -235,6 +252,25 @@ class ConfigGenerator {
       dns['default-nameserver'] = ['223.5.5.5', '119.29.29.29'];
     }
     map['dns'] = dns;
+  }
+
+  /// 追加系统 DNS 改的是最终生效的 dns 段：订阅、YAML 覆写与 TUN 补全都先落完，
+  /// 再把 system:// 接到 nameserver 末尾，所以界面开关不会被覆写内容盖掉。
+  /// DNS 未启用时追加不会生效，直接跳过，避免在禁用配置里留下误导项。
+  static void _appendSystemDns(Map<String, dynamic> map) {
+    final dns = map['dns'];
+    if (dns is! Map || dns['enable'] != true) return;
+    final nameserver = dns['nameserver'];
+    final servers = nameserver is List
+        ? List<Object?>.of(nameserver)
+        : <Object?>[];
+    final hasSystem = servers.any((server) {
+      final text = server?.toString().trim().toLowerCase();
+      return text == 'system' || text == _systemDnsServer;
+    });
+    if (hasSystem) return;
+    servers.add(_systemDnsServer);
+    dns['nameserver'] = servers;
   }
 
   static Map<String, dynamic> _convertMap(Map source) {

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:clash_go/app.dart';
 import 'package:clash_go/controllers/app_controller.dart';
@@ -6,8 +7,10 @@ import 'package:clash_go/core/app_paths.dart';
 import 'package:clash_go/core/l10n.dart';
 import 'package:clash_go/data/local_store.dart';
 import 'package:clash_go/models/subscription.dart';
+import 'package:clash_go/ui/widgets/common.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -63,12 +66,19 @@ void main() {
     }
   }
 
-  Future<void> openSubscriptions(WidgetTester tester, {required bool desktop}) async {
+  Future<void> openSubscriptions(
+    WidgetTester tester, {
+    required bool desktop,
+    GlobalKey? rootKey,
+  }) async {
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = desktop ? const Size(1280, 800) : const Size(360, 800);
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(ClashGoApp(controller: controller));
+    final app = ClashGoApp(controller: controller);
+    await tester.pumpWidget(
+      rootKey == null ? app : RepaintBoundary(key: rootKey, child: app),
+    );
     await tester.pump(const Duration(milliseconds: 400));
     if (desktop) {
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
@@ -98,8 +108,9 @@ void main() {
   Finder dialogFields() =>
       find.descendant(of: find.byType(Dialog), matching: find.byType(TextField));
 
-  Finder dialogSwitch() =>
-      find.descendant(of: find.byType(Dialog), matching: find.byType(Switch));
+  Finder dialogSwitch() => find
+      .descendant(of: find.byType(Dialog), matching: find.byType(Switch))
+      .first;
 
   testWidgets('添加订阅默认开启自动更新并预填 1440 分钟', (tester) async {
     await openSubscriptions(tester, desktop: false);
@@ -176,6 +187,103 @@ void main() {
     expect(find.text(l10n.get('common.edit')), findsOneWidget);
     expect(controller.activeId, 'a');
   });
+
+  testWidgets('编辑弹窗关闭后不残留整卡焦点灰，点空白可清焦点', (tester) async {
+    final rootKey = GlobalKey();
+    await openSubscriptions(tester, desktop: true, rootKey: rootKey);
+    final cards = find.byType(SurfaceCard);
+    expect(cards, findsNWidgets(3));
+
+    // 悬停底色会干扰采样，空白点击与采样时鼠标都停在页面空白处。
+    const blank = Offset(1200, 700);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: blank);
+    addTearDown(mouse.removePointer);
+    await tester.pump();
+
+    Future<void> click(Finder finder) async {
+      final at = tester.getCenter(finder);
+      await mouse.moveTo(at);
+      final gesture = await tester.startGesture(
+        at,
+        kind: PointerDeviceKind.mouse,
+        buttons: kPrimaryMouseButton,
+      );
+      await tester.pump(const Duration(milliseconds: 40));
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    // 真实鼠标路径：更多 → 编辑 → 取消，两张非活动卡各走一遍。
+    for (final index in [1, 2]) {
+      await click(find.descendant(
+        of: cards.at(index),
+        matching: find.byTooltip(l10n.get('common.more')),
+      ));
+      await tester.pump(const Duration(milliseconds: 300));
+      await click(find.text(l10n.get('common.edit')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await click(find.text(l10n.get('common.cancel')));
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+    await mouse.moveTo(blank);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(controller.activeId, 'a', reason: '走菜单不应切换订阅');
+
+    final fills = await _cardFills(tester, rootKey, cards);
+    expect(fills, hasLength(3));
+    for (var index = 0; index < fills.length; index++) {
+      expect(fills[index], isNot(0xFFE0E0E0), reason: '卡片 ${index + 1} 残留了焦点灰');
+      expect(fills[index], 0xFFFFFFFF, reason: '卡片 ${index + 1} 的采样点应为白色');
+    }
+
+    // Tab 把焦点送进卡片后，点空白应把焦点从卡片上清走。
+    var insideCard = _focusInsideCard(FocusManager.instance.primaryFocus);
+    for (var step = 0; step < 40 && !insideCard; step++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      insideCard = _focusInsideCard(FocusManager.instance.primaryFocus);
+    }
+    expect(insideCard, isTrue, reason: '连续 Tab 后焦点应进入某张卡片');
+
+    await mouse.moveTo(blank);
+    final blankTap = await tester.startGesture(
+      blank,
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await tester.pump(const Duration(milliseconds: 40));
+    await blankTap.up();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(_focusInsideCard(FocusManager.instance.primaryFocus), isFalse);
+  });
+}
+
+bool _focusInsideCard(FocusNode? node) =>
+    node?.context?.findAncestorWidgetOfExactType<SurfaceCard>() != null;
+
+/// 一张截图里读取各卡片固定采样点的像素，用来判断整卡是否被焦点/悬停底色染色。
+Future<List<int>> _cardFills(WidgetTester tester, GlobalKey rootKey, Finder cards) async {
+  final rects = [for (var i = 0; i < cards.evaluate().length; i++) tester.getRect(cards.at(i))];
+  final boundary = rootKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+  final image = await tester.runAsync(
+    () => boundary.toImage(pixelRatio: 1).timeout(const Duration(seconds: 5)),
+  );
+  final byteData = await tester.runAsync(
+    () => image!.toByteData(format: ui.ImageByteFormat.rawRgba),
+  );
+  final data = byteData!;
+  final fills = <int>[];
+  for (final rect in rects) {
+    final offset = ((rect.top + 12).round() * image!.width + (rect.left + 120).round()) * 4;
+    final r = data.getUint8(offset);
+    final g = data.getUint8(offset + 1);
+    final b = data.getUint8(offset + 2);
+    final a = data.getUint8(offset + 3);
+    fills.add((a << 24) | (r << 16) | (g << 8) | b);
+  }
+  image!.dispose();
+  return fills;
 }
 
 class _Temp extends PathProviderPlatform {

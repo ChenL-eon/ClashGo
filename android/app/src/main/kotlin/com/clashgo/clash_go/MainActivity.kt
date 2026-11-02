@@ -42,6 +42,13 @@ class MainActivity : FlutterActivity() {
                 "startVpn" -> startVpn(call.arguments as? Map<*, *>, result)
                 "stopVpn" -> stopVpn(result)
                 "status" -> result.success(CoreVpnState.snapshot())
+                "startPreview" -> result.success(PreviewCore.requestStart(call.arguments as? Map<*, *>))
+                "stopPreview" -> result.success(PreviewCore.requestStop())
+                "previewStatus" -> result.success(PreviewCore.status())
+                "cleanupPreview" -> {
+                    PreviewCore.cleanup((call.arguments as? Map<*, *>)?.get("runtimeDir") as? String)
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -224,16 +231,27 @@ class MainActivity : FlutterActivity() {
                 ArrayList((args["splitPackages"] as? List<*>)?.filterIsInstance<String>() ?: emptyList()),
             )
         }
+        val serviceWasRunning = CoreVpnState.serviceRunning
         try {
             if (Build.VERSION.SDK_INT >= 26) {
                 startForegroundService(intent)
             } else {
                 startService(intent)
             }
-            result.success(true)
         } catch (t: Throwable) {
             result.error("vpn_start", t.message ?: "Cannot start VPN service", null)
+            return
         }
+        if (!serviceWasRunning) {
+            // 服务是异步创建的：Dart 收到成功回调后立刻查 status，可能早于
+            // CoreVpnService.onCreate，读到的初始 stopped 会被当成启动失败。
+            CoreVpnState.state = "starting"
+            CoreVpnState.pid = -1
+            CoreVpnState.error = null
+            CoreVpnState.exitCode = null
+            CoreVpnState.startedAt = 0L
+        }
+        result.success(true)
     }
 
     private fun stopVpn(result: MethodChannel.Result) {

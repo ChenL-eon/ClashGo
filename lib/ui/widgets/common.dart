@@ -344,9 +344,7 @@ class SurfaceCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: shape,
-        boxShadow: elevated && !palette.isDark
-            ? [BoxShadow(color: palette.shadow, blurRadius: 22, offset: const Offset(0, 8))]
-            : null,
+        boxShadow: elevated ? palette.cardShadows : null,
       ),
       foregroundDecoration: BoxDecoration(
         borderRadius: shape,
@@ -366,6 +364,9 @@ class SurfaceCard extends StatelessWidget {
                 child: InkWell(
                   onTap: onTap,
                   borderRadius: shape,
+                  // Flutter 默认焦点色是 12% 黑；菜单→弹窗收起后整卡 InkWell 可能只收到
+                  // 焦点进入、收不到离开，灰底会永久留在卡上，所以整卡不绘制焦点底色。
+                  focusColor: Colors.transparent,
                   child: content,
                 ),
               ),
@@ -1031,7 +1032,6 @@ class SettingSection extends StatelessWidget {
         SectionLabel(title, trailing: trailing, color: palette.sectionLabel),
         SurfaceCard(
           padding: EdgeInsets.zero,
-          elevated: false,
           child: Column(children: children),
         ),
       ],
