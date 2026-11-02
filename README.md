@@ -144,7 +144,7 @@ windows/ · android/ · test/ · docs/（验证记录）
 
 ## 验证与测试
 
-交付前执行：`flutter analyze` 无 error/warning；`flutter test` 全绿；Windows release 与 arm64 / armeabi-v7a APK 构建成功。Windows 11 x64 实机覆盖系统代理与 TUN 启停、路由与 DNS 接管、UAC 授权、Wintun 首次安装；Android 真机覆盖 VPN 授权、TUN 数据面、节点切换、前台服务与停止。1.4.0 这轮只完成 `flutter analyze` 与两端构建，单测未执行（构建环境拦截 `reg.exe`，原生资产无法重编），测试基线仍是 1.3.0 的 198 项全绿；详见 [docs/VERIFICATION.md](docs/VERIFICATION.md)。
+交付前执行：`flutter analyze` 无 error/warning；`flutter test` 全绿；Windows release 与 arm64 / armeabi-v7a APK 构建成功。Windows 11 x64 实机覆盖系统代理与 TUN 启停、路由与 DNS 接管、UAC 授权、Wintun 首次安装；Android 真机覆盖 VPN 授权、TUN 数据面、节点切换、前台服务与停止。1.4.0 这轮 `flutter test` 整包单进程 206 项通过、30 项因 `flutter_tester` 未完成被中断，涉及的四个文件逐文件复跑全绿（12/11/3/5）。逐条记录见 [docs/VERIFICATION.md](docs/VERIFICATION.md)。
 
 ---
 
