@@ -3,7 +3,7 @@
 ; Source tree comes from flutter build windows --release, which already stages
 ; core/mihomo.exe and core/geodata next to the exe.
 #define AppName "ClashGo"
-#define AppVersion "1.4.0"
+#define AppVersion "1.4.1"
 #define AppExe "clash_go.exe"
 #define ReleaseDir "..\build\windows\x64\runner\Release"
 
@@ -13,7 +13,7 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=ClashGo
-VersionInfoVersion=1.4.0.0
+VersionInfoVersion=1.4.1.0
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes

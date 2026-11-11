@@ -1474,7 +1474,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> testNode(String name) async {
-    if (!coreOnline) return;
+    if (!coreOnline || testingNodes.contains(name)) return;
     testingNodes.add(name);
     _notify();
     try {
@@ -1489,7 +1489,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> testGroup(ProxyInfo group) async {
-    if (!coreOnline) return;
+    if (!coreOnline || testingGroups.contains(group.name)) return;
     testingGroups.add(group.name);
     _notify();
     try {
@@ -1513,24 +1513,42 @@ class AppController extends ChangeNotifier {
 
   Future<void> testAllGroups() async {
     if (!coreOnline || bulkTesting) return;
+    // 节点常同时属于多个分组（主选择器 / 自动测速 / 区域组）。按组逐个调
+    // /group/{name}/delay 会把同一节点重复测好几遍；这里收集所有分组下的唯一
+    // 叶子节点，每个只测一次，与离线 _probeOfflineAll 的去重保持一致。
+    final nodes = <String>{
+      for (final group in proxySnapshot.groups)
+        ...group.all.where((name) {
+          final info = proxySnapshot.proxies[name];
+          return info != null &&
+              !info.isGroup &&
+              !ProxyInfo.specialNames.contains(name);
+        }),
+    }.toList();
+    if (nodes.isEmpty) return;
     bulkTesting = true;
     for (final group in proxySnapshot.groups) {
       testingGroups.add(group.name);
     }
     _notify();
-    for (final group in proxySnapshot.groups) {
-      try {
-        final results = await api.groupDelay(
-        group.name,
-        url: settings.testUrl,
-      );
-        _recordDelays(results);
-      } catch (_) {
-        _recordDelays({for (final name in group.all) name: -1});
-      }
-      testingGroups.remove(group.name);
-      _notify();
+    const concurrency = 8;
+    for (var i = 0; i < nodes.length; i += concurrency) {
+      final batch = nodes.skip(i).take(concurrency);
+      await Future.wait(batch.map((name) async {
+        testingNodes.add(name);
+        _notify();
+        try {
+          final delay = await api.proxyDelay(name, url: settings.testUrl);
+          _recordDelays({name: delay});
+        } catch (_) {
+          _recordDelays({name: -1});
+        } finally {
+          testingNodes.remove(name);
+          _notify();
+        }
+      }));
     }
+    testingGroups.clear();
     bulkTesting = false;
     _notify();
   }

@@ -7,12 +7,14 @@ import 'package:clash_go/data/local_store.dart';
 import 'package:clash_go/models/app_settings.dart';
 import 'package:clash_go/models/subscription.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
 import 'support/fake_startup.dart';
 
-/// 标签页风格下策略组多于一行时，标签必须换行展示而不是被单行滚动区裁掉。
+/// 标签页风格参考 FlClash：分组标签是单行横向滚动的胶囊条。分组多时左右滚动
+/// 而不是换行铺开，末组要能滚到并切换；这里守住「可滚动 + 可切换 + 不溢出」。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -92,52 +94,51 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
   }
 
-  Future<void> expectAllTabsInsideViewport(
-    WidgetTester tester,
-    Size size,
-  ) async {
-    for (final name in groups) {
-      final tab = find.text(name).first;
-      expect(tab, findsOneWidget, reason: '缺少策略组标签：$name');
-      final rect = tester.getRect(tab);
-      expect(
-        rect.right,
-        lessThanOrEqualTo(size.width),
-        reason: '$name 的标签横向超出视口',
+  // 胶囊标签条是页面里唯一的水平滚动区（节点区是纵向 Wrap）。桌面面板里的搜索
+  // TextField 也会产生一个水平 editable 滚动区，所以用标签条的 key 精确定位。
+  Finder horizontalTabBar() => find.descendant(
+        of: find.byKey(const ValueKey('proxy-group-tab-bar')),
+        matching: find.byType(Scrollable),
       );
-      expect(
-        rect.bottom,
-        lessThanOrEqualTo(size.height),
-        reason: '$name 的标签纵向超出视口',
-      );
+
+  Future<void> expectScrollToLastAndSelect(WidgetTester tester, Size size) async {
+    expect(horizontalTabBar(), findsOneWidget, reason: '标签条应是单行横向滚动区');
+    // 首组标签在视口内。桌面端组名还会出现在面板标题里，取第一个（标签条在前）。
+    final first = tester.getRect(find.text(groups.first).first);
+    expect(first.right, lessThanOrEqualTo(size.width), reason: '首组标签横向超出视口');
+    expect(first.bottom, lessThanOrEqualTo(size.height), reason: '首组标签纵向超出视口');
+
+    // 末组初始不在视口内，横向滚动直到它完全进入视口（证明是滚动而非换行铺开）。
+    bool lastVisible() {
+      final finder = find.text(groups.last);
+      if (finder.evaluate().isEmpty) return false;
+      final rect = tester.getRect(finder.first);
+      return rect.left >= 0 && rect.right <= size.width && rect.top >= 0;
     }
+
+    for (var i = 0; i < 40 && !lastVisible(); i++) {
+      await tester.drag(horizontalTabBar(), const Offset(-160, 0));
+      await tester.pump(const Duration(milliseconds: 120));
+    }
+    expect(lastVisible(), isTrue, reason: '横向滚动后末组标签应进入视口');
+
+    await tester.tap(find.text(groups.last).first);
+    await tester.pump(const Duration(milliseconds: 400));
+    await settleIo(tester);
+    expect(find.text('节点14'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   }
 
-  testWidgets('桌面宽度下 14 个策略组全部可见，最后一组可切换', (tester) async {
+  testWidgets('桌面宽度下标签条单行横滚，可滚到末组并切换', (tester) async {
     const size = Size(1007, 700);
     await openProxy(tester, size);
-    await expectAllTabsInsideViewport(tester, size);
-
-    final last = groups.last;
-    expect(find.text(last), findsOneWidget);
-    await tester.tap(find.text(last));
-    await tester.pump(const Duration(milliseconds: 400));
-    await settleIo(tester);
-    expect(find.text('节点14'), findsOneWidget);
-    expect(tester.takeException(), isNull);
+    await expectScrollToLastAndSelect(tester, size);
   });
 
-  testWidgets('手机宽度下 14 个策略组换行展示且可切换', (tester) async {
+  testWidgets('手机宽度下标签条单行横滚，可滚到末组并切换', (tester) async {
     const size = Size(411, 891);
     await openProxy(tester, size);
-    await expectAllTabsInsideViewport(tester, size);
-
-    final last = groups.last;
-    await tester.tap(find.text(last));
-    await tester.pump(const Duration(milliseconds: 400));
-    await settleIo(tester);
-    expect(find.text('节点14'), findsOneWidget);
-    expect(tester.takeException(), isNull);
+    await expectScrollToLastAndSelect(tester, size);
   });
 }
 

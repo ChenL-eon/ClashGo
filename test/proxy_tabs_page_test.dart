@@ -96,7 +96,7 @@ proxy-groups:
 
     // 页面确实渲染了标签页面板：头部的「测速全部」在。
     expect(find.byTooltip(l10n.get('proxy.testAll')), findsOneWidget);
-    expect(find.text(l10n.get('proxy.testGroup')), findsNothing);
+    expect(find.byTooltip(l10n.get('proxy.testGroup')), findsNothing);
 
     await tester.runAsync(
       () => controller.applySettings(controller.settings.copyWith(proxyStyle: AppSettings.styleList)),
@@ -105,7 +105,8 @@ proxy-groups:
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text(group));
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text(l10n.get('proxy.testGroup')), findsOneWidget);
+    // 列表风格展开后分组测速是头部闪电图标按钮（tooltip 文案）。
+    expect(find.byTooltip(l10n.get('proxy.testGroup')), findsOneWidget);
   });
 }
 
