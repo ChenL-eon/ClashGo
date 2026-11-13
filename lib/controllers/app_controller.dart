@@ -95,6 +95,11 @@ class AppController extends ChangeNotifier {
     proxies: {},
     groups: [],
   );
+
+  /// profile（含 YAML 覆写）里 proxy-groups 的书写顺序。/proxies 是 Go map
+  /// 序列化出来的字典序，每次刷新后按这份顺序重排，订阅里的排序才会原样呈现。
+  List<String> _profileGroupOrder = const [];
+
   bool loadingProxies = false;
   AppError? proxyError;
   final Set<String> testingGroups = {};
@@ -281,6 +286,15 @@ class AppController extends ChangeNotifier {
               ? DateTime.fromMillisecondsSinceEpoch(attached.startedAt!)
               : DateTime.now();
           _startLiveFeeds();
+          // 进程重建后直接接管仍在运行的内核：分组顺序只能从缓存 profile 恢复，
+          // 否则 /proxies 的字典序会立刻盖掉订阅里的顺序。
+          _profileGroupOrder = const [];
+          if (activeId != null) {
+            final profile = await store.readProfile(activeId!);
+            if (profile != null && profile.trim().isNotEmpty) {
+              _rememberGroupOrder(profile);
+            }
+          }
           unawaited(refreshProxies(silent: true));
           unawaited(_applySavedSelections());
           try {
@@ -697,6 +711,7 @@ class AppController extends ChangeNotifier {
       if (!_previewWanted) return;
       final profile = await store.readProfile(sub.id);
       if (profile == null || profile.trim().isEmpty) return;
+      _rememberGroupOrder(profile);
       final config = _configGenerator.generate(
         profile: profile,
         settings: settings,
@@ -847,6 +862,7 @@ class AppController extends ChangeNotifier {
       final profile = await store.readProfile(sub.id);
       if (profile == null || profile.trim().isEmpty)
         throw const AppError('noProfile');
+      _rememberGroupOrder(profile);
       final config = _configGenerator.generate(
         profile: profile,
         settings: settings,
@@ -1415,7 +1431,7 @@ class AppController extends ChangeNotifier {
     loadingProxies = true;
     if (!silent) _notify();
     try {
-      proxySnapshot = await api.proxies();
+      proxySnapshot = (await api.proxies()).orderedBy(_profileGroupOrder);
       proxyError = null;
     } catch (error) {
       proxyError = errorFrom(error);
@@ -1424,6 +1440,13 @@ class AppController extends ChangeNotifier {
       loadingProxies = false;
       _notify();
     }
+  }
+
+  void _rememberGroupOrder(String profile) {
+    _profileGroupOrder = _configGenerator.groupOrder(
+      profile: profile,
+      overrideYaml: settings.overrideYaml,
+    );
   }
 
   Future<void> _applySavedSelections() async {

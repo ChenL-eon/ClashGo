@@ -38,14 +38,14 @@ ClashGo 是一款使用 Flutter 编写的 mihomo（Clash Meta）图形客户端�
 
 ## 安装与下载
 
-前往 [Releases](https://github.com/ChenL-eon/ClashGo/releases) 下载当前预览版 **v1.4.1**，各产物 SHA-256 见 Release 说明。
+前往 [Releases](https://github.com/ChenL-eon/ClashGo/releases) 下载当前预览版 **v1.4.2**，各产物 SHA-256 见 Release 说明。
 
 | 平台 | 文件 | 说明 |
 | --- | --- | --- |
-| Windows 10/11 x64 | [`ClashGo-1.4.1-windows-x64-setup.exe`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.4.1/ClashGo-1.4.1-windows-x64-setup.exe) | Inno Setup 安装包，需管理员权限；默认装到 `Program Files\ClashGo`，含开始菜单与可选桌面快捷方式 |
-| Windows 10/11 x64 | [`ClashGo-1.4.1-windows-x64-portable.zip`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.4.1/ClashGo-1.4.1-windows-x64-portable.zip) | 便携包，解压后运行 `clash_go.exe` |
-| Android 7.0+ | [`ClashGo-1.4.1-android-arm64-v8a.apk`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.4.1/ClashGo-1.4.1-android-arm64-v8a.apk) | 适用于绝大多数现代手机与平板，推荐优先选择 |
-| Android 7.0+ | [`ClashGo-1.4.1-android-armeabi-v7a.apk`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.4.1/ClashGo-1.4.1-android-armeabi-v7a.apk) | 适用于 32 位 ARM 老设备；已完成构建与打包验证，未在 32 位真机复测 |
+| Windows 10/11 x64 | [`ClashGo-1.4.2-windows-x64-setup.exe`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.4.2/ClashGo-1.4.2-windows-x64-setup.exe) | Inno Setup 安装包，需管理员权限；默认装到 `Program Files\ClashGo`，含开始菜单与可选桌面快捷方式 |
+| Windows 10/11 x64 | [`ClashGo-1.4.2-windows-x64-portable.zip`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.4.2/ClashGo-1.4.2-windows-x64-portable.zip) | 便携包，解压后运行 `clash_go.exe` |
+| Android 7.0+ | [`ClashGo-1.4.2-android-arm64-v8a.apk`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.4.2/ClashGo-1.4.2-android-arm64-v8a.apk) | 适用于绝大多数现代手机与平板，推荐优先选择 |
+| Android 7.0+ | [`ClashGo-1.4.2-android-armeabi-v7a.apk`](https://github.com/ChenL-eon/ClashGo/releases/download/v1.4.2/ClashGo-1.4.2-android-armeabi-v7a.apk) | 适用于 32 位 ARM 老设备；已完成构建与打包验证，未在 32 位真机复测 |
 
 **注意事项**
 
@@ -93,7 +93,7 @@ flutter build windows --release
 
 ```powershell
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" tool\windows_installer.iss
-# 产物：build/release/ClashGo-1.4.1-windows-x64-setup.exe
+# 产物：build/release/ClashGo-1.4.2-windows-x64-setup.exe
 ```
 
 便携包直接压缩 `build/windows/x64/runner/Release` 整个目录。

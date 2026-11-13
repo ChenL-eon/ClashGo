@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -801,20 +803,19 @@ class AppDropdownOption<T> {
 const _menuPadding = 8.0;
 const _menuItemHPadding = 16.0;
 
-/// 下拉/弹出菜单共用的浮层外观：大圆角、柔和阴影、无描边。
+/// 下拉/弹出菜单共用的浮层外观：大圆角、清晰投影、1px 描边。
+/// 二级菜单通常直接压在页面卡片或上一级菜单上，只靠浅色卡片阴影分不出层，
+/// 所以浅色档用更重的浮层阴影，深色档仍以描边为主。
 MenuStyle appMenuStyle(AppPalette palette) => MenuStyle(
       backgroundColor: WidgetStatePropertyAll(palette.card),
       surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-      shadowColor: WidgetStatePropertyAll(palette.shadow),
-      elevation: const WidgetStatePropertyAll(18),
+      shadowColor: WidgetStatePropertyAll(palette.menuShadow),
+      elevation: WidgetStatePropertyAll(palette.isDark ? 18 : 24),
       padding: const WidgetStatePropertyAll(EdgeInsets.all(_menuPadding)),
       shape: WidgetStatePropertyAll(
         RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg)),
       ),
-      // 深色模式阴影几乎不可见，靠 1px 描边区分浮层与卡片。
-      side: palette.isDark
-          ? WidgetStatePropertyAll(BorderSide(color: palette.border))
-          : null,
+      side: WidgetStatePropertyAll(BorderSide(color: palette.border)),
     );
 
 /// 菜单行样式：46 高、左右 16 内边距，悬停底色与外层圆角同心的 12 圆角。
@@ -1077,24 +1078,204 @@ Future<void> copyToClipboard(BuildContext context, String value) async {
   showAppToast(context, context.t('common.copied'));
 }
 
+/// 应用内通知的统一外观：卡片宽度随内容收缩（上限 400），短文案不会被拉成
+/// 一条右侧全空的长条；成功/提示用品牌图标块，错误用红色图标块；
+/// 浅色靠轻投影分层，深色换 1px 描边。
+///
+/// 走 Overlay 而不是 SnackBar：SnackBar 内建的 Material 会无条件吸收整条
+/// 区域的点击（背景透明也一样），会在页面底部留下看不见的点击死区。
 void showAppToast(BuildContext context, String message, {bool error = false}) {
-  final palette = AppPalette.of(context);
   final mobile = MediaQuery.sizeOf(context).width < appDesktopBreakpoint;
   final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
-  final foreground = error
-      ? (palette.isDark ? const Color(0xFF16181D) : Colors.white)
-      : palette.text;
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        content: Text(message, style: TextStyle(color: foreground)),
-        backgroundColor: error ? palette.danger : null,
-        width: mobile ? null : 420,
-        margin: mobile ? EdgeInsets.fromLTRB(18, 0, 18, 84 + bottomInset) : null,
-        duration: Duration(seconds: error ? 4 : 2),
+  showAppToastOverlay(
+    Overlay.of(context, rootOverlay: true),
+    message,
+    error: error,
+    margin: mobile ? EdgeInsets.fromLTRB(18, 0, 18, 84 + bottomInset) : null,
+  );
+}
+
+/// 拿不到页面 context 的全局通知（如 app 级 notice）直接投递到 Navigator 的 Overlay。
+void showAppToastOverlay(
+  OverlayState overlay,
+  String message, {
+  bool error = false,
+  EdgeInsets? margin,
+  Duration? duration,
+}) {
+  _AppToast.show(
+    overlay,
+    message,
+    error: error,
+    margin: margin ?? const EdgeInsets.fromLTRB(20, 12, 20, 16),
+    duration: duration ?? Duration(seconds: error ? 4 : 2),
+  );
+}
+
+class _AppToast {
+  static OverlayEntry? _entry;
+
+  static void show(
+    OverlayState overlay,
+    String message, {
+    required bool error,
+    required EdgeInsets margin,
+    required Duration duration,
+  }) {
+    _entry?.remove();
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) => _ToastLayer(
+        message: message,
+        error: error,
+        margin: margin,
+        duration: duration,
+        onDismissed: () {
+          if (!identical(_entry, entry)) return;
+          entry.remove();
+          _entry = null;
+        },
       ),
     );
+    _entry = entry;
+    overlay.insert(entry);
+  }
+}
+
+class _ToastLayer extends StatefulWidget {
+  const _ToastLayer({
+    required this.message,
+    required this.error,
+    required this.margin,
+    required this.duration,
+    required this.onDismissed,
+  });
+
+  final String message;
+  final bool error;
+  final EdgeInsets margin;
+  final Duration duration;
+  final VoidCallback onDismissed;
+
+  @override
+  State<_ToastLayer> createState() => _ToastLayerState();
+}
+
+class _ToastLayerState extends State<_ToastLayer> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final CurvedAnimation _curved;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 180));
+    _curved = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+    _controller.forward();
+    _timer = Timer(widget.duration, _close);
+  }
+
+  Future<void> _close() async {
+    if (!mounted) return;
+    await _controller.reverse();
+    if (mounted) widget.onDismissed();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _curved.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Padding(
+          padding: widget.margin,
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: FadeTransition(
+              opacity: _curved,
+              child: SlideTransition(
+                position: Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(_curved),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  child: IntrinsicWidth(
+                    child: Semantics(
+                      container: true,
+                      liveRegion: true,
+                      child: Container(
+                        key: const Key('appToastCard'),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                        decoration: BoxDecoration(
+                          color: palette.card,
+                          borderRadius: BorderRadius.circular(12),
+                          border: palette.isDark ? Border.all(color: palette.border) : null,
+                          boxShadow: palette.isDark
+                              ? null
+                              : [
+                                  BoxShadow(
+                                    color: palette.shadow.withValues(alpha: 0.10),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                  BoxShadow(
+                                    color: palette.shadow,
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 8),
+                                    spreadRadius: -2,
+                                  ),
+                                ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (widget.error)
+                              Container(
+                                width: 30,
+                                height: 30,
+                                decoration: BoxDecoration(
+                                  color: palette.danger,
+                                  borderRadius: BorderRadius.circular(9),
+                                ),
+                                child: const Center(
+                                  child: AppIcon('close-circle-line', size: 15, color: Colors.white),
+                                ),
+                              )
+                            else
+                              const BrandMark(size: 30, radius: 9),
+                            const SizedBox(width: 12),
+                            Flexible(
+                              child: Text(
+                                widget.message,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                style: textTheme.bodyMedium?.copyWith(
+                                  color: widget.error ? palette.danger : palette.muted,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w500,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class LoadingBlock extends StatelessWidget {

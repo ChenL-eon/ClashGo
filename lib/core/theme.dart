@@ -78,6 +78,10 @@ class AppPalette extends ThemeExtension<AppPalette> {
           ),
         ];
 
+  /// 浮层投影比卡片重：二级菜单会压在页面和上一级菜单上，
+  /// 浅色下只靠 8% 的卡片阴影几乎看不出分层。
+  Color get menuShadow => isDark ? shadow : const Color(0x3D0F172A);
+
   static AppPalette light(Color accent) => AppPalette(
         background: const Color(0xFFF3F5F9),
         card: Colors.white,

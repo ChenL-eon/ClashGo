@@ -9,7 +9,6 @@ import 'core/app_info.dart';
 import 'core/l10n.dart';
 import 'core/theme.dart';
 import 'ui/shell/app_shell.dart';
-import 'ui/widgets/app_icon.dart';
 import 'ui/widgets/common.dart';
 
 class ClashGoApp extends StatefulWidget {
@@ -22,7 +21,7 @@ class ClashGoApp extends StatefulWidget {
 }
 
 class _ClashGoAppState extends State<ClashGoApp> {
-  final GlobalKey<ScaffoldMessengerState> _messengerKey = GlobalKey<ScaffoldMessengerState>();
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   StreamSubscription<AppNotice>? _noticeSubscription;
 
   @override
@@ -38,35 +37,18 @@ class _ClashGoAppState extends State<ClashGoApp> {
   }
 
   void _showNotice(AppNotice notice) {
-    final messenger = _messengerKey.currentState;
-    final context = _messengerKey.currentContext;
-    if (messenger == null || context == null) return;
-    final palette = Theme.of(context).extension<AppPalette>() ?? AppPalette.light(const Color(0xFF3B82F6));
+    final navigator = _navigatorKey.currentState;
+    final context = _navigatorKey.currentContext;
+    final overlay = navigator?.overlay;
+    if (context == null || overlay == null) return;
     final mobile = MediaQuery.sizeOf(context).width < appDesktopBreakpoint;
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
-    final foreground = notice.error
-        ? (palette.isDark ? const Color(0xFF16181D) : Colors.white)
-        : palette.text;
-    messenger
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          margin: EdgeInsets.fromLTRB(20, 12, 20, mobile ? 92 + bottomInset : 16),
-          backgroundColor: notice.error ? palette.danger : null,
-          duration: Duration(seconds: notice.error ? 4 : 2),
-          content: Row(
-            children: [
-              AppIcon(
-                notice.error ? 'close-circle-line' : 'check-line',
-                size: 16,
-                color: foreground,
-              ),
-              const SizedBox(width: 9),
-              Expanded(child: Text(notice.message, style: TextStyle(color: foreground))),
-            ],
-          ),
-        ),
-      );
+    showAppToastOverlay(
+      overlay,
+      notice.message,
+      error: notice.error,
+      margin: mobile ? EdgeInsets.fromLTRB(20, 12, 20, 92 + bottomInset) : null,
+    );
   }
 
   @override
@@ -94,7 +76,7 @@ class _ClashGoAppState extends State<ClashGoApp> {
             child: MaterialApp(
               title: AppInfo.name,
               debugShowCheckedModeBanner: false,
-              scaffoldMessengerKey: _messengerKey,
+              navigatorKey: _navigatorKey,
               themeMode: themeMode,
               theme: AppTheme.build(brightness: Brightness.light, accent: accent),
               darkTheme: AppTheme.build(brightness: Brightness.dark, accent: accent, pureBlack: visual.$4),

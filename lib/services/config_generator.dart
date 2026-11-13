@@ -174,6 +174,32 @@ class ConfigGenerator {
     return _YamlWriter.write(map);
   }
 
+  /// 内核 /proxies 返回的分组顺序是 JSON map 的字典序，和订阅里 proxy-groups
+  /// 的书写顺序无关；这里按生成配置时的同一套解析（profile + YAML 覆写）取出
+  /// 分组名顺序，供控制器重排 /proxies 结果。解析失败返回空列表，退回原顺序。
+  List<String> groupOrder({required String profile, String? overrideYaml}) {
+    try {
+      final document = loadYaml(profile);
+      if (document is! Map) return const [];
+      final map = _convertMap(document);
+      final override = _parseOverride(overrideYaml ?? '');
+      if (override != null) _mergeInto(map, override);
+      final groups = map['proxy-groups'];
+      if (groups is! List) return const [];
+      final order = <String>[];
+      for (final group in groups) {
+        if (group is! Map) continue;
+        final name = group['name'];
+        if (name is String && name.isNotEmpty && !order.contains(name)) {
+          order.add(name);
+        }
+      }
+      return List.unmodifiable(order);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// 覆写文本在保存时和生成时都会校验：保存时给用户明确报错，生成时兜住
   /// 手改 settings.json 的情况。空文本表示不启用覆写。
   static void validateOverride(String text) {

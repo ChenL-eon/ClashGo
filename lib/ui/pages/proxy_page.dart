@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -78,25 +76,14 @@ class _NodeScale {
   }
 }
 
-/// 布局档位决定一屏放几列节点，窄屏时自动收回列数以免卡片过窄。
-int _columnsFor(String? layout, double width) {
-  final wanted = switch (layout) {
-    AppSettings.sizeLoose => 1,
-    AppSettings.sizeCompact => 3,
-    _ => 2,
-  };
-  return wanted.clamp(1, max(1, (width / 168).floor()));
-}
-
-/// 桌面节点行更宽（延迟胶囊 + 测速按钮），按 250 逻辑像素估算最少列数。
-int _desktopColumnsFor(String? layout, double width) {
-  final wanted = switch (layout) {
-    AppSettings.sizeLoose => 1,
-    AppSettings.sizeCompact => 3,
-    _ => 2,
-  };
-  return wanted.clamp(1, max(1, (width / 250).floor()));
-}
+/// 布局档位直接决定节点列数：宽松 1 列、标准 2 列、紧凑 3 列。
+/// 不按窗口宽度自动收列：卡片内容本身可伸缩，收列会让窄屏上标准与宽松
+/// 显示成同样的列数，看起来像切换无效。
+int _nodeColumns(String? layout) => switch (layout) {
+      AppSettings.sizeLoose => 1,
+      AppSettings.sizeCompact => 3,
+      _ => 2,
+    };
 
 /// 显示选项解析后的结果，桌面与移动共用。
 class _NodeView {
@@ -873,7 +860,7 @@ class _ProxyPageState extends State<ProxyPage> {
             LayoutBuilder(
               builder: (context, constraints) {
                 const spacing = 12.0;
-                final columns = _columnsFor(view.layout, constraints.maxWidth);
+                final columns = _nodeColumns(view.layout);
                 final width = (constraints.maxWidth - spacing * (columns - 1)) / columns;
                 return Wrap(
                   spacing: spacing,
@@ -1157,9 +1144,7 @@ class _ProxyPageState extends State<ProxyPage> {
               LayoutBuilder(
                 builder: (context, constraints) {
                   final spacing = mobile ? 10.0 : 8.0;
-                  final columns = mobile
-                      ? _columnsFor(layout, constraints.maxWidth)
-                      : _desktopColumnsFor(layout, constraints.maxWidth);
+                  final columns = _nodeColumns(layout);
                   final width = (constraints.maxWidth - spacing * (columns - 1)) / columns;
                   return Wrap(
                     spacing: spacing,
@@ -1418,7 +1403,7 @@ class _ProxyPageState extends State<ProxyPage> {
             LayoutBuilder(
               builder: (context, constraints) {
                 const spacing = 8.0;
-                final columns = _desktopColumnsFor(view.layout, constraints.maxWidth);
+                final columns = _nodeColumns(view.layout);
                 final width = (constraints.maxWidth - spacing * (columns - 1)) / columns;
                 return Wrap(
                   spacing: spacing,

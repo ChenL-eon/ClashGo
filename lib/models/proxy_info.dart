@@ -101,6 +101,27 @@ class ProxiesSnapshot {
   final Map<String, ProxyInfo> proxies;
   final List<ProxyInfo> groups;
 
+  /// 内核 /proxies 的 JSON 来自 Go map，键顺序是字典序而不是订阅里的顺序；
+  /// 按 profile 解析出的分组顺序稳定重排，未知分组保持原有先后排在末尾。
+  ProxiesSnapshot orderedBy(List<String> order) {
+    if (order.isEmpty || groups.isEmpty) return this;
+    final rank = <String, int>{};
+    for (var i = 0; i < order.length; i++) {
+      rank.putIfAbsent(order[i], () => i);
+    }
+    final indexed = [
+      for (var i = 0; i < groups.length; i++)
+        (rank[groups[i].name] ?? order.length, i, groups[i]),
+    ]..sort((a, b) {
+        final byRank = a.$1.compareTo(b.$1);
+        return byRank != 0 ? byRank : a.$2.compareTo(b.$2);
+      });
+    return ProxiesSnapshot(
+      proxies: proxies,
+      groups: [for (final entry in indexed) entry.$3],
+    );
+  }
+
   ProxyInfo? primaryGroup() {
     if (groups.isEmpty) return null;
     for (final group in groups) {
