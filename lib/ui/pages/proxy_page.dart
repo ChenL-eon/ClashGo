@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -299,7 +300,8 @@ class _ProxyPageState extends State<ProxyPage> {
 
   // ------------------------------------------------------------- 显示选项
 
-  static String _nodeKey(String name) => 'proxy-node:$name';
+  // 节点键带上分组名：同一个节点会同时出现在多个分组里，分组级唯一才不会撞 GlobalKey。
+  static String _nodeKey(String group, String name) => 'proxy-node:$group:$name';
 
   NodeSort _sortOf(AppController controller) => nodeSortFromKey(controller.settings.proxySort);
 
@@ -379,17 +381,17 @@ class _ProxyPageState extends State<ProxyPage> {
       final cardWasOpen = _openGroups.contains(group!.name);
       setState(() => _openGroups.add(group.name));
       if (cardWasOpen) {
-        _scrollToNode(name);
+        _scrollToNode(group.name, name);
       } else {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToNode(name));
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToNode(group.name, name));
       }
       return;
     }
-    _scrollToNode(name);
+    _scrollToNode(group!.name, name);
   }
 
-  void _scrollToNode(String name) {
-    final target = GlobalObjectKey(_nodeKey(name)).currentContext;
+  void _scrollToNode(String group, String name) {
+    final target = GlobalObjectKey(_nodeKey(group, name)).currentContext;
     // 被搜索或「隐藏超时代理」过滤掉时不在树上，此时不做跳转。
     if (target == null) return;
     Scrollable.ensureVisible(
@@ -612,7 +614,8 @@ class _ProxyPageState extends State<ProxyPage> {
                 tooltip: l10n.get('common.search'),
                 onTap: _toggleSearch,
               ),
-            _testAllButton(controller, snapshot, offline: offline, desktop: true),
+            // 列表风格的每个分组卡自带「测速本组」，页头不再重复放「测速全部」。
+            if (tabs) _testAllButton(controller, snapshot, offline: offline, desktop: true),
             const SizedBox(width: 8),
             _displayMenuButton(controller, group, desktop: true, size: 18, padding: 9),
           ],
@@ -628,13 +631,6 @@ class _ProxyPageState extends State<ProxyPage> {
                 child: Text(l10n.get('common.start')),
               ),
             ],
-          ),
-        ] else if (controller.isPreviewing) ...[
-          const SizedBox(height: 14),
-          InfoBanner(
-            message: l10n.get('proxy.previewHint'),
-            color: palette.success,
-            icon: 'information-line',
           ),
         ],
         if (!offline && controller.proxyError != null) ...[
@@ -702,7 +698,6 @@ class _ProxyPageState extends State<ProxyPage> {
     final l10n = context.l10n;
     final palette = AppPalette.of(context);
     final groups = snapshot.groups;
-    final query = _search.text.trim().toLowerCase();
     ProxyInfo? group;
     if (groups.isNotEmpty) {
       group = groups.firstWhere(
@@ -711,7 +706,6 @@ class _ProxyPageState extends State<ProxyPage> {
       );
     }
     final view = _nodeView(controller, group, snapshot, offline: offline, desktop: false);
-    final nodes = view.nodes;
     return PageContainer(
       children: [
         MobilePageHeader(
@@ -730,20 +724,14 @@ class _ProxyPageState extends State<ProxyPage> {
               onTap: groups.isEmpty ? null : _toggleSearch,
             ),
             const SizedBox(width: 6),
-            _testAllButton(controller, snapshot, offline: offline, desktop: false),
-            const SizedBox(width: 6),
+            if (view.tabs) ...[
+              _testAllButton(controller, snapshot, offline: offline, desktop: false),
+              const SizedBox(width: 6),
+            ],
             _displayMenuButton(controller, group, desktop: false, size: 20, padding: 7),
           ],
         ),
         const SizedBox(height: 14),
-        if (controller.isPreviewing) ...[
-          InfoBanner(
-            message: l10n.get('proxy.previewHint'),
-            color: palette.success,
-            icon: 'information-line',
-          ),
-          const SizedBox(height: 12),
-        ],
         if (group != null && view.tabs) ...[
           _groupTabBar(snapshot, group),
           if (offline)
@@ -845,53 +833,70 @@ class _ProxyPageState extends State<ProxyPage> {
           )
         else if (!view.tabs)
           _buildGroupCards(controller, snapshot, offline: offline, mobile: true)
-        else ...[
-          if (nodes.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 26),
-              child: Center(
-                child: Text(
-                  query.isEmpty ? l10n.get('proxy.emptyGroup') : l10n.get('proxy.filterNoResult'),
-                  style: TextStyle(fontSize: 12, color: palette.muted),
-                ),
-              ),
-            )
-          else ...[
-            LayoutBuilder(
-              builder: (context, constraints) {
-                const spacing = 12.0;
-                final columns = _nodeColumns(view.layout);
-                final width = (constraints.maxWidth - spacing * (columns - 1)) / columns;
-                return Wrap(
-                  spacing: spacing,
-                  runSpacing: spacing,
-                  children: [
-                    for (final name in nodes)
-                      SizedBox(
-                        width: width,
-                        child: _MobileNodeCard(
-                          key: GlobalObjectKey(_nodeKey(name)),
-                          name: name,
-                          type: snapshot.proxies[name]?.type ?? '',
-                          selected: group!.now == name,
-                          delay: controller.displayDelay(name),
-                          testing: offline
-                              ? _offlineTesting.contains(name)
-                              : controller.testingNodes.contains(name),
-                          scale: view.scale,
-                          onTap: () => offline ? _selectOffline(group!, name) : _select(group!, name),
-                          onTest: offline
-                              ? () => _probeOfflineNode(name)
-                              : () => controller.testNode(name),
-                        ),
-                      ),
-                  ],
-                );
-              },
-            ),
-            ?_timeoutHint(l10n, palette, view),
-          ],
-        ],
+        else
+          _buildMobileNodeGrid(controller, snapshot, group, offline: offline),
+      ],
+    );
+  }
+
+  Widget _buildMobileNodeGrid(
+    AppController controller,
+    ProxiesSnapshot snapshot,
+    ProxyInfo group, {
+    required bool offline,
+  }) {
+    final l10n = context.l10n;
+    final palette = AppPalette.of(context);
+    final view = _nodeView(controller, group, snapshot, offline: offline, desktop: false);
+    final nodes = view.nodes;
+    final query = _search.text.trim().toLowerCase();
+    if (nodes.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 26),
+        child: Center(
+          child: Text(
+            query.isEmpty ? l10n.get('proxy.emptyGroup') : l10n.get('proxy.filterNoResult'),
+            style: TextStyle(fontSize: 12, color: palette.muted),
+          ),
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            const spacing = 12.0;
+            final columns = _nodeColumns(view.layout);
+            final width = (constraints.maxWidth - spacing * (columns - 1)) / columns;
+            return Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children: [
+                for (final name in nodes)
+                  SizedBox(
+                    width: width,
+                    child: _MobileNodeCard(
+                      key: GlobalObjectKey(_nodeKey(group.name, name)),
+                      name: name,
+                      type: snapshot.proxies[name]?.type ?? '',
+                      selected: group.now == name,
+                      delay: controller.displayDelay(name),
+                      testing: offline
+                          ? _offlineTesting.contains(name)
+                          : controller.testingNodes.contains(name),
+                      scale: view.scale,
+                      onTap: () => offline ? _selectOffline(group, name) : _select(group, name),
+                      onTest: offline
+                          ? () => _probeOfflineNode(name)
+                          : () => controller.testNode(name),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+        ?_timeoutHint(l10n, palette, view),
       ],
     );
   }
@@ -1017,6 +1022,38 @@ class _ProxyPageState extends State<ProxyPage> {
           ),
         );
 
+    // 测速期间把闪电换成同尺寸转圈；按钮占位不变，头部不会跳动。
+    Widget testGroupButton() {
+      final padding = mobile ? 10.0 : 9.0;
+      if (!testingGroup) {
+        return AppIconButton(
+          icon: 'lightning-line',
+          size: 16,
+          padding: padding,
+          background: palette.cardAlt,
+          tooltip: l10n.get('proxy.testGroup'),
+          onTap: () => offline ? _probeOfflineGroup(group) : controller.testGroup(group),
+        );
+      }
+      return Tooltip(
+        message: l10n.get('proxy.testGroup'),
+        child: Container(
+          width: 16 + padding * 2,
+          height: 16 + padding * 2,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: palette.cardAlt,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const SizedBox(
+            width: 13,
+            height: 13,
+            child: CircularProgressIndicator(strokeWidth: 1.6),
+          ),
+        ),
+      );
+    }
+
     final titleBlock = Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1087,16 +1124,7 @@ class _ProxyPageState extends State<ProxyPage> {
                   onTap: () => _scrollToSelected(group, expandCard: true),
                 ),
                 const SizedBox(width: 8),
-                AppIconButton(
-                  icon: 'lightning-line',
-                  size: 16,
-                  padding: mobile ? 10 : 9,
-                  background: palette.cardAlt,
-                  tooltip: l10n.get('proxy.testGroup'),
-                  onTap: testingGroup
-                      ? null
-                      : () => offline ? _probeOfflineGroup(group) : controller.testGroup(group),
-                ),
+                testGroupButton(),
                 const SizedBox(width: 8),
                 chevronButton(),
               ],
@@ -1155,7 +1183,7 @@ class _ProxyPageState extends State<ProxyPage> {
                           width: width,
                           child: mobile
                               ? _MobileNodeCard(
-                                  key: GlobalObjectKey(_nodeKey(name)),
+                                  key: GlobalObjectKey(_nodeKey(group.name, name)),
                                   name: name,
                                   type: snapshot.proxies[name]?.type ?? '',
                                   selected: now == name,
@@ -1169,7 +1197,7 @@ class _ProxyPageState extends State<ProxyPage> {
                                       offline ? _probeOfflineNode(name) : controller.testNode(name),
                                 )
                               : _NodeTile(
-                                  key: GlobalObjectKey(_nodeKey(name)),
+                                  key: GlobalObjectKey(_nodeKey(group.name, name)),
                                   name: name,
                                   type: snapshot.proxies[name]?.type ?? '',
                                   selected: now == name,
@@ -1413,7 +1441,7 @@ class _ProxyPageState extends State<ProxyPage> {
                       SizedBox(
                         width: width,
                         child: _NodeTile(
-                          key: GlobalObjectKey(_nodeKey(name)),
+                          key: GlobalObjectKey(_nodeKey(group.name, name)),
                           name: name,
                           type: snapshot.proxies[name]?.type ?? '',
                           selected: now == name,
@@ -1451,8 +1479,8 @@ String _typeIcon(String type) {
 }
 
 /// 「标签页」风格的分组条：参考 FlClash 的单行横向滚动胶囊标签，选中项实心
-/// 强调色填充、其余用卡片底色；分组多时左右滚动而不是换行堆叠。
-class _GroupTabBar extends StatelessWidget {
+/// 强调色填充、其余用卡片底色；右端固定一个下箭头，弹出全部策略组菜单。
+class _GroupTabBar extends StatefulWidget {
   const _GroupTabBar({
     required this.groups,
     required this.selected,
@@ -1464,25 +1492,139 @@ class _GroupTabBar extends StatelessWidget {
   final ValueChanged<String> onSelect;
 
   @override
+  State<_GroupTabBar> createState() => _GroupTabBarState();
+}
+
+class _GroupTabBarState extends State<_GroupTabBar> {
+  final MenuController _menu = MenuController();
+  // 组名是配置里的运行时字符串，GlobalObjectKey 的 identical 比较认不出来，
+  // 这里缓存 GlobalKey 供菜单选中后把对应标签滚进视口。
+  final Map<String, GlobalKey> _chipKeys = {};
+
+  // 菜单宽 = 行内容 + 菜单行左右 16 + 浮层左右 8（与 appMenuStyle/appMenuItemStyle 一致）。
+  static const double _menuRowWidth = 200;
+  static const double _menuWidth = _menuRowWidth + 8 * 2 + 16 * 2;
+
+  GlobalKey _chipKey(String name) => _chipKeys.putIfAbsent(name, GlobalKey.new);
+
+  void _selectFromMenu(String name) {
+    _menu.close();
+    if (name != widget.selected) widget.onSelect(name);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = _chipKeys[name]?.currentContext;
+      if (target == null) return;
+      // 只滚标签条自己的横向滚动区，别把整页也带着滚。
+      Scrollable.maybeOf(target)?.position.ensureVisible(
+        target.findRenderObject()!,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final palette = AppPalette.of(context);
+    final accent = Theme.of(context).colorScheme.primary;
+    // 分组多时标签条可以横向滚动；只有一个分组时菜单没有意义。
+    final showMenu = widget.groups.length > 1;
     return SizedBox(
       height: 36,
-      child: ListView.separated(
-        key: const ValueKey('proxy-group-tab-bar'),
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.zero,
-        itemCount: groups.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final group = groups[index];
-          return Center(
-            child: _GroupTabItem(
-              group: group,
-              selected: group.name == selected,
-              onTap: () => onSelect(group.name),
+      child: Row(
+        children: [
+          Expanded(
+            child: ScrollConfiguration(
+              // 桌面端默认不把鼠标算作拖拽设备，放开后 PC 也能按住标签条左右拖。
+              behavior: ScrollConfiguration.of(context).copyWith(
+                dragDevices: {
+                  PointerDeviceKind.touch,
+                  PointerDeviceKind.mouse,
+                  PointerDeviceKind.trackpad,
+                  PointerDeviceKind.stylus,
+                  PointerDeviceKind.invertedStylus,
+                  PointerDeviceKind.unknown,
+                },
+              ),
+              child: SingleChildScrollView(
+                key: const ValueKey('proxy-group-tab-bar'),
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (var i = 0; i < widget.groups.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 8),
+                      Center(
+                        key: _chipKey(widget.groups[i].name),
+                        child: _GroupTabItem(
+                          label: widget.groups[i].name,
+                          selected: widget.groups[i].name == widget.selected,
+                          onTap: () => widget.onSelect(widget.groups[i].name),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
-          );
-        },
+          ),
+          if (showMenu) ...[
+            const SizedBox(width: 8),
+            MenuAnchor(
+              controller: _menu,
+              reservedPadding: const EdgeInsets.all(16),
+              // 入口在标签条右端：菜单与按钮右缘对齐、向下展开。
+              alignmentOffset: const Offset(-(_menuWidth + 8), 6),
+              style: appMenuStyle(palette).copyWith(alignment: AlignmentDirectional.bottomEnd),
+              menuChildren: [
+                for (final group in widget.groups)
+                  MenuItemButton(
+                    key: ValueKey('proxy-group-menu-${group.name}'),
+                    onPressed: () => _selectFromMenu(group.name),
+                    style: appMenuItemStyle(palette),
+                    child: SizedBox(
+                      width: _menuRowWidth,
+                      child: Row(
+                        children: [
+                          if (_groupCardIcon(group).isNotEmpty) ...[
+                            AppIcon(_groupCardIcon(group), size: 16, color: palette.success),
+                            const SizedBox(width: 8),
+                          ],
+                          Expanded(
+                            child: Text(
+                              group.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: group.name == widget.selected
+                                    ? FontWeight.w600
+                                    : FontWeight.w500,
+                                color: group.name == widget.selected ? accent : palette.text,
+                              ),
+                            ),
+                          ),
+                          if (group.name == widget.selected) ...[
+                            const SizedBox(width: 12),
+                            AppIcon('check-line', size: 18, color: accent),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+              builder: (context, controller, child) => AppIconButton(
+                key: const ValueKey('proxy-group-menu-button'),
+                icon: 'down-small-line',
+                size: 16,
+                padding: 10,
+                background: palette.cardAlt,
+                tooltip: l10n.get('proxy.allGroups'),
+                onTap: () => controller.isOpen ? controller.close() : controller.open(),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -1490,12 +1632,12 @@ class _GroupTabBar extends StatelessWidget {
 
 class _GroupTabItem extends StatelessWidget {
   const _GroupTabItem({
-    required this.group,
+    required this.label,
     required this.selected,
     required this.onTap,
   });
 
-  final ProxyInfo group;
+  final String label;
   final bool selected;
   final VoidCallback onTap;
 
@@ -1515,7 +1657,7 @@ class _GroupTabItem extends StatelessWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 180),
             child: Text(
-              group.name,
+              label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -1563,9 +1705,7 @@ class _MobileNodeCard extends StatelessWidget {
     return SurfaceCard(
       padding: scale.cardPadding,
       radius: scale.radius,
-      color: palette.cardAlt,
-      elevated: false,
-      border: Border.all(color: Colors.transparent),
+      color: palette.isDark ? palette.cardAlt : palette.card,
       onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1673,94 +1813,103 @@ class _NodeTile extends StatelessWidget {
     final accent = Theme.of(context).colorScheme.primary;
     final delayLabel = delay == null ? '—' : formatDelay(delay!, zh: l10n.isZh);
     final typeIcon = _typeIcon(type);
-    return Material(
-      color: palette.cardAlt,
-      borderRadius: BorderRadius.circular(scale.radius),
+    // 节点卡要和白色分组卡/页面底板拉开层次：浅色用白底 + 细描边 + 接触阴影，
+    // 深色/纯黑用 cardAlt 亮一档 + 描边。
+    final shape = BorderRadius.circular(scale.radius);
+    return Container(
+      decoration: BoxDecoration(borderRadius: shape, boxShadow: palette.cardShadows),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: shape,
+        border: Border.all(color: palette.border),
+      ),
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onSelect,
-        borderRadius: BorderRadius.circular(scale.radius),
-        hoverColor: palette.hover,
-        child: Padding(
-          padding: scale.cardPadding,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  if (typeIcon.isNotEmpty) ...[
-                    AppIcon(typeIcon, size: scale.icon, color: palette.success),
-                    const SizedBox(width: 5),
+      child: Material(
+        color: palette.isDark ? palette.cardAlt : palette.card,
+        child: InkWell(
+          onTap: onSelect,
+          borderRadius: shape,
+          hoverColor: palette.hover,
+          child: Padding(
+            padding: scale.cardPadding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    if (typeIcon.isNotEmpty) ...[
+                      AppIcon(typeIcon, size: scale.icon, color: palette.success),
+                      const SizedBox(width: 5),
+                    ],
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: scale.name,
+                          fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                          color: palette.text,
+                          height: 1.25,
+                        ),
+                      ),
+                    ),
+                    if (selected) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        width: scale.icon + 8,
+                        height: scale.icon + 8,
+                        decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+                        child: Center(
+                          child: AppIcon('check-line', size: scale.icon - 2, color: palette.onAccent),
+                        ),
+                      ),
+                    ],
                   ],
-                  Expanded(
-                    child: Text(
-                      name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: scale.name,
-                        fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                        color: palette.text,
-                        height: 1.25,
+                ),
+                SizedBox(height: scale.gap),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        type.isEmpty ? '—' : type,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: scale.meta, color: palette.muted),
                       ),
                     ),
-                  ),
-                  if (selected) ...[
-                    const SizedBox(width: 6),
-                    Container(
-                      width: scale.icon + 8,
-                      height: scale.icon + 8,
-                      decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
-                      child: Center(
-                        child: AppIcon('check-line', size: scale.icon - 2, color: palette.onAccent),
+                    Tooltip(
+                      message: l10n.get('common.test'),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: onTest,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                          child: testing
+                              ? SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.5,
+                                    color: palette.delayColor(delay),
+                                  ),
+                                )
+                              : Text(
+                                  delayLabel,
+                                  style: TextStyle(
+                                    fontSize: scale.meta + 0.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: palette.delayColor(delay),
+                                    fontFeatures: const [FontFeature.tabularFigures()],
+                                  ),
+                                ),
+                        ),
                       ),
                     ),
                   ],
-                ],
-              ),
-              SizedBox(height: scale.gap),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      type.isEmpty ? '—' : type,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: scale.meta, color: palette.muted),
-                    ),
-                  ),
-                  Tooltip(
-                    message: l10n.get('common.test'),
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: onTest,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-                        child: testing
-                            ? SizedBox(
-                                width: 12,
-                                height: 12,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 1.5,
-                                  color: palette.delayColor(delay),
-                                ),
-                              )
-                            : Text(
-                                delayLabel,
-                                style: TextStyle(
-                                  fontSize: scale.meta + 0.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: palette.delayColor(delay),
-                                  fontFeatures: const [FontFeature.tabularFigures()],
-                                ),
-                              ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

@@ -252,6 +252,7 @@ class L10n {
 
     // ----------------------------------------------------------------- proxy
     'proxy.groups': {'zh': '{0} 个策略组', 'en': '{0} groups'},
+    'proxy.allGroups': {'zh': '显示全部策略组', 'en': 'Show all groups'},
     'proxy.testAll': {'zh': '测速全部', 'en': 'Test all'},
     'proxy.searchNodes': {'zh': '搜索节点', 'en': 'Search nodes'},
     'proxy.nodes': {'zh': '{0} 个节点', 'en': '{0} nodes'},
@@ -290,10 +291,6 @@ class L10n {
     'proxy.offlineTcpHint': {
       'zh': '代理未启动：可选择订阅中的节点，启动内核后生效；测速结果为 TCP 连接延迟',
       'en': 'Proxy is not running: you can pick nodes now, applied when the core starts; delays are TCP connection latency',
-    },
-    'proxy.previewHint': {
-      'zh': '预览内核已就绪：节点数据与延迟都来自真实代理，但流量尚未被接管；窗口最小化或收进托盘后预览内核会自动停止',
-      'en': 'Preview core ready: nodes and delays come from the real proxy, but traffic is not intercepted; the preview core stops when the window is minimized or hidden to tray',
     },
     'proxy.offlineSelected': {
       'zh': '已选择，启动内核后生效',

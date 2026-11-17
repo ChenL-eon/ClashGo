@@ -91,10 +91,10 @@ proxy-groups:
     await tester.pump(const Duration(seconds: 1));
   }
 
-  testWidgets('标签页风格不显示“测速本组”，列表风格保留', (tester) async {
+  testWidgets('标签页风格留「测速全部」，列表风格只留分组测速', (tester) async {
     await openProxy(tester);
 
-    // 页面确实渲染了标签页面板：头部的「测速全部」在。
+    // 标签页风格：页头保留「测速全部」，分组面板没有「测速本组」。
     expect(find.byTooltip(l10n.get('proxy.testAll')), findsOneWidget);
     expect(find.byTooltip(l10n.get('proxy.testGroup')), findsNothing);
 
@@ -105,7 +105,8 @@ proxy-groups:
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text(group));
     await tester.pump(const Duration(milliseconds: 400));
-    // 列表风格展开后分组测速是头部闪电图标按钮（tooltip 文案）。
+    // 列表风格：测速入口收进分组卡片，页头不再重复显示「测速全部」。
+    expect(find.byTooltip(l10n.get('proxy.testAll')), findsNothing);
     expect(find.byTooltip(l10n.get('proxy.testGroup')), findsOneWidget);
   });
 }

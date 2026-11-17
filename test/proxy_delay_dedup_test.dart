@@ -2,12 +2,16 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:clash_go/app.dart';
 import 'package:clash_go/controllers/app_controller.dart';
 import 'package:clash_go/core/app_paths.dart';
 import 'package:clash_go/core/core_log.dart';
 import 'package:clash_go/data/local_store.dart';
+import 'package:clash_go/models/app_settings.dart';
 import 'package:clash_go/models/subscription.dart';
 import 'package:clash_go/services/core_manager.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'support/fake_startup.dart';
@@ -58,7 +62,15 @@ void main() {
   tearDown(() async {
     controller.dispose();
     await api.close();
-    await support.delete(recursive: true);
+    // 刚把测速结果落盘时，Windows 可能短暂占用文件句柄，删除留几次重试。
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        await support.delete(recursive: true);
+        break;
+      } on FileSystemException {
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
+    }
   });
 
   Future<void> waitOnline(WidgetTester tester) async {
@@ -123,6 +135,71 @@ void main() {
       expect(api.groupCalls.where((n) => n == 'Auto').length, 1);
       expect(controller.testingGroups, isEmpty);
     });
+  });
+
+  testWidgets('列表风格分组测速中，测速按钮显示进度动画', (tester) async {
+    await waitOnline(tester);
+    controller.settings = controller.settings.copyWith(proxyStyle: AppSettings.styleList);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(1280, 800);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    // 页面里的 HTTP 请求跑在 fake zone，轮询时要 runAsync 与 pump 交替推进。
+    Future<void> pumpUntil(bool Function() ready, String reason) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (!ready()) {
+        if (DateTime.now().isAfter(deadline)) fail(reason);
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+    }
+
+    await tester.pumpWidget(ClashGoApp(controller: controller));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    // 进代理页会排一次延迟刷新，等它跑完再点分组测速，避免节点转圈混入断言。
+    await tester.pump(const Duration(milliseconds: 1200));
+    await pumpUntil(() => controller.testingNodes.isEmpty, '进页延迟刷新没有结束');
+    await tester.pump(const Duration(milliseconds: 200));
+
+    await tester.tap(find.text('HK'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    api.groupCalls.clear();
+    api.gate = Completer<void>();
+    await tester.tap(find.byTooltip(controller.l10n.get('proxy.testGroup')));
+    await pumpUntil(
+      () => controller.testingGroups.contains('HK') && api.groupCalls.contains('HK'),
+      '分组测速请求没有发出',
+    );
+    expect(
+      find.descendant(
+        of: find.byTooltip(controller.l10n.get('proxy.testGroup')),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+
+    api.gate!.complete();
+    api.gate = null;
+    await pumpUntil(
+      () => controller.testingGroups.isEmpty && controller.testingNodes.isEmpty,
+      '分组测速没有结束',
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.byTooltip(controller.l10n.get('proxy.testGroup')), findsOneWidget);
+
+    // 测速结果带 500ms 防抖落盘、HTTP 连接有 3s keep-alive，都走完再结束。
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pump(const Duration(seconds: 4));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pump();
   });
 }
 

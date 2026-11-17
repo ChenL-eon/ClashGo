@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:clash_go/app.dart';
 import 'package:clash_go/controllers/app_controller.dart';
 import 'package:clash_go/core/app_paths.dart';
+import 'package:clash_go/core/theme.dart';
 import 'package:clash_go/data/local_store.dart';
 import 'package:clash_go/models/app_settings.dart';
 import 'package:clash_go/models/subscription.dart';
@@ -67,7 +68,7 @@ void main() {
   Finder nodeCard([int index = 1]) => find.byWidgetPredicate(
         (widget) =>
             widget.key is GlobalObjectKey &&
-            (widget.key as GlobalObjectKey).value == 'proxy-node:节点$index',
+            (widget.key as GlobalObjectKey).value == 'proxy-node:默认组:节点$index',
       );
 
   /// 数第一行（与节点1同顶边）放了几张卡，即当前布局档位的列数。
@@ -154,6 +155,49 @@ void main() {
     expect(columnsOf(tester), 2, reason: '标准应是 2 列');
     await pickLayout(tester, '紧凑');
     expect(columnsOf(tester), 3, reason: '紧凑应是 3 列');
+    expect(tester.takeException(), isNull);
+  });
+
+  /// 节点卡必须与白色分组卡拉开层次：浅色白底 + 描边 + 接触阴影。
+  /// 旧实现用 cardAlt（#F7F8FB），在白底分组卡/详情面板上几乎看不见卡面。
+  testWidgets('节点卡有可见卡面：浅色白底 + 描边 + 接触阴影', (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(1280, 800);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(ClashGoApp(controller: controller));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await settleIo(tester);
+    await tester.tap(find.text('默认组'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await settleIo(tester);
+    await tester.pump(const Duration(seconds: 2));
+
+    final card = nodeCard(1);
+    expect(card, findsOneWidget);
+    final palette = AppPalette.of(tester.element(card));
+    final material = tester.widget<Material>(
+      find.descendant(of: card, matching: find.byType(Material)).first,
+    );
+    expect(material.color, palette.card, reason: '浅色节点卡必须用白色卡面，不能与白色底板同色');
+    final containers = tester.widgetList<Container>(
+      find.descendant(of: card, matching: find.byType(Container)),
+    );
+    expect(
+      containers.where((c) => (c.foregroundDecoration as BoxDecoration?)?.border != null),
+      isNotEmpty,
+      reason: '节点卡必须有描边，白色分组卡上才能看出边界',
+    );
+    expect(
+      containers.where((c) => (c.decoration as BoxDecoration?)?.boxShadow?.isNotEmpty ?? false),
+      isNotEmpty,
+      reason: '浅色节点卡应有接触阴影',
+    );
     expect(tester.takeException(), isNull);
   });
 

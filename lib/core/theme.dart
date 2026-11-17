@@ -67,14 +67,14 @@ class AppPalette extends ThemeExtension<AppPalette> {
   static AppPalette of(BuildContext context) =>
       Theme.of(context).extension<AppPalette>() ?? AppPalette.light(const Color(0xFF3B82F6));
 
-  // 深色/纯黑继续靠描边分层，卡片不再叠阴影。
+  // 深色/纯黑继续靠描边分层，卡片不再叠阴影；浅色只留贴边的接触阴影。
   List<BoxShadow>? get cardShadows => isDark
       ? null
       : [
           BoxShadow(
-            color: shadow.withValues(alpha: 0.16),
-            blurRadius: 1.5,
-            offset: const Offset(0, 2),
+            color: shadow.withValues(alpha: 0.10),
+            blurRadius: 1,
+            offset: const Offset(0, 1),
           ),
         ];
 
