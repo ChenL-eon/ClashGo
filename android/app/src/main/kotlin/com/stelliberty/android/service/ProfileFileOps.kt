@@ -106,14 +106,25 @@ object ProfileFileOps {
         return dir
     }
 
+    // Kotlin 侧也要挡住路径分隔符：备份列表或手工改文件可能给出非法 id，Rust 的校验只覆盖走 Rust 的路径。
+    private fun requireProfileId(uuid: String): String {
+        require(isSafeProfileId(uuid)) { "Invalid profile id" }
+        return uuid
+    }
+
+    private fun isSafeProfileId(uuid: String): Boolean =
+        uuid.isNotEmpty() && uuid.length <= 128 && uuid.all { ch ->
+            ch in 'a'..'z' || ch in 'A'..'Z' || ch in '0'..'9' || ch == '-' || ch == '_'
+        }
+
     fun getImportedDir(context: Context, uuid: String): File {
-        val dir = File(getWorkDir(context), "imported/$uuid")
+        val dir = File(getWorkDir(context), "imported/${requireProfileId(uuid)}")
         if (!dir.exists()) dir.mkdirs()
         return dir
     }
 
     fun getPendingDir(context: Context, uuid: String): File {
-        val dir = File(getWorkDir(context), "pending/$uuid")
+        val dir = File(getWorkDir(context), "pending/${requireProfileId(uuid)}")
         if (!dir.exists()) dir.mkdirs()
         return dir
     }
@@ -124,13 +135,13 @@ object ProfileFileOps {
         File(getImportedDir(context, uuid), "config.yaml")
 
     fun hasValidConfig(context: Context, uuid: String?): Boolean {
-        if (uuid.isNullOrEmpty()) return false
+        if (uuid.isNullOrEmpty() || !isSafeProfileId(uuid)) return false
         val config = File(File(getWorkDir(context), "imported/$uuid"), "config.yaml")
         return config.isFile && config.length() > 0
     }
 
     fun getRuntimeDir(context: Context, uuid: String): File =
-        File(getWorkDir(context), "runtime/$uuid")
+        File(getWorkDir(context), "runtime/${requireProfileId(uuid)}")
 
     fun savePendingConfig(context: Context, uuid: String, content: String): File {
         val dir = getPendingDir(context, uuid)
@@ -140,7 +151,7 @@ object ProfileFileOps {
     }
 
     fun releasePending(context: Context, uuid: String) {
-        val pending = File(getWorkDir(context), "pending/$uuid")
+        val pending = File(getWorkDir(context), "pending/${requireProfileId(uuid)}")
         if (pending.exists()) pending.deleteRecursively()
     }
 
@@ -296,7 +307,7 @@ object ProfileFileOps {
     // ROOT 模式下 mihomo 以 root 身份运行，会往工作目录里写缓存文件，普通权限删不掉。
     // 所以给它单独一份运行目录，正式目录永远保持应用自己的权限。
     fun prepareRootRuntime(context: Context, uuid: String): File {
-        val imported = File(getWorkDir(context), "imported/$uuid")
+        val imported = File(getWorkDir(context), "imported/${requireProfileId(uuid)}")
         val runtime = getRuntimeDir(context, uuid)
         clearRootRuntime(runtime)
         runtime.mkdirs()
