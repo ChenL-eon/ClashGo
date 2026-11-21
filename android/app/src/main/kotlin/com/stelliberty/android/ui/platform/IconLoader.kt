@@ -96,6 +96,8 @@ object IconLoader {
         val proxyUrl = resolveProxy()
         return mutex.withLock {
             if (proxyUrl == null) {
+                proxyClient?.second?.close()
+                proxyClient = null
                 directClient ?: buildClient(null).also { directClient = it }
             } else {
                 val current = proxyClient
