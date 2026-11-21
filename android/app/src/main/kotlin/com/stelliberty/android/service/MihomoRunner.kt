@@ -18,7 +18,9 @@ import kotlinx.coroutines.withContext
 
 class MihomoRunner(private val context: Context) {
 
+    @Volatile
     private var childPid: Int = -1
+    @Volatile
     private var isRootMode = false
     val pid: Int get() = childPid
     var secret: String = ""
@@ -158,20 +160,24 @@ class MihomoRunner(private val context: Context) {
     }
 
     fun stop(): Boolean {
-        if (childPid > 0) {
-            AppLogger.info(TAG, "Stopping mihomo pid=$childPid (root=$isRootMode)")
+        val pid = childPid
+        if (pid > 0) {
+            AppLogger.info(TAG, "Stopping mihomo pid=$pid (root=$isRootMode)")
             if (isRootMode) {
                 val tunDevice = PlatformStorage(context).getString(StorageKeys.ROOT_TUN_DEVICE, "Stelliberty")
-                if (!RootHelper.stopMihomo(tunDevice, childPid)) {
+                if (!RootHelper.stopMihomo(tunDevice, pid)) {
                     errorMessage = context.getString(R.string.error_root_stop_failed)
                     return false
                 }
+            } else if (!isProcessAlive(pid)) {
+                // waitForReady/监控已经 waitpid 收掉退出进程，不能再对可能被系统复用的 PID 发信号。
+                AppLogger.info(TAG, "mihomo pid=$pid already exited")
             } else {
-                ProcessHelper.nativeKill(childPid, force = false)
-                if (ProcessHelper.nativeWaitpid(childPid, GRACEFUL_STOP_TIMEOUT_MS) < 0) {
-                    AppLogger.warn(TAG, "mihomo pid=$childPid ignored SIGTERM, escalating to SIGKILL")
-                    ProcessHelper.nativeKill(childPid, force = true)
-                    ProcessHelper.nativeWaitpid(childPid, FORCE_STOP_TIMEOUT_MS)
+                ProcessHelper.nativeKill(pid, force = false)
+                if (ProcessHelper.nativeWaitpid(pid, GRACEFUL_STOP_TIMEOUT_MS) < 0) {
+                    AppLogger.warn(TAG, "mihomo pid=$pid ignored SIGTERM, escalating to SIGKILL")
+                    ProcessHelper.nativeKill(pid, force = true)
+                    ProcessHelper.nativeWaitpid(pid, FORCE_STOP_TIMEOUT_MS)
                 }
             }
             childPid = -1
@@ -327,7 +333,11 @@ class MihomoRunner(private val context: Context) {
         return if (messages.isNotEmpty()) messages.joinToString("\n") else errorLines.joinToString("\n")
     }
 
-    private fun isProcessAlive(pid: Int): Boolean = ProcessHelper.nativeIsAlive(pid)
+    private fun isProcessAlive(pid: Int): Boolean {
+        val alive = ProcessHelper.nativeIsAlive(pid)
+        if (!alive && childPid == pid) childPid = -1
+        return alive
+    }
 
     private fun getMihomoBinary(): File? {
         val nativeDir = context.applicationInfo.nativeLibraryDir

@@ -67,11 +67,14 @@ object RootHelper {
             val process = ProcessBuilder("su", "-g", proxyGid.toString(), "-c", command)
                 .redirectErrorStream(true)
                 .start()
-            val reader = process.inputStream.bufferedReader()
-            val pidLine = reader.readLine()?.trim() ?: ""
-            val pid = pidLine.toIntOrNull() ?: -1
+            val result = awaitDrained(process, 5)
+            val pid = result.output.lineSequence()
+                .mapNotNull { it.trim().toIntOrNull() }
+                .firstOrNull { it > 0 } ?: -1
+            if (result.code == -1) {
+                AppLogger.warn(TAG, "Starting as root timed out")
+            }
             AppLogger.info(TAG, "mihomo actual PID: $pid")
-            process.inputStream.close()
             pid
         } catch (e: Exception) {
             AppLogger.error(TAG, "Failed to start as root: ${e.message}")
@@ -92,14 +95,16 @@ object RootHelper {
         )
     }
 
-    private fun readAsRoot(command: String): String {
+    private fun readAsRoot(command: String, timeoutSeconds: Long = 3): String {
         return try {
             val process = ProcessBuilder("su", "-c", command)
                 .redirectErrorStream(true)
                 .start()
-            val output = process.inputStream.bufferedReader().readText()
-            process.waitFor(3, TimeUnit.SECONDS)
-            output.trim()
+            val result = awaitDrained(process, timeoutSeconds)
+            if (result.code == -1) {
+                AppLogger.warn(TAG, "Root read timed out: $command")
+            }
+            result.output.trim()
         } catch (_: Exception) {
             ""
         }
