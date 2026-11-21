@@ -1,7 +1,10 @@
 package com.stelliberty.android.service
 
 import android.content.Context
+import com.stelliberty.android.domain.model.Subscription
 import com.stelliberty.android.platform.ProfileFileManager
+import com.stelliberty.android.platform.ProfilePipelineKind
+import com.stelliberty.android.platform.ProfileProcessingSession
 import java.io.File
 
 class AndroidProfileFileManager(private val context: Context) : ProfileFileManager {
@@ -14,20 +17,22 @@ class AndroidProfileFileManager(private val context: Context) : ProfileFileManag
         ProfileFileOps.releasePending(context, uuid)
     }
 
-    override fun prepareProcessing(uuid: String): String {
-        return ProfileFileOps.prepareProcessing(context, uuid).absolutePath
-    }
-
-    override fun writeProcessingConfig(workDir: String, content: String) {
-        ProfileFileOps.writeProcessingConfig(workDir, content)
-    }
+    override fun beginProcessing(
+        uuid: String,
+        kind: ProfilePipelineKind,
+        subscription: Subscription,
+    ): ProfileProcessingSession = ProfileFileOps.beginProcessing(context, uuid, kind, subscription)
 
     override fun cleanupProcessing() {
         ProfileFileOps.cleanupProcessing(context)
     }
 
-    override fun commitProcessingToImported(uuid: String) {
-        ProfileFileOps.commitProcessingToImported(context, uuid)
+    override fun commitProcessing(token: String, uuid: String) {
+        ProfileFileOps.commitProcessing(context, token, uuid)
+    }
+
+    override fun abortProcessing(token: String) {
+        ProfileFileOps.abortProcessing(token)
     }
 
     override fun getMihomoWorkDir(): String = ConfigGenerator.getWorkDir(context).absolutePath

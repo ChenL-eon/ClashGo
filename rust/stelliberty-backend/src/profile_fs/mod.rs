@@ -54,20 +54,20 @@ struct WriteFileRequest {
 
 /// 目录操作遇到 EACCES 时不在这里提权：把路径交给 Kotlin 的 su 兜底，
 /// 清完再重放同一个请求。其它 IO 错误直接失败，避免把真实故障当成权限问题重试。
-struct Retry {
-    root_required: Vec<String>,
-    cleanup_paths: Vec<String>,
+pub(crate) struct Retry {
+    pub(crate) root_required: Vec<String>,
+    pub(crate) cleanup_paths: Vec<String>,
 }
 
 impl Retry {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             root_required: Vec::new(),
             cleanup_paths: Vec::new(),
         }
     }
 
-    fn into_value(self) -> Value {
+    pub(crate) fn into_value(self) -> Value {
         json!({
             "rootRequired": self.root_required,
             "cleanupPaths": self.cleanup_paths,
@@ -80,6 +80,17 @@ pub fn prepare_processing(payload: &str) -> Result<Value, BackendError> {
     let work_dir = work_dir(&request.work_dir)?;
     let uuid = safe_uuid(&request.uuid)?;
 
+    let processing = prepare_processing_dir(&work_dir, uuid)?;
+    Ok(json!({ "path": processing.display().to_string() }))
+}
+
+pub(crate) fn prepare_processing_dir(work_dir: &Path, uuid: &str) -> Result<PathBuf, BackendError> {
+    if !is_safe_uuid(uuid) {
+        return Err(BackendError::invalid_argument(
+            "profile id contains path separators or unsupported characters",
+        ));
+    }
+
     let processing = work_dir.join(PROCESSING);
     remove_dir_all(&processing, "reset processing")?;
     fs::create_dir_all(&processing)
@@ -90,7 +101,7 @@ pub fn prepare_processing(payload: &str) -> Result<Value, BackendError> {
         copy_dir_contents(&pending, &processing)?;
     }
 
-    Ok(json!({ "path": processing.display().to_string() }))
+    Ok(processing)
 }
 
 pub fn cleanup_processing(payload: &str) -> Result<Value, BackendError> {
@@ -138,6 +149,16 @@ pub fn commit_processing(payload: &str) -> Result<Value, BackendError> {
     let work_dir = work_dir(&request.work_dir)?;
     let uuid = safe_uuid(&request.uuid)?;
 
+    commit_processing_dir(&work_dir, uuid).map(Retry::into_value)
+}
+
+pub(crate) fn commit_processing_dir(work_dir: &Path, uuid: &str) -> Result<Retry, BackendError> {
+    if !is_safe_uuid(uuid) {
+        return Err(BackendError::invalid_argument(
+            "profile id contains path separators or unsupported characters",
+        ));
+    }
+
     let processing = work_dir.join(PROCESSING);
     let imported = work_dir.join(IMPORTS).join(uuid);
     let pending = work_dir.join(PENDING).join(uuid);
@@ -146,10 +167,10 @@ pub fn commit_processing(payload: &str) -> Result<Value, BackendError> {
     let mut retry = Retry::new();
 
     if !remove_dir_blocking(&staging, &mut retry.root_required)? {
-        return Ok(retry.into_value());
+        return Ok(retry);
     }
     if !remove_dir_blocking(&old, &mut retry.root_required)? {
-        return Ok(retry.into_value());
+        return Ok(retry);
     }
 
     fs::create_dir_all(&staging)
@@ -194,7 +215,7 @@ pub fn commit_processing(payload: &str) -> Result<Value, BackendError> {
         let _ = fs::remove_dir_all(&pending);
     }
 
-    Ok(retry.into_value())
+    Ok(retry)
 }
 
 pub fn delete_profile_dirs(payload: &str) -> Result<Value, BackendError> {
@@ -258,14 +279,28 @@ pub fn read_imported_file(payload: &str) -> Result<Value, BackendError> {
     let request: FileRequest = parse(payload, "read_imported_file")?;
     let work_dir = work_dir(&request.work_dir)?;
     let uuid = safe_uuid(&request.uuid)?;
+    let content = read_imported_text(&work_dir, uuid, &request.relative_path)?;
+    Ok(json!({ "content": content }))
+}
+
+pub(crate) fn read_imported_text(
+    work_dir: &Path,
+    uuid: &str,
+    relative_path: &str,
+) -> Result<Option<String>, BackendError> {
+    if !is_safe_uuid(uuid) {
+        return Err(BackendError::invalid_argument(
+            "profile id contains path separators or unsupported characters",
+        ));
+    }
     let root = work_dir.join(IMPORTS).join(uuid);
-    let relative = checked_relative(&request.relative_path)?;
+    let relative = checked_relative(relative_path)?;
 
     if !root.exists() {
-        return Ok(json!({ "content": null }));
+        return Ok(None);
     }
     if !root.is_dir() {
-        return Ok(json!({ "content": null }));
+        return Ok(None);
     }
     let canonical_root = fs::canonicalize(&root)
         .map_err(|error| BackendError::io("resolve imported directory", &root, error))?;
@@ -274,22 +309,22 @@ pub fn read_imported_file(payload: &str) -> Result<Value, BackendError> {
     let canonical_target = match fs::canonicalize(&target) {
         Ok(path) => path,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Ok(json!({ "content": null }));
+            return Ok(None);
         }
-        Err(_) => return Ok(json!({ "content": null })),
+        Err(_) => return Ok(None),
     };
     if !canonical_target.starts_with(&canonical_root) || !canonical_target.is_file() {
-        return Ok(json!({ "content": null }));
+        return Ok(None);
     }
 
     // 与旧实现一致：编辑器打不开的文件按「无内容」处理，不让一条坏文件把页面协程打挂。
     let Ok(bytes) = fs::read(&canonical_target) else {
-        return Ok(json!({ "content": null }));
+        return Ok(None);
     };
     let Ok(content) = String::from_utf8(bytes) else {
-        return Ok(json!({ "content": null }));
+        return Ok(None);
     };
-    Ok(json!({ "content": content }))
+    Ok(Some(content))
 }
 
 pub fn write_imported_file(payload: &str) -> Result<Value, BackendError> {

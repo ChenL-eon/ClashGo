@@ -1,12 +1,14 @@
 package com.stelliberty.android.data.repository
 
 import com.stelliberty.android.data.bridge.CoreFetchProgress
+import com.stelliberty.android.data.bridge.RustBackendException
 import com.stelliberty.android.data.bridge.StellibertyCoreBridge
 import com.stelliberty.android.data.bridge.StellibertyCoreError
 import com.stelliberty.android.domain.model.Subscription
 import com.stelliberty.android.domain.model.SubscriptionTrafficInfo
 import com.stelliberty.android.domain.model.SubscriptionUpdateProxyMode
 import com.stelliberty.android.platform.ProfileFileManager
+import com.stelliberty.android.platform.ProfilePipelineKind
 import com.stelliberty.android.util.AppLogger
 import com.stelliberty.android.util.describe
 import java.net.URI
@@ -66,24 +68,28 @@ class ProfileProcessor(
         onProgress: (ImportProgress) -> Unit,
     ) = withContext(Dispatchers.IO) {
         processLock.withLock {
-            val (snapshot, workDir) = repo.withProfileLock {
-                if (isUpdate) {
-                    val imported = repo.queryImported(uuid)
+            val (snapshot, session) = repo.withProfileLock {
+                val subscription = if (isUpdate) {
+                    repo.queryImported(uuid)
                         ?: throw IllegalArgumentException("Profile $uuid not found")
-                    val snap = PendingSnapshot.of(imported)
-                    val dir = fileManager.prepareProcessing(uuid)
-                    fileManager.readImportedFile(uuid, "config.yaml")?.let {
-                        fileManager.writeProcessingConfig(dir, it)
-                    }
-                    snap to dir
                 } else {
-                    val pending = repo.queryPending(uuid)
+                    repo.queryPending(uuid)
                         ?: throw IllegalArgumentException("No pending profile for $uuid")
-                    pending.enforceFieldValid()
-                    val dir = fileManager.prepareProcessing(uuid)
-                    PendingSnapshot.of(pending) to dir
                 }
+                // 字段校验、processing 建立与 update 的 imported 底稿复制都由 Rust 完成；
+                // 协程锁仍留在这里，因为跨挂起点的锁生命周期不能塞进阻塞的 JNI 调用。
+                val started = try {
+                    fileManager.beginProcessing(
+                        uuid = uuid,
+                        kind = if (isUpdate) ProfilePipelineKind.Update else ProfilePipelineKind.Import,
+                        subscription = subscription,
+                    )
+                } catch (e: RustBackendException) {
+                    throw SubscriptionValidation.translate(e, subscription)
+                }
+                PendingSnapshot.of(subscription) to started
             }
+            val workDir = session.workDir
 
             try {
                 val started = TimeSource.Monotonic.markNow()
@@ -119,13 +125,13 @@ class ProfileProcessor(
                             val current = repo.queryImported(uuid)
                                 ?: throw IllegalArgumentException("Imported profile $uuid disappeared during update")
                             check(current.id == snapshot.uuid)
-                            fileManager.commitProcessingToImported(uuid)
+                            fileManager.commitProcessing(session.token, uuid)
                             repo.markUpdated(uuid, trafficInfo, result.builtinChainProxyNames)
                         } else {
                             val currentPending = repo.queryPending(uuid)
                                 ?: throw IllegalArgumentException("Pending profile $uuid disappeared during commit")
                             check(currentPending.id == snapshot.uuid)
-                            fileManager.commitProcessingToImported(uuid)
+                            fileManager.commitProcessing(session.token, uuid)
                             repo.commitPending(
                                 uuid = uuid,
                                 fetched = true,
@@ -146,6 +152,8 @@ class ProfileProcessor(
                     AppLogger.error(TAG, "Profile pipeline failed for $uuid (update=$isUpdate)", t)
                 }
                 withContext(NonCancellable) {
+                    // 先让 Rust 丢掉当前会话；清理目录仍走单独的 cleanup，权限不足时可以重放。
+                    runCatching { fileManager.abortProcessing(session.token) }
                     fileManager.cleanupProcessing()
                     if (isUpdate && t !is CancellationException) {
                         repo.withProfileLock { repo.markFailed(uuid, t.describe()) }

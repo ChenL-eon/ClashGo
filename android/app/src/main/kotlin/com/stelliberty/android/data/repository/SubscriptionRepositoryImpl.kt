@@ -19,6 +19,7 @@ import kotlin.uuid.Uuid
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class SubscriptionRepositoryImpl(
     private val store: SubscriptionStore,
@@ -113,7 +115,7 @@ class SubscriptionRepositoryImpl(
                 name = name,
                 sourceLocation = sourceLocation,
                 autoUpdateMode = autoUpdateMode,
-                // 非定时模式保留原间隔，切回定时时沿用；定时模式下的空值交给 enforceFieldValid 拒绝。
+                // 非定时模式保留原间隔，切回定时时沿用；定时模式下的空值交给 Rust 字段校验拒绝。
                 autoUpdateIntervalMinutes = if (autoUpdateMode == SubscriptionAutoUpdateMode.Interval) {
                     autoUpdateIntervalMinutes.coerceAtLeast(0)
                 } else base.autoUpdateIntervalMinutes,
@@ -158,10 +160,9 @@ class SubscriptionRepositoryImpl(
         store.removePending(uuid)
     }
 
-    override suspend fun validatePendingForCommit(uuid: String): Boolean {
-        val pending = store.findPending(uuid) ?: return false
-        pending.enforceFieldValid()
-        return !pending.isLocalFile && pending.sourceLocation.isNotBlank()
+    override suspend fun validatePendingForCommit(uuid: String): Boolean = withContext(Dispatchers.IO) {
+        val pending = store.findPending(uuid) ?: return@withContext false
+        SubscriptionValidation.validate(pending)
     }
 
     override suspend fun commitPendingProfile(uuid: String) = profileLock.withLock {
@@ -317,18 +318,3 @@ const val MIN_AUTO_UPDATE_INTERVAL_MINUTES = 15
 
 private fun Subscription.references(overrideId: String) =
     overrideId in overrideIds || overrideId in overrideSortPreference
-
-fun Subscription.enforceFieldValid() {
-    if (name.isBlank() && isLocalFile) throw ImportError.InvalidName()
-    if (!isLocalFile) {
-        val lower = sourceLocation.lowercase()
-        if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
-            throw ImportError.InvalidScheme(sourceLocation)
-        }
-    }
-    if (autoUpdateMode == SubscriptionAutoUpdateMode.Interval &&
-        autoUpdateIntervalMinutes < MIN_AUTO_UPDATE_INTERVAL_MINUTES
-    ) {
-        throw ImportError.IntervalTooSmall()
-    }
-}

@@ -2,6 +2,7 @@ mod error;
 mod ffi;
 mod fsutil;
 mod profile_fs;
+mod profile_pipeline;
 mod runtime_override;
 mod state;
 
@@ -20,6 +21,10 @@ pub fn dispatch(method: &str, payload: &str) -> Result<serde_json::Value, Backen
         "profile.read_imported_file" => profile_fs::read_imported_file(payload),
         "profile.write_imported_file" => profile_fs::write_imported_file(payload),
         "profile.list_imported_files" => profile_fs::list_imported_files(payload),
+        "profile.validate_subscription" => profile_pipeline::validate_subscription(payload),
+        "profile.pipeline_begin" => profile_pipeline::begin(payload),
+        "profile.pipeline_commit" => profile_pipeline::commit(payload),
+        "profile.pipeline_abort" => profile_pipeline::abort(payload),
         other => Err(BackendError::new(
             "unknown_method",
             format!("unknown backend method: {other}"),

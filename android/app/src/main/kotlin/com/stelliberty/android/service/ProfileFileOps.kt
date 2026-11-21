@@ -3,6 +3,9 @@ package com.stelliberty.android.service
 import android.content.Context
 import com.stelliberty.android.data.bridge.RustBackend
 import com.stelliberty.android.data.bridge.StellibertyCoreBridge
+import com.stelliberty.android.domain.model.Subscription
+import com.stelliberty.android.platform.ProfilePipelineKind
+import com.stelliberty.android.platform.ProfileProcessingSession
 import com.stelliberty.android.util.AppLogger
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -43,7 +46,34 @@ private data class ProfileWriteFileRequest(
 )
 
 @Serializable
-private data class PrepareProcessingResult(val path: String)
+private data class ProfilePipelineBeginRequest(
+    val workDir: String,
+    val uuid: String,
+    val kind: String,
+    val name: String,
+    val isLocalFile: Boolean,
+    val sourceLocation: String,
+    val autoUpdateMode: String,
+    val autoUpdateIntervalMinutes: Int,
+)
+
+@Serializable
+private data class ProfilePipelineBeginResult(
+    val token: String,
+    val workDir: String,
+)
+
+@Serializable
+private data class ProfilePipelineCommitRequest(val token: String, val uuid: String)
+
+@Serializable
+private data class ProfilePipelineCommitResult(
+    val rootRequired: List<String> = emptyList(),
+    val cleanupPaths: List<String> = emptyList(),
+)
+
+@Serializable
+private data class ProfilePipelineAbortRequest(val token: String)
 
 @Serializable
 private data class RootRetryResult(
@@ -116,15 +146,33 @@ object ProfileFileOps {
 
     // processing 目录全进程只有一个（路径里不带订阅编号），所以从清空到提交必须完全串行。
     // 并发两个更新会交错清空同一个目录，把一个订阅下载的配置提交进另一个订阅里。
-    // 事务本身在 Rust 侧执行；这里只负责把工作目录和编号传过去。
-    fun prepareProcessing(context: Context, uuid: String): File {
+    // 事务与阶段约束都在 Rust 侧执行；这里只负责把工作目录、编号和订阅字段传过去。
+    fun beginProcessing(
+        context: Context,
+        uuid: String,
+        kind: ProfilePipelineKind,
+        subscription: Subscription,
+    ): ProfileProcessingSession {
         val workDir = getWorkDir(context).absolutePath
-        val result = RustBackend.call(
-            "profile.prepare_processing",
-            rustJson.encodeToString(ProfileUuidRequest.serializer(), ProfileUuidRequest(workDir, uuid)),
-            PrepareProcessingResult.serializer(),
+        val payload = rustJson.encodeToString(
+            ProfilePipelineBeginRequest.serializer(),
+            ProfilePipelineBeginRequest(
+                workDir = workDir,
+                uuid = uuid,
+                kind = kind.name.lowercase(),
+                name = subscription.name,
+                isLocalFile = subscription.isLocalFile,
+                sourceLocation = subscription.sourceLocation,
+                autoUpdateMode = subscription.autoUpdateMode.name.lowercase(),
+                autoUpdateIntervalMinutes = subscription.autoUpdateIntervalMinutes,
+            ),
         )
-        return File(result.path)
+        val result = RustBackend.call(
+            "profile.pipeline_begin",
+            payload,
+            ProfilePipelineBeginResult.serializer(),
+        )
+        return ProfileProcessingSession(result.token, result.workDir)
     }
 
     // 直接写文件是先清空再写入，中途断电会留下半个文件，对用户设置来说等于全部丢失。
@@ -140,13 +188,6 @@ object ProfileFileOps {
             tmp.delete()
             throw IOException("rename ${tmp.name} -> ${target.name} failed")
         }
-    }
-
-    fun writeProcessingConfig(workDir: String, content: String): File {
-        val file = File(workDir, "config.yaml")
-        file.parentFile?.mkdirs()
-        file.writeText(content)
-        return file
     }
 
     fun cleanupProcessing(context: Context) {
@@ -166,14 +207,19 @@ object ProfileFileOps {
 
     // 先拷到临时目录再改名换上去，所有删除都排在拷贝之后：失败时原目录仍然完整——
     // 更新订阅的场景下它是唯一一份。两次改名中间挂了，靠留下的旧目录在下次启动时还原。
-    fun commitProcessingToImported(context: Context, uuid: String) {
-        val workDir = getWorkDir(context).absolutePath
+    fun commitProcessing(context: Context, token: String, uuid: String) {
         val payload = rustJson.encodeToString(
-            ProfileUuidRequest.serializer(),
-            ProfileUuidRequest(workDir, uuid),
+            ProfilePipelineCommitRequest.serializer(),
+            ProfilePipelineCommitRequest(token, uuid),
         )
         val result = retryRootOwned(
-            { RustBackend.call("profile.commit_processing", payload, RootRetryResult.serializer()) },
+            {
+                RustBackend.call(
+                    "profile.pipeline_commit",
+                    payload,
+                    ProfilePipelineCommitResult.serializer(),
+                )
+            },
             { it.rootRequired },
         )
         if (result.rootRequired.isNotEmpty()) {
@@ -184,6 +230,14 @@ object ProfileFileOps {
                 AppLogger.warn(TAG, "Failed to remove old imported copy: $path")
             }
         }
+    }
+
+    fun abortProcessing(token: String) {
+        val payload = rustJson.encodeToString(
+            ProfilePipelineAbortRequest.serializer(),
+            ProfilePipelineAbortRequest(token),
+        )
+        RustBackend.call("profile.pipeline_abort", payload, Unit.serializer())
     }
 
     private fun <T> retryRootOwned(block: () -> T, paths: (T) -> List<String>): T {

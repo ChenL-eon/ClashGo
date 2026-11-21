@@ -1,16 +1,25 @@
 package com.stelliberty.android.platform
 
+import com.stelliberty.android.domain.model.Subscription
+
+enum class ProfilePipelineKind { Import, Update }
+
+data class ProfileProcessingSession(val token: String, val workDir: String)
+
 interface ProfileFileManager {
     fun savePendingConfig(uuid: String, content: String)
     fun releasePending(uuid: String)
 
-    fun prepareProcessing(uuid: String): String
+    fun beginProcessing(
+        uuid: String,
+        kind: ProfilePipelineKind,
+        subscription: Subscription,
+    ): ProfileProcessingSession
 
-    fun writeProcessingConfig(workDir: String, content: String)
+    fun commitProcessing(token: String, uuid: String)
+    fun abortProcessing(token: String)
 
     fun cleanupProcessing()
-
-    fun commitProcessingToImported(uuid: String)
 
     fun getMihomoWorkDir(): String
 
