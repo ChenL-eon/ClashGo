@@ -1,9 +1,9 @@
 <resources>
-    <string name="app_name" translatable="false">Stelliberty</string>
+    <string name="app_name" translatable="false">ClashGo</string>
 
     <!-- Notification Channels -->
     <string name="channel_vpn_name">VPN Service Status</string>
-    <string name="channel_vpn_desc">Stelliberty proxy service status</string>
+    <string name="channel_vpn_desc">ClashGo proxy service status</string>
     <string name="channel_profile_status_name">Config Update Progress</string>
     <string name="channel_profile_status_desc">Config download and validation progress</string>
     <string name="settings_app_notifications">App notifications</string>
@@ -18,7 +18,7 @@
     <string name="notification_close">Close</string>
     <string name="settings_launch_tab">Page on app launch</string>
     <string name="settings_tile_long_press_tab">Page on tile long press</string>
-    <string name="notification_running_title">Stelliberty Running</string>
+    <string name="notification_running_title">ClashGo Running</string>
     <string name="notification_running_content">Mode: %1$s</string>
     <string name="notification_wifi_policy_title">Wi-Fi Auto Switch</string>
     <string name="notification_wifi_policy_service_content">Waiting for Wi-Fi changes</string>

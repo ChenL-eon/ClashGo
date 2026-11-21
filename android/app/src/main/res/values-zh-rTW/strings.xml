@@ -1,7 +1,7 @@
 <resources>
     <!-- Notification Channels -->
     <string name="channel_vpn_name">VPN 服務狀態</string>
-    <string name="channel_vpn_desc">Stelliberty 代理服務執行狀態</string>
+    <string name="channel_vpn_desc">ClashGo 代理服務執行狀態</string>
     <string name="channel_profile_status_name">設定檔更新進度</string>
     <string name="channel_profile_status_desc">設定檔下載與驗證進度</string>
     <string name="settings_app_notifications">應用程式通知</string>
@@ -16,7 +16,7 @@
     <string name="notification_close">關閉</string>
     <string name="settings_launch_tab">開啟應用程式時的頁面</string>
     <string name="settings_tile_long_press_tab">長按圖塊時的頁面</string>
-    <string name="notification_running_title">Stelliberty 執行中</string>
+    <string name="notification_running_title">ClashGo 執行中</string>
     <string name="notification_running_content">模式: %1$s</string>
     <string name="notification_wifi_policy_title">Wi-Fi 自動切換</string>
     <string name="notification_wifi_policy_service_content">等待 Wi-Fi 變化</string>

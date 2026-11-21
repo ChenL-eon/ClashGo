@@ -38,7 +38,7 @@ object AppLogger {
     }
 
     fun environment(): String =
-        "Stelliberty ${BuildConfig.VERSION_NAME} (${BuildConfig.BUILD_TYPE}); " +
+        "ClashGo ${BuildConfig.VERSION_NAME} (${BuildConfig.BUILD_TYPE}); " +
             "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}); " +
             "${Build.MANUFACTURER} ${Build.MODEL}; ABI=${Build.SUPPORTED_ABIS.joinToString()}"
 

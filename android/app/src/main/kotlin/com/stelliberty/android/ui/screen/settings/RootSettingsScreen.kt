@@ -286,6 +286,6 @@ fun RootSettingsScreen(
     )
 }
 
-private const val DEFAULT_TUN_DEVICE = "Stelliberty"
+private const val DEFAULT_TUN_DEVICE = "ClashGo"
 
 private const val DEFAULT_TETHER_IFACES = "wlan1,wlan2"

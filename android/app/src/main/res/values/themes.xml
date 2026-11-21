@@ -1,16 +1,16 @@
 <resources>
 
-    <style name="Theme.Stelliberty" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.ClashGo" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowLightStatusBar">true</item>
     </style>
 
-    <style name="Theme.Stelliberty.Starting" parent="Theme.SplashScreen">
+    <style name="Theme.ClashGo.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@android:color/background_light</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
-        <item name="postSplashScreenTheme">@style/Theme.Stelliberty</item>
+        <item name="postSplashScreenTheme">@style/Theme.ClashGo</item>
     </style>
 
-    <style name="Theme.Stelliberty.Transparent" parent="@android:style/Theme.Translucent.NoTitleBar">
+    <style name="Theme.ClashGo.Transparent" parent="@android:style/Theme.Translucent.NoTitleBar">
         <item name="android:backgroundDimEnabled">false</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowIsTranslucent">true</item>

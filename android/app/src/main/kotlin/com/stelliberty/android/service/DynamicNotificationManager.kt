@@ -62,7 +62,7 @@ class DynamicNotificationManager(
                     )
                     return@collectLatest
                 }
-                val profileName = storage.getString(StorageKeys.ACTIVE_PROFILE_NAME, "Stelliberty")
+                val profileName = storage.getString(StorageKeys.ACTIVE_PROFILE_NAME, "ClashGo")
                 connectionManager.repository.collectLatest { repo ->
                     repo?.trafficFlow()?.collect { traffic ->
                         currentCoroutineContext().ensureActive()

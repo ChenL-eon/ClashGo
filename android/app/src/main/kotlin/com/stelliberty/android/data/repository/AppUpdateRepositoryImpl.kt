@@ -43,7 +43,7 @@ class AppUpdateRepositoryImpl(
                 }
                 defaultRequest {
                     header("Accept", "application/vnd.github+json")
-                    header("User-Agent", "Stelliberty")
+                    header("User-Agent", "ClashGo")
                 }
             }.use { client ->
                 // 稳定版单独查询，避免被大量测试版挤出发布列表首页。

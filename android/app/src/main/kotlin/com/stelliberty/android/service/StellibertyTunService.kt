@@ -179,7 +179,7 @@ class StellibertyTunService : VpnService() {
                 Builder().apply {
                     addAddress(TUN_GATEWAY, TUN_SUBNET_PREFIX)
                     setMtu(RuntimeOverrideBuilder.VPN_TUN_MTU)
-                    setSession("Stelliberty")
+                    setSession("ClashGo")
                     setBlocking(false)
 
                     if (bypassPrivate) {

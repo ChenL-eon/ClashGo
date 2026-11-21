@@ -94,13 +94,13 @@ class LogViewModel(private val store: DiagnosticLogStore = AppLogger.logs) : Vie
         val source = _uiState.value.source
         return LogExport(
             source = source,
-            fileName = "Stelliberty-${source.name.lowercase(Locale.ROOT)}-${LocalDateTime.now().format(EXPORT_TIME_FORMAT)}.txt",
+            fileName = "ClashGo-${source.name.lowercase(Locale.ROOT)}-${LocalDateTime.now().format(EXPORT_TIME_FORMAT)}.txt",
         )
     }
 
     // 在 IO 线程调用：导出已保存的完整日志文件，与页面的等级筛选无关。
     fun writeExport(export: LogExport, output: Writer) {
-        output.appendLine("Stelliberty ${export.source.name} logs")
+        output.appendLine("ClashGo ${export.source.name} logs")
         output.appendLine(AppLogger.environment())
         output.appendLine("Time zone: ${ZoneId.systemDefault()}; exported at ${LocalDateTime.now()}")
         output.appendLine()

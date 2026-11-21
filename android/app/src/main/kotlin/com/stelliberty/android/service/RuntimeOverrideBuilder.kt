@@ -16,7 +16,7 @@ import kotlinx.serialization.json.Json
 object RuntimeOverrideBuilder {
 
     private const val TAG = "RuntimeOverride"
-    internal const val DEFAULT_TUN_DEVICE = "Stelliberty"
+    internal const val DEFAULT_TUN_DEVICE = "ClashGo"
 
     // VPN 模式下这个值必须和 VpnService 设的 MTU 一致：网卡底层用它算读缓冲，两边不一致或为 0 时
     // 所有读取都会失败，表现成「延迟测得出来但完全上不了网」。两边共用这个常量，谁都不要写死数字。

@@ -164,7 +164,7 @@ class MihomoRunner(private val context: Context) {
         if (pid > 0) {
             AppLogger.info(TAG, "Stopping mihomo pid=$pid (root=$isRootMode)")
             if (isRootMode) {
-                val tunDevice = PlatformStorage(context).getString(StorageKeys.ROOT_TUN_DEVICE, "Stelliberty")
+                val tunDevice = PlatformStorage(context).getString(StorageKeys.ROOT_TUN_DEVICE, "ClashGo")
                 if (!RootHelper.stopMihomo(tunDevice, pid)) {
                     errorMessage = context.getString(R.string.error_root_stop_failed)
                     return false

@@ -26,7 +26,7 @@ fun OpenSourceLibrariesScreen(
 ) {
     val projects = remember(mihomoVersion) {
         persistentListOf(
-            OpenSourceProject("Stelliberty", "Stelliberty", PROJECT_REPOSITORY_URL),
+            OpenSourceProject("ClashGo", "ClashGo", PROJECT_REPOSITORY_URL),
             OpenSourceProject("mihomo", if (mihomoVersion.isEmpty()) "mihomo" else "mihomo ($mihomoVersion)", "https://github.com/MetaCubeX/mihomo"),
             OpenSourceProject("miuix", "miuix", "https://github.com/compose-miuix-ui/miuix"),
             OpenSourceProject("MingCute", "MingCute", "https://github.com/mingcute-design/mingcute-icons"),
