@@ -38,6 +38,12 @@ CMFA embed mode 下 `PATCH/PUT /configs`、`POST /restart`、`POST /configs/geo`
 3. 排期通过 `AutoDelayAlarm` 的单次 `ELAPSED_REALTIME_WAKEUP` 闹钟唤醒，精确权限允许时用 `setExactAndAllowWhileIdle`，否则用 `setAndAllowWhileIdle`。完成或失败后等待完整间隔，切换时取消旧任务与闹钟；排期和测速结果只保留在内存。
 4. `AutoDelayReceiver` 在广播返回前取得本轮独立的 `PARTIAL_WAKE_LOCK`，由已有代理前台服务承载异步请求，`finally` 释放锁；深度 Doze 的触发频率与网络仍受系统限制。
 
+## 停止态代理数据
+
+代理未运行时 `ProxyViewModel` 不接受 repository，改走 `OfflineProxyRepository`：把当前订阅的 `config.yaml`、`profile.transform.json` 与 provider 缓存交给 Go 的 `clashgoOfflineProxySnapshot`，用 `config.ParseRawConfig` 解析后导出与 `/proxies`、`/group`、`/providers/proxies` 同形的 JSON。`ParseRawConfig` 不读 provider 缓存，离线导出前必须对 `cfg.Providers` 与 `cfg.RuleProviders` 调用 `Initial()`，否则组里只剩 `COMPATIBLE` 占位。
+
+离线测速走 `clashgoTestOfflineDelays`，在进程内对解析出的 `C.Proxy` 调 `URLTest`，与 `/proxies/{name}/delay`、provider healthcheck 同一路径。离线选节点只写 `ProxySelectionStore`，不碰内核；下次启动由运行态恢复。
+
 ## 连接速率自行差分
 
 `/connections`（WS，1Hz 全量列表）每条只给累计的 `upload` / `download`。[SpeedDetailSheet](../../../../android/app/src/main/kotlin/com/clashgo/android/ui/screen/home/SpeedDetailSheet.kt) + `updateConnectionRates` 按 `id` 对相邻两次快照差分，再除以实际间隔。

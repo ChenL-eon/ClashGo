@@ -112,6 +112,7 @@ fun ProxyScreen(
         ProxyViewModel.MODE_GLOBAL -> R.string.proxy_mode_global_hint
         else -> null
     }
+    LaunchedEffect(mode) { viewModel?.updateDisplayMode(mode) }
 
     var showSettings by remember { mutableStateOf(false) }
 
@@ -157,7 +158,7 @@ fun ProxyScreen(
                             }
                         },
                         actions = {
-                            val canTestAllDelays = isRunning && uiState.groups.isNotEmpty() && !uiState.isTestingAllDelays
+                            val canTestAllDelays = uiState.groups.isNotEmpty() && !uiState.isTestingAllDelays
                             IconButton(
                                 onClick = { viewModel?.testAllDelays() },
                                 enabled = canTestAllDelays,
@@ -329,14 +330,6 @@ fun ProxyScreen(
                                         ),
                                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     )
-                                    if (groups.isEmpty() && !uiState.isProxyRunning) {
-                                        Text(
-                                            text = stringResource(R.string.proxy_start_first),
-                                            modifier = Modifier.padding(top = 6.dp),
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                            fontSize = 14.sp,
-                                        )
-                                    }
                                 }
                             }
                         }

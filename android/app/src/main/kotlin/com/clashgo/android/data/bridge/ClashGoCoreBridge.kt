@@ -1,6 +1,7 @@
 package com.clashgo.android.data.bridge
 
 import com.clashgo.android.domain.model.ChainProxyContext
+import com.clashgo.android.domain.model.OfflineProxySnapshot
 import com.clashgo.android.domain.model.RuleOverrideContext
 import com.clashgo.android.service.ProfileFileOps
 import java.io.File
@@ -16,6 +17,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
 data class AgeKeyPair(val secretKey: String, val publicKey: String)
@@ -40,6 +43,9 @@ data class CoreFetchResult(
 
 @Serializable
 private data class TransformCheck(val hasCycle: Boolean = false)
+
+@Serializable
+private data class OfflineDelaySnapshot(val delays: Map<String, Int> = emptyMap())
 
 class ClashGoCoreError(message: String) : RuntimeException(message)
 
@@ -187,6 +193,39 @@ object ClashGoCoreBridge {
             RuleOverrideContext.serializer(),
         )
 
+    // 停止态没有内核 API，用同一套变换与解析把订阅配置还原成代理页的数据快照。
+    fun offlineProxySnapshot(workDir: File, transform: File?, ageSecretKey: String): OfflineProxySnapshot {
+        ProfileFileOps.awaitGeodata()
+        return decodePayload(
+            nativeOfflineProxySnapshot(workDir.path, transform?.path.orEmpty(), ageSecretKey),
+            OfflineProxySnapshot.serializer(),
+        )
+    }
+
+    // 离线测速在进程内直接拨测配置里的节点，与运行时 /proxies/{name}/delay 使用同一个 URLTest。
+    fun testOfflineDelays(
+        workDir: File,
+        transform: File?,
+        ageSecretKey: String,
+        nodes: Collection<String>,
+        testUrl: String,
+        timeout: Int,
+    ): Map<String, Int> {
+        ProfileFileOps.awaitGeodata()
+        val names = json.encodeToString(ListSerializer(String.serializer()), nodes.toList())
+        return decodePayload(
+            nativeTestOfflineDelays(
+                workDir.path,
+                transform?.path.orEmpty(),
+                ageSecretKey,
+                names,
+                testUrl,
+                timeout,
+            ),
+            OfflineDelaySnapshot.serializer(),
+        ).delays
+    }
+
     private fun <T> decodePayload(raw: String?, serializer: KSerializer<T>): T {
         if (raw.isNullOrEmpty()) throw ClashGoCoreError("native returned empty result")
         if (raw.startsWith("error:")) throw ClashGoCoreError(raw.removePrefix("error:").trim())
@@ -202,6 +241,19 @@ object ClashGoCoreBridge {
 
     @JvmStatic
     private external fun nativeRuleContext(workDir: String, transform: String, secretKey: String): String?
+
+    @JvmStatic
+    private external fun nativeOfflineProxySnapshot(workDir: String, transform: String, secretKey: String): String?
+
+    @JvmStatic
+    private external fun nativeTestOfflineDelays(
+        workDir: String,
+        transform: String,
+        secretKey: String,
+        namesJson: String,
+        testUrl: String,
+        timeout: Int,
+    ): String?
 
     @JvmStatic
     private external fun nativeSetAgeSecretKey(key: String)

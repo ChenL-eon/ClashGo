@@ -8,6 +8,7 @@ import com.clashgo.android.data.repository.AppUpdateRepositoryImpl
 import com.clashgo.android.data.repository.ChainProxyRepositoryImpl
 import com.clashgo.android.data.repository.OverrideJsonStore
 import com.clashgo.android.data.repository.OverrideProfileRepositoryImpl
+import com.clashgo.android.data.repository.OfflineProxyRepository
 import com.clashgo.android.data.repository.ProfileProcessor
 import com.clashgo.android.data.repository.RuleOverrideRepositoryImpl
 import com.clashgo.android.data.repository.SubscriptionProxyResolver
@@ -43,6 +44,7 @@ val dataModule = module {
     single { OverrideProfileStore(get(), get()) }
     single { RuleOverrideStore(get(), get()) }
     single { ProfileTransformWriter(get(), get(), get()) }
+    single { OfflineProxyRepository(androidContext(), get(), get()) }
 
     single { OverrideJsonStore(get(), get()) }
     single { SubscriptionProxyResolver(get()) }

@@ -66,6 +66,9 @@ func clashgoValidateTransform(cWorkDir, cTransform, cKey *C.char) *C.char {
 	return guardString(func() string {
 		workDir := C.GoString(cWorkDir)
 		// provider 校验同样需要订阅密钥，调用方的 processLock 保证全局密钥串行使用。
+		// 离线代理页会在没有 processLock 时解析配置，同一把锁把两边的 age 全局密钥串起来。
+		offlineParseMu.Lock()
+		defer offlineParseMu.Unlock()
 		age.SetGlobalSecretKeys(C.GoString(cKey))
 		defer age.SetGlobalSecretKeys()
 		out, err := readTransformedConfig(workDir, C.GoString(cTransform), C.GoString(cKey))

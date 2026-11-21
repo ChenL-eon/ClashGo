@@ -34,9 +34,13 @@
 - 展开按钮用 `AppIcons.ChevronRight`（right_small），旋转为向下或向上。
 - 换图标时改 `gen_icons.py` 的 ICONS 表后重跑，调用点保持不变。
 
+## 停止态
+
+代理停止时由 `ProxyViewModel` 走离线会话，数据来自 `OfflineProxyRepository` 解析当前订阅配置，组、节点、provider 与运行态同形。排序、过滤、搜索、组切换、单列、隐藏不可用都直接消费 `ProxyUiState.groups`，不需要内核；选节点与解除固定写 `ProxySelectionStore`，下次启动时由运行态恢复。节点、组与全量测速在离线会话中进程内拨测，按钮不再受 `isRunning` 门控。
+
 ## 顶栏与代理设置
 
-顶栏放全量测速、搜索与更多菜单，组与节点随内核连接及轮询更新。更多菜单使用 miuix `WindowCascadingListPopup`，保留默认定位和动画，第一层为代理模式、TUN Stack、布局与显示、排序，并回显当前值。
+顶栏放全量测速、搜索与更多菜单，运行态组与节点随内核连接及轮询更新，停止态由离线快照填充。更多菜单使用 miuix `WindowCascadingListPopup`，保留默认定位和动画，第一层为代理模式、TUN Stack、布局与显示、排序，并回显当前值。
 
 - 子菜单由 `DropdownItem.children` 声明，父菜单保留在后方；收起行为交给原生组件，不添加专用返回行。点选立即应用并收起菜单。
 - 选路：代理模式与 TUN Stack 各有单选子菜单；服务停止或 ROOT TPROXY 模式下禁用 TUN Stack。
@@ -46,7 +50,7 @@
 
 ## 两个 mode 值
 
-展示用 `homeUiState.mode`：它是「override 持久值 + 运行时 `/configs` 轮询值」，停止态也有值，`switchMode` 内同步 `copy(mode=)` 即可回显。判断分流行为的 `globalModeActive` 读 `ProxyUiState.mode`，与 `loadProxies` 的组排序共用运行时真值（停止态下 `ProxyUiState()` 会整体重置）。
+展示用 `homeUiState.mode`：它是「override 持久值 + 运行时 `/configs` 轮询值」，停止态也有值，`switchMode` 内同步 `copy(mode=)` 即可回显。判断分流行为的 `globalModeActive` 读 `ProxyUiState.mode`，与 `loadProxies` 的组排序共用真值；停止态 `ProxyUiState` 由离线快照的 mode 与屏幕传入的展示模式填充。
 
 ## 出站模式与代理组
 

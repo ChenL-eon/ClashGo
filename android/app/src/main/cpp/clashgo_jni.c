@@ -115,6 +115,39 @@ Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeValidateTransform(
 }
 
 JNIEXPORT jstring JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeOfflineProxySnapshot(
+        JNIEnv *env, jclass clazz, jstring jWorkDir, jstring jTransform, jstring jKey) {
+    char *workDir = jstring_to_cstr(env, jWorkDir);
+    char *transform = jstring_to_cstr(env, jTransform);
+    char *key = jstring_to_cstr(env, jKey);
+    char *result = clashgoOfflineProxySnapshot(workDir ? workDir : "", transform ? transform : "", key ? key : "");
+    free(workDir);
+    free(transform);
+    free(key);
+    return go_cstr_to_jstring(env, result);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeTestOfflineDelays(
+        JNIEnv *env, jclass clazz,
+        jstring jWorkDir, jstring jTransform, jstring jKey, jstring jNames, jstring jUrl, jint jTimeout) {
+    char *workDir = jstring_to_cstr(env, jWorkDir);
+    char *transform = jstring_to_cstr(env, jTransform);
+    char *key = jstring_to_cstr(env, jKey);
+    char *names = jstring_to_cstr(env, jNames);
+    char *url = jstring_to_cstr(env, jUrl);
+    char *result = clashgoTestOfflineDelays(
+            workDir ? workDir : "", transform ? transform : "", key ? key : "",
+            names ? names : "[]", url ? url : "", jTimeout);
+    free(workDir);
+    free(transform);
+    free(key);
+    free(names);
+    free(url);
+    return go_cstr_to_jstring(env, result);
+}
+
+JNIEXPORT jstring JNICALL
 Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeChainProxyContext(
         JNIEnv *env, jclass clazz, jstring jWorkDir, jstring jTransform, jstring jKey) {
     char *workDir = jstring_to_cstr(env, jWorkDir);
