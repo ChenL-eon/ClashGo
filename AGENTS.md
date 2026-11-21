@@ -1,4 +1,4 @@
-# Stelliberty
+# ClashGo
 
 miuix + mihomo 的 Android 代理客户端。单模块 `:app`（`com.android.application`，AGP 9 内置 Kotlin，源码全在 `src/main`）+ `:baselineprofile`（`com.android.test`，只产 Baseline Profile 不进 APK）。UI 用 AndroidX Compose，miuix 走其 `-android` 发布件。
 
@@ -63,20 +63,20 @@ Kotlin（AGP 9 内置，不加独立 kotlin 插件）。UI：Compose（经 miuix
 ```
 scripts/        prebuild.py（子模块 + 补丁 + 便携 JDK / Go + GeoIP）/ build.py（编译与打包）/ gen_icons.py
                 build_support/（构建辅助模块，patches/ 存放内核独有修复）
-rust/           Rust 后端（Cargo workspace，cdylib libstelliberty_backend.so，源码在 stelliberty-backend/src）
+rust/           Rust 后端（Cargo workspace，cdylib libclashgo_backend.so，源码在 clashgo-backend/src）
 third_party/    mihomo（submodule，YuKongA fork branch Mishka，锁定原始提交）
                 scripta（includeBuild 复合构建，YAML 编辑器；app 依赖 scripta:editor）
 android/        Gradle 根（wrapper + settings.gradle.kts + buildSrc + 两个模块）
                 Gradle 路径仍是 :app / :baselineprofile（名字被 targetProjectPath、CI 产物路径与文档引用着）
 android/app/src/main/
-├── kotlin/.../stelliberty/  App / MainActivity / StellibertyApplication（startKoin + 全局初始化）
+├── kotlin/com/clashgo/android/  App / MainActivity / ClashGoApplication（startKoin + 全局初始化）
 │   ├── domain/{model,repository}
-│   ├── data/{api（REST/WS + MihomoConnectionManager）,bridge（StellibertyCoreBridge）,store（JsonFileStore + SubscriptionStore + ProxySelectionStore + OverrideProfileStore + RuleOverrideStore + ProfileTransformWriter）,repository（*Impl + ProfileProcessor + OverrideJsonStore + SubscriptionProxyResolver）,backup}
+│   ├── data/{api（REST/WS + MihomoConnectionManager）,bridge（ClashGoCoreBridge）,store（JsonFileStore + SubscriptionStore + ProxySelectionStore + OverrideProfileStore + RuleOverrideStore + ProfileTransformWriter）,repository（*Impl + ProfileProcessor + OverrideJsonStore + SubscriptionProxyResolver）,backup}
 │   ├── platform/  service/  viewmodel/  util/  di/（4 个 Koin 模块）
 │   └── ui/{navigation,component,icon（手写 MingCute 矢量图）,platform,theme,screen,util}
 ├── res/values{,-zh-rCN,-zh-rTW}/   assets/（构建时下载 GeoIP）
-├── cpp/  process_helper.c + stelliberty_jni.c + mihomo_wrapper.c + CMakeLists.txt
-├── jniLibs/arm64-v8a/libmihomo.so   native/stelliberty_core/（Go cgo 源）
+├── cpp/  process_helper.c + clashgo_jni.c + mihomo_wrapper.c + CMakeLists.txt
+├── jniLibs/arm64-v8a/libmihomo.so   native/clashgo_core/（Go cgo 源）
 └── src/release/generated/baselineProfiles/（生成产物，需提交）
 ```
 
@@ -85,7 +85,7 @@ android/app/src/main/
 ## 架构
 
 ```
-StellibertyApplication.startKoin ─ Koin（dataModule + androidPlatformModule + androidAppModule + viewModelModule）
+ClashGoApplication.startKoin ─ Koin（dataModule + androidPlatformModule + androidAppModule + viewModelModule）
   MainActivity（Koin get 取图）→ App → AppNavigation → HorizontalPager(4 Tab) + NavDisplay(二级页)
     → Screen → ViewModel → domain.repository 接口 → data.repository.*Impl
         ├→ MihomoApiClient(Ktor HTTP) + MihomoWebSocket(WS) → mihomo 进程 127.0.0.1:9090
@@ -94,12 +94,12 @@ StellibertyApplication.startKoin ─ Koin（dataModule + androidPlatformModule +
 
 **Koin**（4 模块按职责拆分，均在 `di/`）：`dataModule` = appScope、SubscriptionStore、ProxySelectionStore、OverrideJsonStore、SubscriptionProxyResolver、RuleLatencyTester、MihomoConnectionManager、AutoDelayTester、OverrideProfileStore、RuleOverrideStore、ProfileTransformWriter、`SubscriptionRepositoryImpl` / `OverrideProfileRepositoryImpl` / `ChainProxyRepositoryImpl` / `RuleOverrideRepositoryImpl` / `AppUpdateRepositoryImpl` + 接口绑定、`factory { ProfileProcessor }`；`androidPlatformModule`（绑 `androidContext()`）= PlatformStorage、ProxyServiceController、AppListProvider、WifiPolicyController、BootStartManager、BackupManager、ProfileUpdateScheduler + `factory { ProfileUpdateTask }`；`androidAppModule` = `single<ProfileFileManager>`；`viewModelModule` = 14 个 ViewModel（单 Activity 用 `single`）。**组合根注入**：MainActivity `get()` 取图后透传给 `App(...)`，屏幕保持参数化、不用 koinViewModel；仅需 Activity 上下文的 FilePicker / VPN 授权 launcher 不入 Koin。**repo 实现必配接口**，ViewModel 依赖接口；`ProfileProcessor` 需实体级方法故依赖具体类。
 
-- **通信方案**：runtime（traffic/logs/connections/proxy select/provider 刷新）走 subprocess + Ktor REST + WS，三模式共用；订阅导入（fetch + provider prefetch + Parse）走 JNI in-process，由 [StellibertyCoreBridge](android/app/src/main/kotlin/com/stelliberty/android/data/bridge/StellibertyCoreBridge.kt) 调 libmihomo.so 的 cgo 导出。Rust 后端经 [RustBackend](android/app/src/main/kotlin/com/stelliberty/android/data/bridge/RustBackend.kt) 的单一 `nativeCall(method, payloadJson)` 入口承载纯业务逻辑（运行参数合并、订阅文件事务与三阶段编排决策、自动更新计划、备份布局/合并决策），响应是 JSON 信封；运行参数在 Rust 不可用时由启动服务置 Error 并停止，订阅事务与编排在 Rust 不可用时直接失败。
+- **通信方案**：runtime（traffic/logs/connections/proxy select/provider 刷新）走 subprocess + Ktor REST + WS，三模式共用；订阅导入（fetch + provider prefetch + Parse）走 JNI in-process，由 [ClashGoCoreBridge](android/app/src/main/kotlin/com/clashgo/android/data/bridge/ClashGoCoreBridge.kt) 调 libmihomo.so 的 cgo 导出。Rust 后端经 [RustBackend](android/app/src/main/kotlin/com/clashgo/android/data/bridge/RustBackend.kt) 的单一 `nativeCall(method, payloadJson)` 入口承载纯业务逻辑（运行参数合并、订阅文件事务与三阶段编排决策、自动更新计划、备份布局/合并决策），响应是 JSON 信封；运行参数在 Rust 不可用时由启动服务置 Error 并停止，订阅事务与编排在 Rust 不可用时直接失败。
 - **状态桥接**：ProxyServiceBridge（全局 StateFlow + TunMode），Service 写、ViewModel 读。**进程模型**：单进程（VpnService 与 UI 同进程），ROOT 模式 mihomo 为独立 root 进程。
 - **数据持久化**：订阅 JSON 文件（见「订阅数据」）+ PlatformStorage（简单偏好）+ StorageKeys（key 常量）+ OverrideJsonStore（`override.user.json` + `ConfigurationOverride`）；store 自带 `state: StateFlow` + `update(transform)`，「Clash 特性」各页共用 `ClashFeaturesViewModel` 读写。**OverrideJsonStore 的内存 state 是权威值**：`load()` 返回内存值不读盘，写入磁盘由 appScope 串行异步完成（排队期间被新值取代的快照直接放弃）。SubscriptionStore / ProxySelectionStore 同理：当前订阅与节点选择先发布、后异步写盘。因此 **Service / ProfileWorker / 各入口的 ProxyServiceController 必须用 Koin 单例，各自 `new` 会读到盘上旧值**——用户改完设置立刻启动就会用到改前的配置。
 - **订阅管理**：Pending → Processing → Imported 三阶段沙箱，`ProfileProcessor` 调 Rust pipeline token 完成 begin/commit/abort，fetchAndValid（JNI 一次完成 fetch + provider prefetch + Parse）仍走 Go；processLock 串行，profileLock 守护订阅列表与目录一致，协程取消与进度回调留在 Kotlin。
-- **app 内下载一律走 mixed-port**：Stelliberty 自身永远绕过 TUN，直连境外资源极慢——这是「图标加载慢」的根因模式，**任何新增的外网下载都要走 mixed-port**。`SubscriptionProxyResolver.resolve()` 按「代理运行中 + 可解析 mixed-port」返回 proxy URL 或 null；订阅与覆写下载走 `resolveForSubscription(mode, url)`，与 PC 一样由 `UpdateProxyMode` 三选一：Direct 直连；SystemProxy 经 `ProxySelector` 读系统给本应用下发的 HTTP 代理（Wi-Fi / PAC / 全局代理；本应用不走自己的 VPN，读不到 VPN 上挂的代理），未设置时直连；Core 经 mixed-port，代理未运行时直连。订阅侧由 native glue 把 proxy URL 换成 HTTP CONNECT 拨号器，经 `clashHttp.WithDialer` 传给订阅 fetch 与 provider prefetch（mihomo 的 HttpRequest 不读代理环境变量）；Parse 校验时内核现场补下的 provider 与 GeoIP 仍直连。[IconLoader](android/app/src/main/kotlin/com/stelliberty/android/ui/platform/IconLoader.kt)：内存 LRU(64) → 磁盘缓存 → 网络（限流 3 并发 + 5s/15s 超时），失败 URL 负缓存 60s，磁盘读取/解码在 `Dispatchers.IO`，proxy 解析结果缓存 10s、随 URL 变化 close 旧建新。
-- **GeoIP 预制**：构建时 DownloadGeoFilesTask 下载 geoip.metadb / GeoIP.dat / geosite.dat / ASN.mmdb 并压成 xz 存进 assets；缺哪份 mihomo 就会在加载配置时同步下载，API 起不来直到启动超时（Geodata 模式用的是 GeoIP.dat）。安装或升级后首次启动由后台线程经 `stellibertyExtractXzAsset` 并行解到 `files/mihomo/geodata/`，JNI 解析与 mihomo 启动前先 `ProfileFileOps.awaitGeodata()`。JNI 路径用 `stellibertyCoreInit(geodataDir)` 把 mihomo 全局 homeDir 指到这里；subprocess runtime 按 `-d workDir` + symlink 复用同一份，`ensureGeodataLinks` 把工作目录里的实体文件换回链接。
+- **app 内下载一律走 mixed-port**：ClashGo 自身永远绕过 TUN，直连境外资源极慢——这是「图标加载慢」的根因模式，**任何新增的外网下载都要走 mixed-port**。`SubscriptionProxyResolver.resolve()` 按「代理运行中 + 可解析 mixed-port」返回 proxy URL 或 null；订阅与覆写下载走 `resolveForSubscription(mode, url)`，与 PC 一样由 `UpdateProxyMode` 三选一：Direct 直连；SystemProxy 经 `ProxySelector` 读系统给本应用下发的 HTTP 代理（Wi-Fi / PAC / 全局代理；本应用不走自己的 VPN，读不到 VPN 上挂的代理），未设置时直连；Core 经 mixed-port，代理未运行时直连。订阅侧由 native glue 把 proxy URL 换成 HTTP CONNECT 拨号器，经 `clashHttp.WithDialer` 传给订阅 fetch 与 provider prefetch（mihomo 的 HttpRequest 不读代理环境变量）；Parse 校验时内核现场补下的 provider 与 GeoIP 仍直连。[IconLoader](android/app/src/main/kotlin/com/clashgo/android/ui/platform/IconLoader.kt)：内存 LRU(64) → 磁盘缓存 → 网络（限流 3 并发 + 5s/15s 超时），失败 URL 负缓存 60s，磁盘读取/解码在 `Dispatchers.IO`，proxy 解析结果缓存 10s、随 URL 变化 close 旧建新。
+- **GeoIP 预制**：构建时 DownloadGeoFilesTask 下载 geoip.metadb / GeoIP.dat / geosite.dat / ASN.mmdb 并压成 xz 存进 assets；缺哪份 mihomo 就会在加载配置时同步下载，API 起不来直到启动超时（Geodata 模式用的是 GeoIP.dat）。安装或升级后首次启动由后台线程经 `clashgoExtractXzAsset` 并行解到 `files/mihomo/geodata/`，JNI 解析与 mihomo 启动前先 `ProfileFileOps.awaitGeodata()`。JNI 路径用 `clashgoCoreInit(geodataDir)` 把 mihomo 全局 homeDir 指到这里；subprocess runtime 按 `-d workDir` + symlink 复用同一份，`ensureGeodataLinks` 把工作目录里的实体文件换回链接。
 - **国际化**：英文 + 简体中文（zh-rCN）+ 繁体中文（zh-rTW，台湾用语：設定/檔案/匯入/連線/連接埠/快取/伺服器/金鑰/還原/套用/群組/逾時，非简转繁），Composable 用 `stringResource`、非 Composable 用 `context.getString`；日志英文，代码注释中文。**data 层拿不到资源**：会被用户看见的兜底值（如订阅自动命名的最后一环）由调用方按 locale 注入。data 层写字面量会丢掉 locale；为此把 Context 拉进去会打破分层。
 
 ## 订阅数据
@@ -107,8 +107,8 @@ StellibertyApplication.startKoin ─ Koin（dataModule + androidPlatformModule +
 与 PC 版同一数据契约：键名 PascalCase、枚举写序号、时间 ISO 8601、新建订阅 Id 为 32 位十六进制。文件都在 `files/mihomo/` 下：
 
 - `subscriptions/subscriptions_list.json`（`{"Subscriptions":[...]}`，已导入订阅）、`subscriptions/selection_state.json`（`CurrentSubscriptionId`）、`proxies/selection_state.json`（订阅 Id → 代理组 → 节点）与 PC 同名同格式；`subscriptions/pending_list.json`（编辑中草稿，提交后移入列表）是 Android 专有的。
-- [Subscription](android/app/src/main/kotlin/com/stelliberty/android/domain/model/Subscription.kt) 字段与 PC 一一对应。**PC 读取时拒绝未知键，新增字段前先确认 PC 已有同名字段**；Android 暂未实现的 PC 字段（覆写、链式代理等）原样读入、原样写回。
-- [JsonFileStore](android/app/src/main/kotlin/com/stelliberty/android/data/store/JsonFileStore.kt)：列表与草稿走 `update`（先写盘再发布，提交时 imported/{id}/ 已换入，列表没写盘就被杀会被启动清理当孤儿删掉）；当前订阅与节点选择走 `updateLater`。解析失败时原文件改名 `.bak` 并标记 `loadFailed`，启动清理据此跳过孤儿目录删除。
+- [Subscription](android/app/src/main/kotlin/com/clashgo/android/domain/model/Subscription.kt) 字段与 PC 一一对应。**PC 读取时拒绝未知键，新增字段前先确认 PC 已有同名字段**；Android 暂未实现的 PC 字段（覆写、链式代理等）原样读入、原样写回。
+- [JsonFileStore](android/app/src/main/kotlin/com/clashgo/android/data/store/JsonFileStore.kt)：列表与草稿走 `update`（先写盘再发布，提交时 imported/{id}/ 已换入，列表没写盘就被杀会被启动清理当孤儿删掉）；当前订阅与节点选择走 `updateLater`。解析失败时原文件改名 `.bak` 并标记 `loadFailed`，启动清理据此跳过孤儿目录删除。
 - `LastUpdatedAt` 在每次获取成功后写入并清掉 `LastError` / `LastErrorAt`，更新失败时写入这两项（原因是英文技术描述）；自动更新闹钟以最近一次成功或失败（都缺失时取 `CreatedAt`）为起点，失败后顺延一个间隔再试；运行期只有存在经内核更新的订阅（或还没有订阅）或开启 VPN 系统代理时才补默认 mixed-port。
 
 **三阶段流程**（ProfileProcessor）：
@@ -132,13 +132,13 @@ DELETE → 列表、草稿与节点选择清理 + imported/{uuid}/ + pending/{uu
 
 mihomo 经 submodule 锁定 YuKongA 的 `Mishka` 原始提交，独有修复保存在 `scripts/build_support/patches/mihomo-*.patch`。`prebuild.py` 同步子模块后按文件名排序应用补丁，`build.py` 每次编译前同样检查；已生效的补丁跳过，不兼容时停止并提示维护。更新上游时核对子模块提交、补丁和 `mihomo.version`，流程见 `native-build` 技能。Go 首次下载最新稳定版到 `build/go/`，后续复用缓存；更新工具链：`python scripts/prebuild.py --refresh-go`。Go 按 ABI 交叉编译，产物在 `android/app/src/main/jniLibs/<ABI>/`，APK 收集到 `build/apk/`。更新 GeoIP：`python scripts/prebuild.py --refresh-geo`。刷新 Baseline Profile：`python scripts/build.py gradle :app:generateReleaseBaselineProfile`（需 adb 连 arm64 真机，产物提交进仓库）。
 
-Rust 后端由 buildSrc 的 `RustBuildTask` 用 NDK clang 交叉编译（打包前由 `mergeJniLibFolders` 触发，纯 Kotlin 编译不需要 cargo），产物 `android/app/src/main/jniLibs/<ABI>/libstelliberty_backend.so`；cargo 不在 PATH 时用 `-Pstelliberty.cargo=<path>` 指定。Rust 单测与 lint：在 `rust/` 下跑 `cargo test` / `cargo clippy --all-targets -- -D warnings`。
+Rust 后端由 buildSrc 的 `RustBuildTask` 用 NDK clang 交叉编译（打包前由 `mergeJniLibFolders` 触发，纯 Kotlin 编译不需要 cargo），产物 `android/app/src/main/jniLibs/<ABI>/libclashgo_backend.so`；cargo 不在 PATH 时用 `-Pclashgo.cargo=<path>` 指定。Rust 单测与 lint：在 `rust/` 下跑 `cargo test` / `cargo clippy --all-targets -- -D warnings`。
 
 任务本身的硬约束（GoBuildTask 三条、downloadGeoFiles、CMake 链接）在 `native-build` skill。
 
 **发布渠道**：`build-stable.yml` 监听 `main` 分支的应用版本变化，手动运行也限定该分支；`build-beta.yml` 监听 `beta` 分支，自动运行时跳过包含应用版本号或更新日志变更的推送，按下一补丁版本递增 `-betaN`，手动触发可重新构建同一提交。两者经可复用的 `build.yml` 打包 `arm64-v8a` 与 `x86_64` 两种 ABI，均为签名 release；`--dev` 仍只表示本地 debug。两个安装包全部构建成功后上传到发布草稿，版本标签由最后公开发布的请求创建，准备阶段只计算版本号。发布逻辑直接维护在工作流，不另设发布脚本。
 
-**应用版本**：`build.py --version` 通过 `stelliberty.versionName` 临时覆盖 APK 版本。`versionCodeFor` 按语义版本与 beta 序号编码，稳定版高于同版本的所有 beta，不能改用分支提交数量。发布版本与双语摘要用 `version-bump` 技能维护；`.github/CHANGELOG.md` 只保存本次版本，格式为英文列表、分隔线、对应中文列表。
+**应用版本**：`build.py --version` 通过 `clashgo.versionName` 临时覆盖 APK 版本。`versionCodeFor` 按语义版本与 beta 序号编码，稳定版高于同版本的所有 beta，不能改用分支提交数量。发布版本与双语摘要用 `version-bump` 技能维护；`.github/CHANGELOG.md` 只保存本次版本，格式为英文列表、分隔线、对应中文列表。
 
 ## 全局约束
 
@@ -148,7 +148,7 @@ Rust 后端由 buildSrc 的 `RustBuildTask` 用 NDK clang 交叉编译（打包�
 
 **后台卡片隐藏**：`HIDE_TASK_CARD` 由 `MainActivity` 读取并经 `ActivityManager.AppTask.setExcludeFromRecents()` 应用，运行时切换经 callback 透传即时生效。写成 manifest `android:excludeFromRecents="true"` 会失去用户可切换语义；App/屏幕暴露 callback、不直接调 Android API。当前实现依赖单 Activity task（`appTasks.firstOrNull()`）；若引入 document/multi-task 入口，必须改为按当前 `taskId` 匹配。
 
-**其他**：通知 id 按用途分配独立常量（1 代理服务 / 2 自动更新 / 3 Wi-Fi 监控 / 4 Wi-Fi 事件），新增用途分配新 id，避免互相覆盖与取消；四个 `specialUse` 前台服务都要带 `PROPERTY_SPECIAL_USE_FGS_SUBTYPE`（分发审核会看）；`Activity configChanges=uiMode` 防深浅色切换重建；MainActivity 用 `launchMode="singleTop"`，磁贴长按、`am start` 等外部入口复用栈顶实例，否则会叠出第二个实例与同一批 `single` ViewModel 争状态；预测性返回走 HiddenApiBypass 反射 `setEnableOnBackInvokedCallback`；`network_security_config.xml` 全局 `cleartextTrafficPermitted=true`（订阅源常用 HTTP；CMFA 因 fetch 在 Go 侧绕过 Java 网络栈而无需此设置，Stelliberty 的 Ktor 走 OkHttp 必须显式放行）；`jniLibs.useLegacyPackaging = true` 让 libmihomo.so 解压到 nativeLibraryDir，同时在 APK 内保持压缩存储（实测 arm64 71 MB → 25 MB），是净收益而非体积代价。
+**其他**：通知 id 按用途分配独立常量（1 代理服务 / 2 自动更新 / 3 Wi-Fi 监控 / 4 Wi-Fi 事件），新增用途分配新 id，避免互相覆盖与取消；四个 `specialUse` 前台服务都要带 `PROPERTY_SPECIAL_USE_FGS_SUBTYPE`（分发审核会看）；`Activity configChanges=uiMode` 防深浅色切换重建；MainActivity 用 `launchMode="singleTop"`，磁贴长按、`am start` 等外部入口复用栈顶实例，否则会叠出第二个实例与同一批 `single` ViewModel 争状态；预测性返回走 HiddenApiBypass 反射 `setEnableOnBackInvokedCallback`；`network_security_config.xml` 全局 `cleartextTrafficPermitted=true`（订阅源常用 HTTP；CMFA 因 fetch 在 Go 侧绕过 Java 网络栈而无需此设置，ClashGo 的 Ktor 走 OkHttp 必须显式放行）；`jniLibs.useLegacyPackaging = true` 让 libmihomo.so 解压到 nativeLibraryDir，同时在 APK 内保持压缩存储（实测 arm64 71 MB → 25 MB），是净收益而非体积代价。
 
 ## 子系统约束按需读
 

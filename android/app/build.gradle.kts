@@ -30,11 +30,11 @@ dependencies {
     implementation(libs.scripta.editor)
 }
 
-val appVersionName = providers.gradleProperty("stelliberty.versionName").orElse(ProjectConfig.VERSION_NAME).get()
+val appVersionName = providers.gradleProperty("clashgo.versionName").orElse(ProjectConfig.VERSION_NAME).get()
 val appVersionCode = versionCodeFor(appVersionName)
 
 val supportedAbis: List<String> =
-    providers.gradleProperty("stelliberty.abis").orNull
+    providers.gradleProperty("clashgo.abis").orNull
         ?.split(',')?.map(String::trim)?.filter(String::isNotEmpty)
         ?: listOf("arm64-v8a")
 
@@ -230,7 +230,7 @@ tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.con
 }
 
 val mihomoSubmoduleDir = rootProject.layout.projectDirectory.dir("../third_party/mihomo")
-val stellibertyCoreSourceDir = layout.projectDirectory.dir("src/main/native/stelliberty_core")
+val clashgoCoreSourceDir = layout.projectDirectory.dir("src/main/native/clashgo_core")
 // mishka 这个标签名不能跟着项目改名走：它被子模块自己的源码引用（几处文件名和编译约束里都写着），
 // 改了直接编译不过。
 val mihomoBuildTags = listOf("cmfa", "mishka", "with_gvisor")
@@ -243,8 +243,8 @@ val buildMihomoTasks = supportedAbis.map { abi ->
     tasks.register<GoBuildTask>("buildMihomo_$suffix") {
         group = "mihomo"
         description = "Build unified mihomo + JNI c-shared library (libmihomo.so) for $abi"
-        goSourceDir.set(stellibertyCoreSourceDir)
-        goVersion.set(providers.gradleProperty("stelliberty.goVersion"))
+        goSourceDir.set(clashgoCoreSourceDir)
+        goVersion.set(providers.gradleProperty("clashgo.goVersion"))
         replacedModuleSources.from(
             mihomoSubmoduleDir.asFileTree.matching {
                 exclude(".git", ".github/**", "docs/**", "test/**", "**/*_test.go")
@@ -267,7 +267,7 @@ tasks.named("preBuild") {
     dependsOn(buildMihomoTasks)
 }
 val rustRootDir = rootProject.layout.projectDirectory.dir("../rust")
-val cargoExecutableProvider = providers.gradleProperty("stelliberty.cargo")
+val cargoExecutableProvider = providers.gradleProperty("clashgo.cargo")
     .orElse(providers.environmentVariable("CARGO"))
     .orElse("cargo")
 val rustSourcesTree = fileTree(rustRootDir) {
@@ -278,14 +278,14 @@ val rustSourcesTree = fileTree(rustRootDir) {
 val buildRustTasks = supportedAbis.map { abi ->
     tasks.register<RustBuildTask>("buildRust_${abi.replace("-", "_")}") {
         group = "rust"
-        description = "Build the Rust backend libstelliberty_backend.so for $abi"
+        description = "Build the Rust backend libclashgo_backend.so for $abi"
         rustRoot.set(rustRootDir)
         rustSources.from(rustSourcesTree)
         this.abi.set(abi)
         ndkDirectory.set(ndkDirectoryProvider)
         minSdk.set(ProjectConfig.Android.MIN_SDK)
         cargoExecutable.set(cargoExecutableProvider)
-        outputFile.set(layout.projectDirectory.file("src/main/jniLibs/$abi/libstelliberty_backend.so"))
+        outputFile.set(layout.projectDirectory.file("src/main/jniLibs/$abi/libclashgo_backend.so"))
     }
 }
 

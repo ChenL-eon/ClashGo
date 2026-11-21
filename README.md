@@ -1,6 +1,6 @@
 <div align="center">
 
-# Stelliberty Android
+# ClashGo Android
 
 [![English](https://img.shields.io/badge/English-red?style=flat-square)](README.md)
 &nbsp;
@@ -16,7 +16,7 @@
 
 <br>
 
-Stelliberty is a native Android proxy client based on [Mishka](https://github.com/YuKongA/Mishka), powered by [mihomo](https://github.com/MetaCubeX/mihomo), with a Jetpack Compose interface built on [miuix](https://github.com/miuix-kotlin-multiplatform/miuix).
+ClashGo is a native Android proxy client based on [Mishka](https://github.com/YuKongA/Mishka), powered by [mihomo](https://github.com/MetaCubeX/mihomo), with a Jetpack Compose interface built on [miuix](https://github.com/miuix-kotlin-multiplatform/miuix).
 
 Use Android VPN without root, or choose ROOT TUN and ROOT TPROXY for privileged traffic capture. Manage subscriptions, proxy groups, connections, and routing from one app.
 
@@ -43,11 +43,11 @@ Use Android VPN without root, or choose ROOT TUN and ROOT TPROXY for privileged 
 
 <sub>[↑ Back to Navigation](#navigation)</sub>
 
-Download an APK from the [Releases page](https://github.com/Kindness-Kismet/stelliberty_android/releases).
+Download an APK from the [Releases page](https://github.com/ChenL-eon/ClashGo/releases).
 
 | Channel | Where to find it | Intended use |
 |---|---|---|
-| Stable | [Latest stable release](https://github.com/Kindness-Kismet/stelliberty_android/releases/latest) | Regular use |
+| Stable | [Latest stable release](https://github.com/ChenL-eon/ClashGo/releases/latest) | Regular use |
 | Beta | Releases marked **Pre-release**, with a `-betaN` version | Try upcoming changes |
 
 Android 12 or later is required. Choose `arm64-v8a` for current phones or `x86_64` for devices and emulators with that architecture.
@@ -140,7 +140,7 @@ Local builds and CI use the same portable Go setup, with archives verified again
 ### Architecture
 
 ```text
-android/app/src/main/kotlin/com/stelliberty/android/
+android/app/src/main/kotlin/com/clashgo/android/
 ├── ui/           Compose screens, components, navigation, and themes
 ├── viewmodel/    Screen state and user actions
 ├── domain/       Models and repository interfaces
@@ -148,7 +148,7 @@ android/app/src/main/kotlin/com/stelliberty/android/
 ├── platform/     Android integration and service control
 └── service/      VPN, ROOT, subscriptions, and background services
 android/app/src/main/cpp/                        JNI and process helpers
-android/app/src/main/native/stelliberty_core/     Go core integration
+android/app/src/main/native/clashgo_core/     Go core integration
 rust/                                            Rust backend (cdylib, JNI JSON envelope)
 third_party/                                    mihomo and scripta submodules
 scripts/                                        Prebuild and build entry points
@@ -159,8 +159,8 @@ Screens receive dependencies through parameters. ViewModels depend on repository
 ### Build and Verify
 
 ```bash
-git clone --recurse-submodules https://github.com/Kindness-Kismet/stelliberty_android.git
-cd stelliberty_android
+git clone --recurse-submodules https://github.com/ChenL-eon/ClashGo.git
+cd ClashGo
 python scripts/prebuild.py
 python scripts/build.py --dev
 ```

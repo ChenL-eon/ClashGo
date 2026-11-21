@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 把 Stelliberty 拉到前台并切到指定页面。
+# 把 ClashGo 拉到前台并切到指定页面。
 # 必须先 am start：page.open 靠组合树内的 collector 落地，应用不在前台时指令返回 ok 但无效果。
 set -euo pipefail
 
@@ -27,11 +27,11 @@ fi
 
 "${ADB[@]}" shell input keyevent KEYCODE_WAKEUP
 "${ADB[@]}" shell wm dismiss-keyguard
-"${ADB[@]}" shell am start -n com.stelliberty.android/.MainActivity >/dev/null
+"${ADB[@]}" shell am start -n com.clashgo.android/.MainActivity >/dev/null
 
 # 不在这里 sleep：DebugNavBridge.request 自己等 collector 就位，超时才返回 ok=false
 RESULT="$(MSYS_NO_PATHCONV=1 "${ADB[@]}" shell content call \
-    --uri content://com.stelliberty.android.commands \
+    --uri content://com.clashgo.android.commands \
     --method page.open \
     --arg "$PAGE_ID")"
 

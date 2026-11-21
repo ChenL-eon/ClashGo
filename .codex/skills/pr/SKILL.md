@@ -1,6 +1,6 @@
 ---
 name: pr
-description: Draft English pull request titles and descriptions, or create and update explicitly requested GitHub pull requests for Stelliberty Android. Use for PR preparation and publication, with project branch and validation rules. Does not authorize pushing, merging, or releasing.
+description: Draft English pull request titles and descriptions, or create and update explicitly requested GitHub pull requests for ClashGo Android. Use for PR preparation and publication, with project branch and validation rules. Does not authorize pushing, merging, or releasing.
 ---
 
 # Pull Request

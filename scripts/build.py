@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""编译 Stelliberty，默认 release，--dev 选择 debug，APK 保存到 build/apk。"""
+"""编译 ClashGo，默认 release，--dev 选择 debug，APK 保存到 build/apk。"""
 import os
 import sys
 
@@ -69,7 +69,7 @@ def abi_task_suffix(abi: str) -> str:
 
 def abi_args(abi: str) -> list[str]:
     """非默认 ABI 才传 property，保持默认调用与 CI 行为一致。"""
-    return [] if abi == DEFAULT_ABI else [f"-Pstelliberty.abis={abi}"]
+    return [] if abi == DEFAULT_ABI else [f"-Pclashgo.abis={abi}"]
 
 
 def version_args(version: str | None) -> list[str]:
@@ -77,7 +77,7 @@ def version_args(version: str | None) -> list[str]:
         return []
     if not re.fullmatch(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-beta[1-9]\d*)?", version):
         fail("version must be major.minor.patch or major.minor.patch-betaN")
-    return [f"-Pstelliberty.versionName={version}"]
+    return [f"-Pclashgo.versionName={version}"]
 
 
 # === 命令 ===
@@ -188,8 +188,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Gradle build type; default: release",
     )
     parser = argparse.ArgumentParser(
-        prog="stelliberty-build",
-        description="Compile Stelliberty; defaults to a release APK.",
+        prog="clashgo-build",
+        description="Compile ClashGo; defaults to a release APK.",
         epilog="Development build: python scripts/build.py --dev",
         parents=[common, build_options],
     )

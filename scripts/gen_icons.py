@@ -21,8 +21,8 @@ from pathlib import Path
 
 REPO_RAW = "https://raw.githubusercontent.com/ChenL-eon/ClashGo/main/assets"
 SVG_CACHE = Path("build/tmp/clashgo-assets")
-OUT_PACKAGE = "com.stelliberty.android.ui.icon"
-OUT_DIR = Path("android/app/src/main/kotlin/com/stelliberty/android/ui/icon")
+OUT_PACKAGE = "com.clashgo.android.ui.icon"
+OUT_DIR = Path("android/app/src/main/kotlin/com/clashgo/android/ui/icon")
 SVG_NS = "{http://www.w3.org/2000/svg}"
 
 # AppIcons 属性名 → ClashGo 的 assets/icons 文件名。左侧对齐调用点语义、右侧是上游原名；

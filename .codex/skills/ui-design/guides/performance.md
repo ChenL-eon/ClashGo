@@ -8,7 +8,7 @@
 ## 帧率级读取
 
 - 滚动折叠比例、动画进度这类每帧变化的值，以 `State<T>` 或 `() -> T` 透传，由消费方在 **layout / draw 阶段**读：布局用自定义 `layout{}` modifier（`SearchBar.topInset` 是现成范式），绘制用 `graphicsLayer{}` / `onDrawBehind{}`。`derivedStateOf` + `by` 解包、`Modifier.padding(value)`、`Modifier.rotate/scale/alpha` 都属于组合期读，会让整个 restart scope 每帧失效；后几种合并进已有的 `graphicsLayer{}` 即可。夹紧成布尔或离散档位后可以在组合期读。
-- 持续动画按页面生命周期与可见性门控：关于页在 RESUMED 时开启 [BgEffectBackground](../../../../android/app/src/main/kotlin/com/stelliberty/android/ui/component/effect/BgEffectBackground.kt)，滚动主体消失后 `alpha()` 归零，[BgEffectModifier](../../../../android/app/src/main/kotlin/com/stelliberty/android/ui/component/effect/BgEffectModifier.kt) 停止帧循环。alpha 与色阶在 draw 阶段读取；标题仅按折叠布尔状态更新，由组件处理颜色动画。
+- 持续动画按页面生命周期与可见性门控：关于页在 RESUMED 时开启 [BgEffectBackground](../../../../android/app/src/main/kotlin/com/clashgo/android/ui/component/effect/BgEffectBackground.kt)，滚动主体消失后 `alpha()` 归零，[BgEffectModifier](../../../../android/app/src/main/kotlin/com/clashgo/android/ui/component/effect/BgEffectModifier.kt) 停止帧循环。alpha 与色阶在 draw 阶段读取；标题仅按折叠布尔状态更新，由组件处理颜色动画。
 
 ## ViewModel 侧的生命周期门控
 

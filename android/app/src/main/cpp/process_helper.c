@@ -14,7 +14,7 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 JNIEXPORT jint JNICALL
-Java_com_stelliberty_android_service_ProcessHelper_nativeForkExec(
+Java_com_clashgo_android_service_ProcessHelper_nativeForkExec(
         JNIEnv *env, jclass clazz,
         jstring jBinary, jobjectArray jArgs, jstring jWorkDir, jstring jLogFile) {
 
@@ -115,7 +115,7 @@ static pid_t waitpid_eintr(pid_t pid, int *status, int options) {
 }
 
 JNIEXPORT void JNICALL
-Java_com_stelliberty_android_service_ProcessHelper_nativeKill(
+Java_com_clashgo_android_service_ProcessHelper_nativeKill(
         JNIEnv *env, jclass clazz, jint pid, jboolean force) {
     if (pid > 0) {
         int sig = force ? SIGKILL : SIGTERM;
@@ -125,7 +125,7 @@ Java_com_stelliberty_android_service_ProcessHelper_nativeKill(
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_stelliberty_android_service_ProcessHelper_nativeIsAlive(
+Java_com_clashgo_android_service_ProcessHelper_nativeIsAlive(
         JNIEnv *env, jclass clazz, jint pid) {
     if (pid <= 0) return JNI_FALSE;
     int status = 0;
@@ -133,7 +133,7 @@ Java_com_stelliberty_android_service_ProcessHelper_nativeIsAlive(
 }
 
 JNIEXPORT jint JNICALL
-Java_com_stelliberty_android_service_ProcessHelper_nativeWaitpid(
+Java_com_clashgo_android_service_ProcessHelper_nativeWaitpid(
         JNIEnv *env, jclass clazz, jint pid, jint timeoutMs) {
     if (pid <= 0) return -1;
     const long stepUs = 10 * 1000;

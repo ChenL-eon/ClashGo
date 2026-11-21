@@ -1,6 +1,6 @@
 # 备份与恢复
 
-WebDAV / 本地备份恢复（设置 →「数据管理」）。包结构与 PC `FileDataBackupService` 一致，两端的包可互相恢复。见 [BackupManager](../../../../android/app/src/main/kotlin/com/stelliberty/android/data/backup/BackupManager.kt) / [PortableSettings](../../../../android/app/src/main/kotlin/com/stelliberty/android/data/backup/PortableSettings.kt) / [WebDavClient](../../../../android/app/src/main/kotlin/com/stelliberty/android/data/backup/WebDavClient.kt)。
+WebDAV / 本地备份恢复（设置 →「数据管理」）。包结构与 PC `FileDataBackupService` 一致，两端的包可互相恢复。见 [BackupManager](../../../../android/app/src/main/kotlin/com/clashgo/android/data/backup/BackupManager.kt) / [PortableSettings](../../../../android/app/src/main/kotlin/com/clashgo/android/data/backup/PortableSettings.kt) / [WebDavClient](../../../../android/app/src/main/kotlin/com/clashgo/android/data/backup/WebDavClient.kt)。
 
 | 包内路径 | 内容 |
 |---|---|
@@ -12,12 +12,12 @@ WebDAV / 本地备份恢复（设置 →「数据管理」）。包结构与 PC 
 | `android/override.user.json`、`android/subscriptions/`、`android/proxies/` | 覆写、草稿列表、当前订阅、节点选择 |
 | `android/imported/**`（不含 `{id}/config.yaml`）、`android/pending/**` | provider 缓存与草稿目录 |
 
-- **PC 兼容**：PC 恢复只收白名单条目，`android/` 整体跳过；PC 读取列表时拒绝未知键，根目录列表原样取自 SubscriptionStore。文件名用 `BackupManager.newBackupFileName()`（`stelliberty-yyyyMMdd-HHmmss.stelliberty`）；SAF 按 `application/octet-stream` 创建，按 zip 类型创建时文档提供方会再补一个 `.zip`。
-- **明文导出**：PC 只保存解密后的订阅。带 age 密钥的订阅导出时经 `StellibertyCoreBridge.decryptFile` 解到 cacheDir 再写入，解密失败则整次导出失败。恢复后本地是明文，密钥保留：mihomo 对没有 age 头的内容原样放行，下次更新重新取密文。
+- **PC 兼容**：PC 恢复只收白名单条目，`android/` 整体跳过；PC 读取列表时拒绝未知键，根目录列表原样取自 SubscriptionStore。文件名用 `BackupManager.newBackupFileName()`（`clashgo-yyyyMMdd-HHmmss.clashgo`）；SAF 按 `application/octet-stream` 创建，按 zip 类型创建时文档提供方会再补一个 `.zip`。
+- **明文导出**：PC 只保存解密后的订阅。带 age 密钥的订阅导出时经 `ClashGoCoreBridge.decryptFile` 解到 cacheDir 再写入，解密失败则整次导出失败。恢复后本地是明文，密钥保留：mihomo 对没有 age 头的内容原样放行，下次更新重新取密文。
 - **两种恢复模式**（`RestoreMode`，UI 先选模式再恢复）：覆盖以备份为准，快照里没有的偏好删除回到默认，排除名单里的键保留；合并只加入本机没有的订阅与覆写 Id，连同 `imported/{id}/` 与节点选择，本机设置、已有覆写、草稿与当前订阅不动。合并先移入目录再写列表，中途失败时多出的目录不在列表里，由启动清理按孤儿删除。PC 的合并按文件补缺，本地已有列表时加不进新订阅，两端语义不同。
 - **覆盖恢复 PC 的包**（没有 `android/backup.json`）：`subscriptions/{id}.yaml` 放到 `imported/{id}/config.yaml`，provider 在下次更新时预取；`settings.json` 经 `PortableSettings.import` 合进本机覆写与偏好，未映射的本机设置保留；草稿与节点选择随覆盖清空。两种包恢复后当前订阅失效时都改选列表第一条。
 - **拒绝的包**：`android/backup.json` 版本不等于 3；三类数据都没有。版本校验排在解包之后（单遍读取归档才能看到 backup.json），此时只写过 staging。
-- **WebDAV 与 PC 共用远端目录** `stelliberty-backups`：每次按新文件名上传，上传后按 `getlastmodified` 只留最近 5 份（PC 上传的也计入，与 PC 默认保留数一致）；恢复取修改时间最新的一份，排序规则与 PC 相同。目录不存在时 PROPFIND 回 404，按没有备份处理，恢复不建目录。
+- **WebDAV 与 PC 共用远端目录** `clashgo-backups`：每次按新文件名上传，上传后按 `getlastmodified` 只留最近 5 份（PC 上传的也计入，与 PC 默认保留数一致）；恢复取修改时间最新的一份，排序规则与 PC 相同。目录不存在时 PROPFIND 回 404，按没有备份处理，恢复不建目录。
 - **锁**：备份与恢复都持 `ProfileProcessor.withProcessLock`，导出时取存储快照、恢复时换入与 `reload()` 再包一层 `withProfileLock`（create / patch / delete 只持 profileLock）。导出用存储的内存值而不是读盘：当前订阅、节点选择与覆写都是异步写盘，文件可能落后一步。恢复换入后立即 `reload()` 订阅、节点选择、用户设置与覆写文件存储，内存里的旧值不能再写回磁盘。恢复前要求代理已停止。
 - **重定向手动跟随**：Ktor 默认只对 GET / HEAD 跟随 3xx，而服务器常把无尾斜杠的目录 301 到带斜杠版本。集合 URL 一律带尾斜杠，`davRequest` 手动跟随 301 / 302 / 307 / 308 并保持方法与 body，**仅限同主机**（Basic 凭据跨主机会泄露密码）。
 - **恢复两阶段写入**：先全部写进 `.restore/`（zip-slip 校验的基准目录），rename 换入时才触碰正式目录，失败时从 `.restore-old/` 回滚。覆写列表、Id 与内容在换入前验证；包内路径经 `stagingPathOf` 白名单映射，`dns.json` 等不认识的条目跳过。

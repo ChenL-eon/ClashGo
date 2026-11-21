@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 调用 Stelliberty 的 debug 命令 Provider，按返回的 ok 反映退出码。
+# 调用 ClashGo 的 debug 命令 Provider，按返回的 ok 反映退出码。
 set -euo pipefail
 
 DEVICE_ID=""
@@ -40,7 +40,7 @@ shquote() {
     printf "'%s'" "${1//\'/\'\\\'\'}"
 }
 
-REMOTE="content call --uri content://com.stelliberty.android.commands --method $(shquote "$METHOD")"
+REMOTE="content call --uri content://com.clashgo.android.commands --method $(shquote "$METHOD")"
 if [[ -n "$ARG" ]]; then
     REMOTE+=" --arg $(shquote "$ARG")"
 fi

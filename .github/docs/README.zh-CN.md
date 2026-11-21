@@ -1,6 +1,6 @@
 <div align="center">
 
-# Stelliberty Android
+# ClashGo Android
 
 [![English](https://img.shields.io/badge/English-red?style=flat-square)](../../README.md)
 &nbsp;
@@ -16,7 +16,7 @@
 
 <br>
 
-Stelliberty 是基于 [Mishka](https://github.com/YuKongA/Mishka) 的安卓代理客户端，采用 [mihomo](https://github.com/MetaCubeX/mihomo) 内核，界面用 Jetpack Compose 和 [miuix](https://github.com/miuix-kotlin-multiplatform/miuix) 构建。
+ClashGo 是基于 [Mishka](https://github.com/YuKongA/Mishka) 的安卓代理客户端，采用 [mihomo](https://github.com/MetaCubeX/mihomo) 内核，界面用 Jetpack Compose 和 [miuix](https://github.com/miuix-kotlin-multiplatform/miuix) 构建。
 
 无需 Root 即可使用系统 VPN，也可以选择 ROOT TUN 或 ROOT TPROXY 接管流量。订阅、代理组、连接和分流设置都能在应用内管理。
 
@@ -43,11 +43,11 @@ Stelliberty 是基于 [Mishka](https://github.com/YuKongA/Mishka) 的安卓代�
 
 <sub>[↑ 回到导航](#导航)</sub>
 
-从 [发布页面](https://github.com/Kindness-Kismet/stelliberty_android/releases) 下载 APK。
+从 [发布页面](https://github.com/ChenL-eon/ClashGo/releases) 下载 APK。
 
 | 渠道 | 下载位置 | 适用场景 |
 |---|---|---|
-| 稳定版 | [最新稳定版](https://github.com/Kindness-Kismet/stelliberty_android/releases/latest) | 日常使用 |
+| 稳定版 | [最新稳定版](https://github.com/ChenL-eon/ClashGo/releases/latest) | 日常使用 |
 | 开发版 | 发布页面中标记为预发布、版本带 `-betaN` 的条目 | 提前体验开发中的改动 |
 
 系统要求为 Android 12 及以上。新手机选择 `arm64-v8a`；`x86_64` 安装包用于对应架构的设备和模拟器。
@@ -140,7 +140,7 @@ VPN 模式不需要 Root。ROOT TUN 和 ROOT TPROXY 需要 Root 权限，其中 
 ### 架构
 
 ```text
-android/app/src/main/kotlin/com/stelliberty/android/
+android/app/src/main/kotlin/com/clashgo/android/
 ├── ui/           Compose 页面、组件、导航与主题
 ├── viewmodel/    页面状态与用户操作
 ├── domain/       模型与仓库接口
@@ -148,7 +148,7 @@ android/app/src/main/kotlin/com/stelliberty/android/
 ├── platform/     安卓平台适配与服务控制
 └── service/      VPN、ROOT、订阅与后台服务
 android/app/src/main/cpp/                        JNI 与进程辅助代码
-android/app/src/main/native/stelliberty_core/     Go 内核集成
+android/app/src/main/native/clashgo_core/     Go 内核集成
 third_party/                                    mihomo 与 scripta 子模块
 scripts/                                        预构建与编译入口
 ```
@@ -158,8 +158,8 @@ scripts/                                        预构建与编译入口
 ### 编译与验证
 
 ```bash
-git clone --recurse-submodules https://github.com/Kindness-Kismet/stelliberty_android.git
-cd stelliberty_android
+git clone --recurse-submodules https://github.com/ChenL-eon/ClashGo.git
+cd ClashGo
 python scripts/prebuild.py
 python scripts/build.py --dev
 ```

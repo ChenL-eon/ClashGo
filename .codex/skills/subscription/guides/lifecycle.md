@@ -14,7 +14,7 @@ mihomo 只在进程启动时读一次 config.yaml，embed mode 下 `/configs` / 
 
 订阅页与首页流量栏的数据强一致：`resolveProfile` 在 combine 内按 `pending > live provider snapshot > imported 列表` 合并三层，`_liveProvider` 携带 `subscriptionId` 做归属校验。获取结果（创建与更新时间、失败记录、内置链式代理名）始终以已导入版本为准，草稿只覆盖用户设置。三层各有用途：模板订阅列表里 `TrafficInfo` 为空而各 provider 有 header → 用 live；常规单源订阅 providers 为空 → 用列表；File 型两边都没有 → UI 显示 "--"。
 
-[HomeViewModel](../../../../android/app/src/main/kotlin/com/stelliberty/android/viewmodel/HomeViewModel.kt) 是唯一的 runtime producer：
+[HomeViewModel](../../../../android/app/src/main/kotlin/com/clashgo/android/viewmodel/HomeViewModel.kt) 是唯一的 runtime producer：
 
 - `refreshProviderTraffic` 取 GET 快照；`updateAllProviders` 逐个 provider PUT 后再 GET（mihomo 的 `subscriptionInfo` 只在 provider 更新时刷新）。
 - `aggregateProviderInfo` 对所有 `Total > 0` 的 provider 求和，Expire 取最近的非零值，经 `onLiveProviderInfo` 推回 Repository。`subscriptionInfo` 按 provider 各自解析 header，多源 yaml 必须聚合（`values.firstOrNull()` 取到的是 Map 迭代顺序上的任意一个）。
@@ -26,7 +26,7 @@ mihomo 只在进程启动时读一次 config.yaml，embed mode 下 `/configs` / 
 
 **ProfileWorker 在主线程收尾**：请求计数、最新 startId 与任务完成都在主线程维护，计数归零后用最新 startId 调 `stopSelfResult`，IO 只执行更新。系统回收后重投 Intent；取消继续向上传递，不能写成更新失败。
 
-**自动更新闹钟是订阅列表的派生态**：唯一调度点 [ProfileUpdateScheduler](../../../../android/app/src/main/kotlin/com/stelliberty/android/service/ProfileUpdateScheduler.kt)，`StellibertyApplication.onCreate` 启动 collector，与 `SubscriptionStore.importedFlow` 对账（只为 `AutoUpdateMode = Interval` 且间隔不低于 15 分钟的非本地订阅布置，起点取 `LastUpdatedAt`（缺失时取 `CreatedAt`）与 `LastErrorAt` 中较晚者）：新增订阅、改间隔立即生效，删除时自动撤销闹钟。开机时 app 进程可能只为接收广播而启动，`ProfileReceiver` → ProfileWorker → `reconcileNow()` 借前台服务的存活窗口对账一次。进程重启后 `armed` 为空，列表里已不存在的孤儿闹钟无法枚举；它至多空跑一次 ProfileWorker（uuid 查不到即返回）且不再续期，因此无需额外持久化。
+**自动更新闹钟是订阅列表的派生态**：唯一调度点 [ProfileUpdateScheduler](../../../../android/app/src/main/kotlin/com/clashgo/android/service/ProfileUpdateScheduler.kt)，`ClashGoApplication.onCreate` 启动 collector，与 `SubscriptionStore.importedFlow` 对账（只为 `AutoUpdateMode = Interval` 且间隔不低于 15 分钟的非本地订阅布置，起点取 `LastUpdatedAt`（缺失时取 `CreatedAt`）与 `LastErrorAt` 中较晚者）：新增订阅、改间隔立即生效，删除时自动撤销闹钟。开机时 app 进程可能只为接收广播而启动，`ProfileReceiver` → ProfileWorker → `reconcileNow()` 借前台服务的存活窗口对账一次。进程重启后 `armed` 为空，列表里已不存在的孤儿闹钟无法枚举；它至多空跑一次 ProfileWorker（uuid 查不到即返回）且不再续期，因此无需额外持久化。
 
 **失败记录**：`ProfileProcessor` 的更新路径失败（取消除外）时在订阅锁内写入 `LastError` / `LastErrorAt`，成功获取时清掉。字段保留用于诊断和调度，订阅卡片不展示原始错误；操作结果通过 `OperationFeedback` 交给 Android 系统 Toast，以简短文案呈现成功、失败、部分失败、取消和无需更新。起点必须计入 `LastErrorAt`：失败会改动列表并触发对账，只看 `LastUpdatedAt` 时闹钟会立刻再响，陷入失败循环。
 

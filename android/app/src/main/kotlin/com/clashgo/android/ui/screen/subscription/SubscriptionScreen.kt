@@ -1,0 +1,400 @@
+package com.clashgo.android.ui.screen.subscription
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.clashgo.android.BuildConfig
+import com.clashgo.android.R
+import com.clashgo.android.domain.model.Subscription
+import com.clashgo.android.ui.component.AdaptiveTopAppBar
+import com.clashgo.android.ui.component.DialogButtons
+import com.clashgo.android.ui.component.ListPopupDefaults.MenuPositionProvider
+import com.clashgo.android.ui.component.PopupMenuItem
+import com.clashgo.android.ui.component.blur.BlurredBar
+import com.clashgo.android.ui.component.blur.rememberBlurBackdrop
+import com.clashgo.android.ui.component.dialogTestTag
+import com.clashgo.android.ui.icon.AppIcons
+import com.clashgo.android.ui.theme.StatusColors
+import com.clashgo.android.ui.util.TestTags
+import com.clashgo.android.ui.util.WideContentBox
+import com.clashgo.android.util.FormatUtils
+import com.clashgo.android.util.formatEpochMillisAsLocal
+import com.clashgo.android.viewmodel.ProfileOperation
+import com.clashgo.android.viewmodel.SubscriptionViewModel
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.ListPopupColumn
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.PopupPositionProvider
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.squircle.squircleBackground
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import top.yukonga.miuix.kmp.window.WindowDialog
+import top.yukonga.miuix.kmp.window.WindowListPopup
+
+@Composable
+fun SubscriptionScreen(
+    viewModel: SubscriptionViewModel,
+    bottomPadding: Dp = 0.dp,
+    onPickFile: () -> Unit = {},
+    onNavigateUrl: () -> Unit = {},
+    onScanQR: (() -> Unit)? = null,
+    onNavigateEdit: (uuid: String) -> Unit = {},
+    onActiveChanged: (() -> Unit)? = null,
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val scrollBehavior = MiuixScrollBehavior()
+    var showAddMenu by remember { mutableStateOf(false) }
+
+    val backdrop = rememberBlurBackdrop()
+    val blurActive = backdrop != null
+    val barColor = if (blurActive) Color.Transparent else MiuixTheme.colorScheme.surface
+
+    Scaffold(
+        topBar = {
+            BlurredBar(backdrop = backdrop, blurActive = blurActive) {
+                AdaptiveTopAppBar(
+                    title = stringResource(R.string.subscription_title),
+                    color = barColor,
+                    scrollBehavior = scrollBehavior,
+                    navigationIcon = {},
+                    actions = {
+                        if (uiState.subscriptions.any { !it.isLocalFile }) {
+                            IconButton(
+                                onClick = { viewModel.updateAllSubscriptions() },
+                                modifier = Modifier.testTag(TestTags.Subscription.UPDATE_ALL),
+                                enabled = !uiState.isLoading,
+                            ) {
+                                Icon(
+                                    imageVector = AppIcons.SubscriptionRefresh,
+                                    contentDescription = stringResource(R.string.subscription_update_all),
+                                    tint = MiuixTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                        Box {
+                            IconButton(
+                                onClick = { showAddMenu = true },
+                                holdDownState = showAddMenu,
+                                enabled = !uiState.isLoading,
+                                modifier = Modifier.testTag(TestTags.Subscription.ADD),
+                            ) {
+                                Icon(
+                                    imageVector = AppIcons.Add,
+                                    contentDescription = stringResource(R.string.subscription_add),
+                                    tint = MiuixTheme.colorScheme.onSurface,
+                                )
+                            }
+                            WindowListPopup(
+                                show = showAddMenu,
+                                popupPositionProvider = MenuPositionProvider,
+                                alignment = PopupPositionProvider.Align.TopEnd,
+                                onDismissRequest = { showAddMenu = false },
+                            ) {
+                                val entries = buildList {
+                                    add(Triple(R.string.subscription_file, TestTags.Subscription.ADD_FILE, onPickFile))
+                                    add(Triple(R.string.subscription_url, TestTags.Subscription.ADD_URL, onNavigateUrl))
+                                    onScanQR?.let {
+                                        add(Triple(R.string.subscription_qr, TestTags.Subscription.ADD_QR, it))
+                                    }
+                                }
+                                Box(
+                                    Modifier
+                                        .semantics { testTagsAsResourceId = BuildConfig.DEBUG }
+                                        .testTag(TestTags.Subscription.ADD_MENU),
+                                ) {
+                                    ListPopupColumn {
+                                        entries.forEachIndexed { index, (title, tag, onClick) ->
+                                            PopupMenuItem(
+                                                title = stringResource(title),
+                                                modifier = Modifier.testTag(tag),
+                                                icon = when (title) {
+                                                    R.string.subscription_file -> AppIcons.File
+                                                    R.string.subscription_url -> AppIcons.Link
+                                                    else -> AppIcons.QrCode
+                                                },
+                                                enabled = !uiState.isLoading,
+                                                index = index,
+                                                optionCount = entries.size,
+                                                onClick = {
+                                                    showAddMenu = false
+                                                    onClick()
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                )
+            }
+        },
+    ) { innerPadding ->
+        WideContentBox { sidePadding ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier)
+                    .scrollEndHaptic()
+                    .overScrollVertical()
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+                contentPadding = PaddingValues(
+                    top = innerPadding.calculateTopPadding(),
+                    bottom = bottomPadding,
+                    start = sidePadding,
+                    end = sidePadding,
+                ),
+            ) {
+                if (uiState.subscriptions.isNotEmpty()) {
+                    item(key = "top_padding") {
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                }
+
+                if (uiState.subscriptions.isEmpty()) {
+                    item(key = "empty") {
+                        Column(
+                            modifier = Modifier.fillParentMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.subscription_no_config),
+                                fontSize = 16.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                            Text(
+                                text = stringResource(R.string.subscription_tap_add),
+                                modifier = Modifier.padding(top = 6.dp),
+                                fontSize = 14.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                    }
+                }
+
+                items(uiState.subscriptions, key = { it.id }) { sub ->
+                    SubscriptionItem(
+                        subscription = sub,
+                        isActive = sub.id == uiState.currentId,
+                        isLoading = uiState.isLoading,
+                        onSelect = {
+                            viewModel.setActive(sub.id)
+                            onActiveChanged?.invoke()
+                        },
+                        onRefresh = { viewModel.fetchSubscription(sub.id) },
+                        onDelete = {
+                            viewModel.removeSubscription(sub.id) { onActiveChanged?.invoke() }
+                        },
+                        onEdit = { onNavigateEdit(sub.id) },
+                    )
+                }
+            }
+        }
+    }
+
+    val title = when (uiState.operation) {
+        ProfileOperation.Update -> stringResource(R.string.subscription_update_config)
+        else -> stringResource(R.string.subscription_import_config)
+    }
+    ImportProgressDialog(
+        show = uiState.importProgress != null,
+        step = uiState.importProgress?.let { importStepLabel(it) } ?: stringResource(R.string.common_processing),
+        title = title,
+        onCancel = { viewModel.cancelCurrentUpdate() },
+    )
+}
+
+@Composable
+private fun SubscriptionItem(
+    subscription: Subscription,
+    isActive: Boolean,
+    isLoading: Boolean,
+    onSelect: () -> Unit,
+    onRefresh: () -> Unit,
+    onDelete: () -> Unit,
+    onEdit: () -> Unit,
+) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    val displayName = subscription.name.ifBlank { stringResource(R.string.subscription_config) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .padding(bottom = 12.dp)
+            .testTag(TestTags.Subscription.item(subscription.id)),
+        insideMargin = PaddingValues(16.dp),
+        onClick = onSelect,
+        pressFeedbackType = PressFeedbackType.Sink,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = subscription.name.ifBlank { stringResource(R.string.subscription_config) },
+                modifier = Modifier.weight(1f),
+                fontSize = 17.sp,
+                fontWeight = FontWeight(550),
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            if (isActive) {
+                val activeColor = StatusColors.healthy
+                Text(
+                    text = stringResource(R.string.subscription_in_use),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight(750),
+                    color = activeColor,
+                    modifier = Modifier
+                        .squircleBackground(activeColor.copy(alpha = 0.15f), 6.dp)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        Row {
+
+            Column(
+                modifier = Modifier.wrapContentSize()
+            ) {
+                val traffic = subscription.trafficInfo
+                if (traffic != null && traffic.total > 0) {
+                    Text(
+                        text = stringResource(
+                            R.string.subscription_used_traffic,
+                            FormatUtils.formatBytes(traffic.used),
+                            FormatUtils.formatBytes(traffic.total)
+                        ),
+                        modifier = Modifier.padding(top = 2.dp),
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.subscription_no_traffic),
+                        modifier = Modifier.padding(top = 2.dp),
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+
+                Spacer(Modifier.weight(1f))
+
+                val updatedAt = (subscription.lastUpdatedAt ?: subscription.createdAt).toEpochMilliseconds()
+                if (updatedAt > 0) {
+                    Text(
+                        text = stringResource(R.string.subscription_updated_at, formatEpochMillisAsLocal(updatedAt)),
+                        modifier = Modifier.padding(top = 2.dp),
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            IconButton(
+                onClick = onEdit,
+                minHeight = 35.dp,
+                minWidth = 35.dp,
+                backgroundColor = MiuixTheme.colorScheme.secondaryContainer,
+            ) {
+                Icon(
+                    modifier = Modifier.size(20.dp),
+                    imageVector = AppIcons.More,
+                    contentDescription = stringResource(R.string.common_edit),
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            IconButton(
+                onClick = onRefresh,
+                modifier = Modifier.testTag(TestTags.Subscription.update(subscription.id)),
+                enabled = !isLoading && !subscription.isLocalFile,
+                minHeight = 35.dp,
+                minWidth = 35.dp,
+                backgroundColor = MiuixTheme.colorScheme.secondaryContainer,
+            ) {
+                Icon(
+                    modifier = Modifier.size(20.dp),
+                    imageVector = AppIcons.SubscriptionRefresh,
+                    contentDescription = stringResource(R.string.common_update),
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            IconButton(
+                onClick = { showDeleteDialog = true },
+                modifier = Modifier.testTag(TestTags.Subscription.delete(subscription.id)),
+                minHeight = 35.dp,
+                minWidth = 35.dp,
+                backgroundColor = MiuixTheme.colorScheme.secondaryContainer,
+            ) {
+                Icon(
+                    modifier = Modifier.size(20.dp),
+                    imageVector = AppIcons.Delete,
+                    contentDescription = stringResource(R.string.common_delete),
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+        }
+    }
+
+    WindowDialog(
+        modifier = Modifier.dialogTestTag(TestTags.Dialog.DELETE_SUBSCRIPTION),
+        show = showDeleteDialog,
+        title = stringResource(R.string.subscription_delete_title),
+        summary = stringResource(R.string.subscription_delete_summary, displayName),
+        onDismissRequest = { showDeleteDialog = false },
+    ) {
+        DialogButtons(
+            onCancel = { showDeleteDialog = false },
+            onConfirm = {
+                showDeleteDialog = false
+                onDelete()
+            },
+        )
+    }
+}

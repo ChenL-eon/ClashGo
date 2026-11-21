@@ -5,7 +5,7 @@ Baseline Profile 在本地真机生成：`:baselineprofile` 采集冷启动 + 4 
 ## 配置约束
 
 1. `androidx.profileinstaller` 是必需依赖：侧载分发拿不到 Play 云端 profile，靠它让 ART 安装 APK 内的 `baseline.prof`。
-2. 在 `finalizeDsl` 里关闭 `nonMinifiedRelease` 的 `optimization.enable`：插件只处理旧 DSL 的 `isMinifyEnabled`，AGP 9 的新开关要自己关。开着时 generator 采到的是混淆后的类名，与 release 的 mapping 对不上，profile 静默失效。判据：`mapping/nonMinifiedRelease/mapping.txt` 不存在，APK 内 `com/stelliberty/android` 下的类名有数千个。
+2. 在 `finalizeDsl` 里关闭 `nonMinifiedRelease` 的 `optimization.enable`：插件只处理旧 DSL 的 `isMinifyEnabled`，AGP 9 的新开关要自己关。开着时 generator 采到的是混淆后的类名，与 release 的 mapping 对不上，profile 静默失效。判据：`mapping/nonMinifiedRelease/mapping.txt` 不存在，APK 内 `com/clashgo/android` 下的类名有数千个。
 3. benchmark 使用 `1.5.0-alpha07+`：stable 的 `1.4.1` 在 AGP 9 下 apply 即失败。
 
 ## generator 的三段 workaround

@@ -1,6 +1,6 @@
 @file:Suppress("UnstableApiUsage")
 
-rootProject.name = "Stelliberty"
+rootProject.name = "ClashGo"
 
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 

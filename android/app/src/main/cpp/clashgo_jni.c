@@ -1,0 +1,155 @@
+#include <jni.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "libmihomo.h"
+
+static char *jstring_to_cstr(JNIEnv *env, jstring s) {
+    if (!s) return NULL;
+    const char *tmp = (*env)->GetStringUTFChars(env, s, NULL);
+    if (!tmp) return NULL;
+    char *copy = strdup(tmp);
+    (*env)->ReleaseStringUTFChars(env, s, tmp);
+    return copy;
+}
+
+static jstring go_cstr_to_jstring(JNIEnv *env, char *s) {
+    if (!s) return NULL;
+    jstring out = (*env)->NewStringUTF(env, s);
+    clashgoFreeString(s);
+    return out;
+}
+
+JNIEXPORT void JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeCoreInit(
+        JNIEnv *env, jclass clazz, jstring jHomeDir) {
+    char *homeDir = jstring_to_cstr(env, jHomeDir);
+    clashgoCoreInit(homeDir ? homeDir : "");
+    free(homeDir);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeFetchAndValid(
+        JNIEnv *env, jclass clazz,
+        jstring jWorkDir, jstring jUrl, jboolean jForce, jstring jHttpProxy, jstring jUserAgent,
+        jint jToken) {
+    char *workDir = jstring_to_cstr(env, jWorkDir);
+    char *url = jstring_to_cstr(env, jUrl);
+    char *httpProxy = jstring_to_cstr(env, jHttpProxy);
+    char *userAgent = jstring_to_cstr(env, jUserAgent);
+
+    char *result = clashgoFetchAndValid(
+            workDir ? workDir : "",
+            url ? url : "",
+            jForce ? 1 : 0,
+            httpProxy ? httpProxy : "",
+            userAgent ? userAgent : "",
+            (int) jToken);
+
+    free(workDir);
+    free(url);
+    free(httpProxy);
+    free(userAgent);
+
+    return go_cstr_to_jstring(env, result);
+}
+
+JNIEXPORT void JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeCancel(
+        JNIEnv *env, jclass clazz, jint jToken) {
+    clashgoCancel((int) jToken);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeQueryProgress(
+        JNIEnv *env, jclass clazz, jint jToken) {
+    char *progress = clashgoQueryProgress((int) jToken);
+    return go_cstr_to_jstring(env, progress);
+}
+
+JNIEXPORT void JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeSetAgeSecretKey(
+        JNIEnv *env, jclass clazz, jstring jKey) {
+    char *key = jstring_to_cstr(env, jKey);
+    clashgoSetAgeSecretKey(key ? key : "");
+    free(key);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeExtractXzAsset(
+        JNIEnv *env, jclass clazz, jstring jApk, jstring jEntry, jstring jTarget) {
+    char *apk = jstring_to_cstr(env, jApk);
+    char *entry = jstring_to_cstr(env, jEntry);
+    char *target = jstring_to_cstr(env, jTarget);
+    char *result = clashgoExtractXzAsset(apk ? apk : "", entry ? entry : "", target ? target : "");
+    free(apk);
+    free(entry);
+    free(target);
+    return go_cstr_to_jstring(env, result);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeDecryptFile(
+        JNIEnv *env, jclass clazz, jstring jSource, jstring jTarget, jstring jKey) {
+    char *source = jstring_to_cstr(env, jSource);
+    char *target = jstring_to_cstr(env, jTarget);
+    char *key = jstring_to_cstr(env, jKey);
+    char *result = clashgoDecryptFile(source ? source : "", target ? target : "", key ? key : "");
+    free(source);
+    free(target);
+    free(key);
+    return go_cstr_to_jstring(env, result);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeValidateTransform(
+        JNIEnv *env, jclass clazz, jstring jWorkDir, jstring jTransform, jstring jKey) {
+    char *workDir = jstring_to_cstr(env, jWorkDir);
+    char *transform = jstring_to_cstr(env, jTransform);
+    char *key = jstring_to_cstr(env, jKey);
+    char *result = clashgoValidateTransform(workDir ? workDir : "", transform ? transform : "", key ? key : "");
+    free(workDir);
+    free(transform);
+    free(key);
+    return go_cstr_to_jstring(env, result);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeChainProxyContext(
+        JNIEnv *env, jclass clazz, jstring jWorkDir, jstring jTransform, jstring jKey) {
+    char *workDir = jstring_to_cstr(env, jWorkDir);
+    char *transform = jstring_to_cstr(env, jTransform);
+    char *key = jstring_to_cstr(env, jKey);
+    char *result = clashgoChainProxyContext(workDir ? workDir : "", transform ? transform : "", key ? key : "");
+    free(workDir);
+    free(transform);
+    free(key);
+    return go_cstr_to_jstring(env, result);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeRuleContext(
+        JNIEnv *env, jclass clazz, jstring jWorkDir, jstring jTransform, jstring jKey) {
+    char *workDir = jstring_to_cstr(env, jWorkDir);
+    char *transform = jstring_to_cstr(env, jTransform);
+    char *key = jstring_to_cstr(env, jKey);
+    char *result = clashgoRuleContext(workDir ? workDir : "", transform ? transform : "", key ? key : "");
+    free(workDir);
+    free(transform);
+    free(key);
+    return go_cstr_to_jstring(env, result);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeGenAgeKeyPair(
+        JNIEnv *env, jclass clazz) {
+    char *result = clashgoGenAgeKeyPair();
+    return go_cstr_to_jstring(env, result);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeGenAgeHybridKeyPair(
+        JNIEnv *env, jclass clazz) {
+    char *result = clashgoGenAgeHybridKeyPair();
+    return go_cstr_to_jstring(env, result);
+}

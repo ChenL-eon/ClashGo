@@ -1,0 +1,489 @@
+package com.clashgo.android.service
+
+import android.annotation.SuppressLint
+import android.content.Intent
+import android.net.VpnService
+import android.os.ParcelFileDescriptor
+import android.system.Os
+import android.system.OsConstants
+import com.clashgo.android.R
+import com.clashgo.android.ClashGoApplication
+import com.clashgo.android.data.repository.OverrideJsonStore
+import com.clashgo.android.data.store.ProfileTransformWriter
+import com.clashgo.android.data.store.SubscriptionStore
+import com.clashgo.android.domain.model.AppProxyMode
+import com.clashgo.android.domain.model.resolveExternalController
+import com.clashgo.android.platform.PlatformStorage
+import com.clashgo.android.platform.ProxyServiceBridge
+import com.clashgo.android.platform.ProxyServiceController
+import com.clashgo.android.platform.ProxyServiceStatus
+import com.clashgo.android.platform.ProxyState
+import com.clashgo.android.platform.StorageKeys
+import com.clashgo.android.platform.TunMode
+import com.clashgo.android.util.AppLogger
+import java.io.File
+import java.io.FileDescriptor
+import kotlin.time.Clock
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.koin.android.ext.android.inject
+
+@SuppressLint("VpnServicePolicy")
+class ClashGoTunService : VpnService() {
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val runner by lazy { MihomoRunner(this) }
+    private val dynamicNotification by lazy {
+        DynamicNotificationManager(this, scope, ClashGoApplication.instance.connectionManager)
+    }
+
+    private val overrideStore: OverrideJsonStore by inject()
+    private val subscriptionStore: SubscriptionStore by inject()
+    private val transformWriter: ProfileTransformWriter by inject()
+    private var tunFd: Int = -1
+    private var monitorJob: Job? = null
+    private var restartJob: Job? = null
+    private var stopJob: Job? = null
+    private val cleanupMutex = Mutex()
+
+    @Volatile
+    private var startJob: Job? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        NotificationHelper.createChannels(this)
+        try {
+            startForeground(
+                NotificationHelper.NOTIFICATION_ID_VPN,
+                NotificationHelper.buildLoadingNotification(this),
+            )
+        } catch (e: Exception) {
+            AppLogger.error(TAG, "startForeground failed", e)
+            ProxyServiceBridge.updateState(
+                ProxyServiceStatus(
+                    ProxyState.Error,
+                    errorMessage = getString(R.string.error_foreground_failed, e.message ?: e.javaClass.simpleName),
+                    tunMode = TunMode.Vpn,
+                )
+            )
+            stopSelf()
+            return
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent == null) {
+            // START_STICKY 在进程被杀后会以 null Intent 重建服务；此时 bridge 已回到 Stopped，
+            // 不能只挂着一个前台 loading 通知空转。
+            AppLogger.warn(TAG, "Service restarted without intent; stopping idle instance")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
+        when (intent.action) {
+            ACTION_START -> {
+                val subscriptionId = intent.getStringExtra(ProxyServiceController.EXTRA_SUBSCRIPTION_ID)
+                startProxy(subscriptionId)
+            }
+
+            ACTION_STOP -> stopProxy()
+            ACTION_RESTART -> {
+                val subscriptionId = intent.getStringExtra(ProxyServiceController.EXTRA_SUBSCRIPTION_ID)
+                restartProxy(subscriptionId)
+            }
+        }
+        return START_STICKY
+    }
+
+    // 开机自启和「打开应用自动连接」会在几百毫秒内各发一次启动，正在启动时再来一律忽略；
+    // 停止和重启之前也必须先等这条协程收尾。
+    private fun startProxy(subscriptionId: String? = null) {
+        if (startJob?.isActive == true) {
+            AppLogger.info(TAG, "Start already in progress, ignoring duplicate START")
+            return
+        }
+        startJob = scope.launch {
+            AppLogger.info(TAG, "Starting proxy, subscription: $subscriptionId")
+            // 带了订阅编号就必须能读到它的配置，读不到说明文件坏了或没落盘，属于错误。
+            // 没带编号是「一条订阅都没有」，写一份内置配置照常启动，流量直连。
+            if (subscriptionId == null) {
+                ConfigGenerator.writeFallbackConfig(this@ClashGoTunService)
+            } else if (!ProfileFileOps.hasValidConfig(this@ClashGoTunService, subscriptionId)) {
+                AppLogger.error(TAG, "No valid subscription config (id=$subscriptionId), aborting start")
+                ProxyServiceBridge.updateState(
+                    ProxyServiceStatus(
+                        ProxyState.Error,
+                        errorMessage = getString(R.string.error_no_active_profile),
+                        tunMode = TunMode.Vpn,
+                    )
+                )
+                stopSelf()
+                return@launch
+            }
+            ProxyServiceBridge.updateState(ProxyServiceStatus(ProxyState.Starting, tunMode = TunMode.Vpn))
+
+            if (runner.isRunning) {
+                runner.stop()
+            }
+
+            val storage = PlatformStorage(this@ClashGoTunService)
+            val hadRootPid = storage.getString(StorageKeys.ROOT_MIHOMO_PID, "").isNotEmpty()
+            val hasRoot = storage.getString(StorageKeys.HAS_ROOT, "false") == "true"
+            if (hadRootPid || hasRoot) {
+                val residualTun = storage.getString(StorageKeys.ROOT_TUN_DEVICE, RuntimeOverrideBuilder.DEFAULT_TUN_DEVICE)
+                if (!RootHelper.stopMihomo(residualTun)) {
+                    ProxyServiceBridge.updateState(
+                        ProxyServiceStatus(ProxyState.Error, errorMessage = getString(R.string.error_root_stop_failed), tunMode = TunMode.Vpn)
+                    )
+                    stopSelf()
+                    return@launch
+                }
+                ProfileFileOps.cleanupAllRootRuntime(this@ClashGoTunService)
+                storage.putString(StorageKeys.ROOT_MIHOMO_PID, "")
+                storage.putString(StorageKeys.ROOT_MIHOMO_SECRET, "")
+                storage.putString(StorageKeys.ROOT_ACTIVE_SUBSCRIPTION_ID, "")
+            }
+
+            val userOverride = overrideStore.load()
+            val bypassPrivate = storage.getString(StorageKeys.VPN_BYPASS_PRIVATE_NETWORK, "true") == "true"
+            val allowIpv6 = storage.getString(StorageKeys.VPN_ALLOW_IPV6, "false") == "true"
+            val dnsHijacking = storage.getString(StorageKeys.VPN_DNS_HIJACKING, "true") == "true"
+            val allowBypass = storage.getString(StorageKeys.VPN_ALLOW_BYPASS, "true") == "true"
+            val systemProxy = storage.getString(StorageKeys.VPN_SYSTEM_PROXY, "true") == "true"
+            val proxyMode = AppProxyMode.parse(storage.getString(StorageKeys.APP_PROXY_MODE, ""))
+            val packages = storage.getStringSet(StorageKeys.APP_PROXY_PACKAGES, emptySet())
+            val subMixedPort = subscriptionId?.let {
+                ConfigGenerator.readSubscriptionMixedPort(this@ClashGoTunService, it)
+            }
+            // 系统代理指向 mixed-port，开启时内核必须监听它。
+            val mixedPortRequired = systemProxy || subscriptionStore.anyUpdatesViaCore()
+            val mixedPort = RuntimeOverrideBuilder.resolveMixedPort(userOverride, subMixedPort, mixedPortRequired)
+            AppLogger.info(
+                TAG,
+                "VPN options: ipv6=$allowIpv6, bypassPrivate=$bypassPrivate, dnsHijacking=$dnsHijacking, " +
+                    "allowBypass=$allowBypass, systemProxy=$systemProxy, mixedPort=$mixedPort, " +
+                    "appProxy=$proxyMode(${packages.size})",
+            )
+
+            val fd = try {
+                Builder().apply {
+                    addAddress(TUN_GATEWAY, TUN_SUBNET_PREFIX)
+                    setMtu(RuntimeOverrideBuilder.VPN_TUN_MTU)
+                    setSession("ClashGo")
+                    setBlocking(false)
+
+                    if (bypassPrivate) {
+                        resources.getStringArray(R.array.bypass_private_route).forEach { cidr ->
+                            val parts = cidr.split("/")
+                            addRoute(parts[0], parts[1].toInt())
+                        }
+                        addRoute(TUN_DNS, 32)
+                    } else {
+                        addRoute("0.0.0.0", 0)
+                    }
+
+                    if (allowIpv6) {
+                        addAddress(TUN_GATEWAY6, TUN_SUBNET_PREFIX6)
+                        if (bypassPrivate) {
+                            resources.getStringArray(R.array.bypass_private_route6).forEach { cidr ->
+                                val parts = cidr.split("/")
+                                addRoute(parts[0], parts[1].toInt())
+                            }
+                            addRoute(TUN_DNS6, 128)
+                        } else {
+                            addRoute("::", 0)
+                        }
+                    }
+
+                    if (dnsHijacking) {
+                        addDnsServer(TUN_DNS)
+                        if (allowIpv6) addDnsServer(TUN_DNS6)
+                    }
+
+                    if (allowBypass) {
+                        allowBypass()
+                    }
+
+                    // 自身包名一律排除，否则子进程的 HTTP 请求会被自己代理住、永久卡死。
+                    // 单个包名添加失败多是用户选中后又卸载了，跳过即可。
+                    when (proxyMode) {
+                        AppProxyMode.AllowSelected -> {
+                            val filtered = packages.filter { it != packageName }
+                            if (filtered.isEmpty()) {
+                                addDisallowedApplication(packageName)
+                            } else {
+                                filtered.forEach { pkg ->
+                                    runCatching { addAllowedApplication(pkg) }
+                                }
+                            }
+                        }
+
+                        AppProxyMode.DenySelected -> {
+                            addDisallowedApplication(packageName)
+                            packages.forEach { pkg ->
+                                if (pkg != packageName) {
+                                    runCatching { addDisallowedApplication(pkg) }
+                                }
+                            }
+                        }
+
+                        AppProxyMode.AllowAll -> addDisallowedApplication(packageName)
+                    }
+
+                    setMetered(false)
+
+                    if (systemProxy && mixedPort != null) {
+                        setHttpProxy(
+                            android.net.ProxyInfo.buildDirectProxy(
+                                "127.0.0.1",
+                                mixedPort,
+                                listOf(
+                                    "localhost", "*.local", "127.*", "10.*", "172.16.*",
+                                    "172.17.*", "172.18.*", "172.19.*", "172.20.*",
+                                    "172.21.*", "172.22.*", "172.23.*", "172.24.*",
+                                    "172.25.*", "172.26.*", "172.27.*", "172.28.*",
+                                    "172.29.*", "172.30.*", "172.31.*", "192.168.*"
+                                ),
+                            )
+                        )
+                    }
+                }.establish()?.detachFd()
+            } catch (e: Exception) {
+                AppLogger.error(TAG, "Failed to establish VPN", e)
+                ProxyServiceBridge.updateState(
+                    ProxyServiceStatus(ProxyState.Error, errorMessage = getString(R.string.error_vpn_failed, e.message ?: ""))
+                )
+                stopSelf()
+                return@launch
+            }
+
+            if (fd == null || fd < 0) {
+                AppLogger.error(TAG, "VPN establish returned null (permission denied?)")
+                ProxyServiceBridge.updateState(
+                    ProxyServiceStatus(ProxyState.Error, errorMessage = getString(R.string.error_vpn_denied))
+                )
+                stopSelf()
+                return@launch
+            }
+
+            tunFd = fd
+            AppLogger.info(TAG, "VPN established, fd=$fd")
+
+            try {
+                val pfd = ParcelFileDescriptor.adoptFd(fd)
+                val flags = Os.fcntlInt(pfd.fileDescriptor, OsConstants.F_GETFD, 0)
+                AppLogger.info(TAG, "fd=$fd flags before: $flags")
+                Os.fcntlInt(pfd.fileDescriptor, OsConstants.F_SETFD, flags and OsConstants.FD_CLOEXEC.inv())
+                val flagsAfter = Os.fcntlInt(pfd.fileDescriptor, OsConstants.F_GETFD, 0)
+                AppLogger.info(TAG, "fd=$fd flags after: $flagsAfter")
+                pfd.detachFd()
+            } catch (e: Exception) {
+                AppLogger.error(TAG, "Failed to clear O_CLOEXEC on fd=$fd, aborting: $e")
+                closeTunFd()
+                ProxyServiceBridge.updateState(
+                    ProxyServiceStatus(
+                        ProxyState.Error,
+                        errorMessage = getString(R.string.error_fd_setup_failed, e.message ?: e.javaClass.simpleName),
+                        tunMode = TunMode.Vpn,
+                    )
+                )
+                stopSelf()
+                return@launch
+            }
+
+            val secret = ConfigGenerator.resolveSecret(this@ClashGoTunService, userOverride, subscriptionId)
+            val extCtl = userOverride.resolveExternalController()
+            val overrideFile = try {
+                RuntimeOverrideBuilder.buildAndWriteForRun(
+                    context = this@ClashGoTunService,
+                    userOverride = userOverride,
+                    tunFd = fd,
+                    tunMode = TunMode.Vpn,
+                    mixedPortRequired = mixedPortRequired,
+                    subscriptionMixedPort = subMixedPort,
+                )
+            } catch (e: Exception) {
+                AppLogger.error(TAG, "Failed to build runtime override", e)
+                ProxyServiceBridge.updateState(
+                    ProxyServiceStatus(
+                        ProxyState.Error,
+                        errorMessage = getString(R.string.error_start_failed),
+                        tunMode = TunMode.Vpn,
+                    )
+                )
+                closeTunFd()
+                stopSelf()
+                return@launch
+            }
+
+            val subscription = subscriptionId?.let(subscriptionStore::findImported)
+            val success = runner.start(
+                subscriptionId = subscriptionId,
+                useRoot = false,
+                overrideJsonPath = overrideFile.absolutePath,
+                secret = secret,
+                externalController = extCtl,
+                ageSecretKey = subscription?.ageSecretKey.orEmpty(),
+                transformPath = transformWriter.writeRuntime(subscription),
+            )
+            ensureActive()
+            if (!success) {
+                val errorMsg = runner.errorMessage.ifBlank { getString(R.string.error_start_failed) }
+                AppLogger.error(TAG, "Failed to start mihomo: $errorMsg")
+                ProxyServiceBridge.updateState(
+                    ProxyServiceStatus(ProxyState.Error, errorMessage = errorMsg)
+                )
+                closeTunFd()
+                stopSelf()
+                return@launch
+            }
+
+            ProxyServiceBridge.updateState(
+                ProxyServiceStatus(
+                    ProxyState.Running,
+                    secret = runner.secret,
+                    externalController = extCtl,
+                    tunMode = TunMode.Vpn,
+                    startTime = Clock.System.now().toEpochMilliseconds(),
+                    mihomoPid = runner.pid
+                )
+            )
+
+            dynamicNotification.start(storage)
+            PlatformStorage(this@ClashGoTunService).putString(StorageKeys.SERVICE_WAS_RUNNING, "true")
+            AppLogger.info(TAG, "Proxy running, fd=$fd")
+
+            val monitorWorkDir = if (subscriptionId != null) {
+                ProfileFileOps.getSubscriptionDir(this@ClashGoTunService, subscriptionId)
+            } else {
+                ConfigGenerator.getWorkDir(this@ClashGoTunService)
+            }
+            startProcessMonitor(monitorWorkDir)
+        }
+    }
+
+    @SuppressLint("StringFormatInvalid")
+    private fun startProcessMonitor(workDir: File) {
+        monitorJob?.cancel()
+        monitorJob = scope.launch {
+            delay(10_000)
+            while (runner.isRunning) {
+                delay(5_000)
+            }
+            val logContent = File(workDir, "mihomo.log").readLastLines(DEATH_LOG_LINES)
+            ensureActive()
+            val errorMsg = if (logContent.isNotBlank()) {
+                getString(R.string.error_mihomo_start_failed, logContent)
+            } else {
+                getString(R.string.error_mihomo_exited)
+            }
+            AppLogger.error(TAG, "mihomo process died unexpectedly: $errorMsg")
+            ProxyServiceBridge.updateState(ProxyServiceStatus(ProxyState.Error, errorMessage = errorMsg))
+            closeTunFd()
+            PlatformStorage(this@ClashGoTunService).putString(StorageKeys.SERVICE_WAS_RUNNING, "false")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+    }
+
+    private fun restartProxy(subscriptionId: String?) {
+        if (stopJob?.isActive == true) return
+        restartJob?.cancel()
+        AppLogger.info(TAG, "Restarting proxy...")
+        ProxyServiceBridge.updateState(ProxyServiceStatus(ProxyState.Stopping, tunMode = TunMode.Vpn))
+        dynamicNotification.stop()
+        restartJob = scope.launch {
+            cleanupMutex.withLock {
+                startJob?.cancelAndJoin()
+                monitorJob?.cancelAndJoin()
+                runner.stop()
+                closeTunFd()
+                withContext(Dispatchers.Main) {
+                    startProxy(subscriptionId)
+                }
+            }
+        }
+    }
+
+    private fun stopProxy() {
+        restartJob?.cancel()
+        if (stopJob?.isActive == true) return
+        AppLogger.info(TAG, "Stopping proxy...")
+        ProxyServiceBridge.updateState(ProxyServiceStatus(ProxyState.Stopping, tunMode = TunMode.Vpn))
+        dynamicNotification.stop()
+        stopJob = scope.launch {
+            cleanupMutex.withLock {
+                startJob?.cancelAndJoin()
+                monitorJob?.cancelAndJoin()
+                runner.stop()
+                closeTunFd()
+                PlatformStorage(this@ClashGoTunService).putString(StorageKeys.SERVICE_WAS_RUNNING, "false")
+                ProxyServiceBridge.markStopped(TunMode.Vpn)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+        }
+    }
+
+    // 清除 TUN 描述符上的 close-on-exec 标记失败要当成致命错误：子进程拿不到这个描述符，
+    // mihomo 会创建不出网卡，而它只写一条日志、不退出，界面就会停在「已连接」但完全没网。
+    @SuppressLint("DiscouragedPrivateApi")
+    private fun closeTunFd() {
+        if (tunFd >= 0) {
+            try {
+                val fileDescriptor = FileDescriptor()
+                val field = FileDescriptor::class.java.getDeclaredField("descriptor")
+                field.isAccessible = true
+                field.setInt(fileDescriptor, tunFd)
+                Os.close(fileDescriptor)
+                AppLogger.info(TAG, "Closed tun fd=$tunFd")
+            } catch (e: Exception) {
+                AppLogger.warn(TAG, "Failed to close tun fd=$tunFd: $e")
+            }
+            tunFd = -1
+        }
+    }
+
+    override fun onDestroy() {
+        monitorJob?.cancel()
+        dynamicNotification.stop()
+        runner.stop()
+        closeTunFd()
+        PlatformStorage(this).putString(StorageKeys.SERVICE_WAS_RUNNING, "false")
+        ProxyServiceBridge.markStoppedUnlessError(TunMode.Vpn)
+        scope.cancel()
+        AppLogger.info(TAG, "ClashGoTunService destroyed")
+        super.onDestroy()
+    }
+
+    override fun onRevoke() {
+        AppLogger.info(TAG, "VPN revoked by system")
+        stopProxy()
+    }
+
+    companion object {
+        private const val TAG = "ClashGoTunService"
+
+        private const val DEATH_LOG_LINES = 10
+        const val ACTION_START = "com.clashgo.android.START"
+        const val ACTION_STOP = "com.clashgo.android.STOP"
+        const val ACTION_RESTART = "com.clashgo.android.RESTART"
+
+        private const val TUN_SUBNET_PREFIX = 30
+        private const val TUN_GATEWAY = "198.18.0.1"
+        private const val TUN_GATEWAY6 = "fdfe:dcba:9876::1"
+        private const val TUN_SUBNET_PREFIX6 = 126
+        private const val TUN_DNS = "198.18.0.2"
+        private const val TUN_DNS6 = "fdfe:dcba:9876::2"
+    }
+}

@@ -6,18 +6,18 @@
 
 | method | 参数 | 作用 |
 |---|---|---|
-| `backup.export` | 文件名（arg，可选，默认 `stelliberty-yyyyMMdd-HHmmss.stelliberty`） | 导出备份 |
+| `backup.export` | 文件名（arg，可选，默认 `clashgo-yyyyMMdd-HHmmss.clashgo`） | 导出备份 |
 | `backup.restore` | 文件名（arg）、`mode`（extra，`overwrite` / `merge`，默认 `overwrite`） | 从备份恢复，要求代理已停止 |
 
 文件都在应用外部文件目录的 `backups/` 下，只取文件名部分，用 adb 推拉：
 
 ```bash
-debug-call.sh -s <dev> -m backup.export -a example.stelliberty
-adb -s <dev> pull /sdcard/Android/data/com.stelliberty.android/files/backups/example.stelliberty
-adb -s <dev> push example.stelliberty /sdcard/Android/data/com.stelliberty.android/files/backups/
+debug-call.sh -s <dev> -m backup.export -a example.clashgo
+adb -s <dev> pull /sdcard/Android/data/com.clashgo.android/files/backups/example.clashgo
+adb -s <dev> push example.clashgo /sdcard/Android/data/com.clashgo.android/files/backups/
 debug-call.sh -s <dev> -m proxy.stop
-debug-call.sh -s <dev> -m backup.restore -a example.stelliberty
-debug-call.sh -s <dev> -m backup.restore -a example.stelliberty -e mode:s:merge
+debug-call.sh -s <dev> -m backup.restore -a example.clashgo
+debug-call.sh -s <dev> -m backup.restore -a example.clashgo -e mode:s:merge
 ```
 
 `restore` 与 UI 恢复走同一管线，PC 生成的备份也能直接恢复。恢复只换磁盘文件，界面与各 ViewModel 仍是旧状态：先 `am force-stop` 再用 `debug-open-page.sh` 拉起，之后再检查界面或启动代理。

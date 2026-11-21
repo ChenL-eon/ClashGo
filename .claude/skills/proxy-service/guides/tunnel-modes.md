@@ -6,7 +6,7 @@
 - **ROOT TUN**：mihomo 以 root 自建 TUN，`auto-route=true` + `auto-detect-interface=true`，本机 DNS 由 `RootDnsCoordinator` 转到 1053，覆盖局域网 DNS；IPv6 DNS 按内核能力与网络备选处理，独立于代理 IPv6 开关。工作目录为独立的 `runtime/{uuid}/`（启动前从 imported/ 复制，停止时删除 provider 缓存以外的内容）；imported/ 始终属于 app UID。
 - **ROOT TPROXY**：`tun.enable=false`，`tproxy-port=7895` 入站 + `dns.listen=0.0.0.0:1053`；`RootTproxyApplier` 装 mangle 规则与 fwmark 策略路由，`RootDnsCoordinator` 安装并维护 DNS 规则，劫持本机与热点流量，常量与 chain 结构见 [root-mode.md](root-mode.md)。
 - **分应用代理**：VPN 用 VpnService API；ROOT TUN 用 mihomo `include/exclude-package`（sing-tun 翻译为 uidrange）；ROOT TPROXY 用 iptables `-m owner --uid-owner`（`AppListProvider.resolveUids` 解析包名）。应用自身按 UID / 包名排除，ROOT 内核的 iptables 放行使用独立主 GID：Netd 用 fwmark 低 16 位编码 netId，自定义 SO_MARK（`routing-mark`）会让路由命中没有默认路由的 legacy_system 表，出站全部 `network unreachable`。
-- ROOT 两个子模式共享 StellibertyRootService，Intent 经 `EXTRA_SUBMODE = "tun"/"tproxy"` 区分；attach 前比对 `ROOT_SUBMODE_ACTIVE` 与请求的 submode，不一致时 fresh restart。ROOT 进程在 app 被杀后继续存活，重开 app 靠持久化的 PID / secret 做 **attach-only** 重连。ROOT 不可用时自动回退 VPN。
+- ROOT 两个子模式共享 ClashGoRootService，Intent 经 `EXTRA_SUBMODE = "tun"/"tproxy"` 区分；attach 前比对 `ROOT_SUBMODE_ACTIVE` 与请求的 submode，不一致时 fresh restart。ROOT 进程在 app 被杀后继续存活，重开 app 靠持久化的 PID / secret 做 **attach-only** 重连。ROOT 不可用时自动回退 VPN。
 
 ## Wi-Fi 自动切换
 
@@ -19,7 +19,7 @@ Starting 窗口内的切换先排队，Running 后补一次 restart；关闭功�
 
 ## 自身流量绕过隧道
 
-Stelliberty 自身包名始终绕过 TUN / VPN：`ProcessBuilder` 子进程的 HTTP 被代理捕获会永久阻塞。ROOT 三种 AppProxyMode 都把 `packageName` 从 include 剔除或加入 exclude；VPN `AllowSelected` 分支先过滤 self 再 addAllowed，过滤后为空时改用 `addDisallowedApplication(self)`。
+ClashGo 自身包名始终绕过 TUN / VPN：`ProcessBuilder` 子进程的 HTTP 被代理捕获会永久阻塞。ROOT 三种 AppProxyMode 都把 `packageName` 从 include 剔除或加入 exclude；VPN `AllowSelected` 分支先过滤 self 再 addAllowed，过滤后为空时改用 `addDisallowedApplication(self)`。
 
 ## VPN 专属约束
 
@@ -31,6 +31,6 @@ Stelliberty 自身包名始终绕过 TUN / VPN：`ProcessBuilder` 子进程的 H
 
 ROOT 用 `kill -0`（跨进程），每次都要 fork su（Android 10+ 的 `/proc` 是 hidepid），轮询处自行控频。
 
-**TUN 初始化失败的兜底**：mihomo `ReCreateTun` 失败只打日志。① `StellibertyTunService` 清除 O_CLOEXEC 失败视为致命（`closeTunFd` + Error + `stopSelf`）；② `MihomoRunner.waitForReady` 在就绪文件写入且 API 可用后扫描启动日志，匹配 `Start TUN listening error` / `configure tun interface` / `create NetworkUpdateMonitor`。
+**TUN 初始化失败的兜底**：mihomo `ReCreateTun` 失败只打日志。① `ClashGoTunService` 清除 O_CLOEXEC 失败视为致命（`closeTunFd` + Error + `stopSelf`）；② `MihomoRunner.waitForReady` 在就绪文件写入且 API 可用后扫描启动日志，匹配 `Start TUN listening error` / `configure tun interface` / `create NetworkUpdateMonitor`。
 
 **MTU 同步**：`VpnService.Builder.setMtu` 与 mihomo `cfg.Tun.MTU` 同值，两侧共用 `RuntimeOverrideBuilder.VPN_TUN_MTU` 常量。sing-tun 在 fd 模式下用 `cfg.Tun.MTU` 设置 gvisor `fdbased.New` 的缓冲，为 0 时所有 read 失败，表现为延迟正常而流量不通。

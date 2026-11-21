@@ -48,20 +48,20 @@ adb -s <device_id> shell wm dismiss-keyguard
 ```bash
 adb -s <device_id> logcat -c                                     # 操作前先清空
 adb -s <device_id> logcat -d -b crash -t 50                      # 崩溃
-adb -s <device_id> logcat -d --pid=$(adb -s <device_id> shell pidof com.stelliberty.android)
+adb -s <device_id> logcat -d --pid=$(adb -s <device_id> shell pidof com.clashgo.android)
 ```
 
-`AppLogger` 统一应用日志入口，`LogFormatter` 统一本地时间、等级与标签格式。`DiagnosticLogStore` 分别保存 `files/stelliberty.log`（应用）和 `files/core.log`（核心），每份上限 5 MB，超限保留后半段完整行；界面只保留最近 500 条（启动时从文件尾部恢复），导出直接读取整份文件。写入前经 `LogRedactor` 脱敏：http(s) / ws(s) 与 DNS 上游（tcp / udp / tls / quic）地址只留协议与主机，其他协议的链接整体遮掉，导出时逐行再过一遍。内核在 API 就绪前的启动日志由 `MihomoRunner` 从 mihomo.log 补进核心日志。写入等级分开控制：应用日志看「应用行为」页的「应用日志」（`app_log_level`，默认 `info`，`silent` 为关闭，经 `settings.set` 写入时下次启动生效），核心日志看「Clash 特性」页的「核心日志」（覆写的 `log-level`）。应用日志同时写入 logcat，进程被杀后查这个文件：
+`AppLogger` 统一应用日志入口，`LogFormatter` 统一本地时间、等级与标签格式。`DiagnosticLogStore` 分别保存 `files/clashgo.log`（应用）和 `files/core.log`（核心），每份上限 5 MB，超限保留后半段完整行；界面只保留最近 500 条（启动时从文件尾部恢复），导出直接读取整份文件。写入前经 `LogRedactor` 脱敏：http(s) / ws(s) 与 DNS 上游（tcp / udp / tls / quic）地址只留协议与主机，其他协议的链接整体遮掉，导出时逐行再过一遍。内核在 API 就绪前的启动日志由 `MihomoRunner` 从 mihomo.log 补进核心日志。写入等级分开控制：应用日志看「应用行为」页的「应用日志」（`app_log_level`，默认 `info`，`silent` 为关闭，经 `settings.set` 写入时下次启动生效），核心日志看「Clash 特性」页的「核心日志」（覆写的 `log-level`）。应用日志同时写入 logcat，进程被杀后查这个文件：
 
 ```bash
-adb -s <device_id> shell run-as com.stelliberty.android tail -n 200 files/stelliberty.log
+adb -s <device_id> shell run-as com.clashgo.android tail -n 200 files/clashgo.log
 ```
 
 mihomo 日志在应用私有目录，debug 包可用 `run-as` 读取：
 
 ```bash
-adb -s <device_id> shell run-as com.stelliberty.android ls files/mihomo/
-adb -s <device_id> shell run-as com.stelliberty.android tail -n 100 files/mihomo/mihomo.log
+adb -s <device_id> shell run-as com.clashgo.android ls files/mihomo/
+adb -s <device_id> shell run-as com.clashgo.android tail -n 100 files/mihomo/mihomo.log
 ```
 
 `mihomo.log` 在 debug 级别可达几十 MB，一律用 `tail`。
@@ -81,7 +81,7 @@ adb -s <device_id> shell run-as com.stelliberty.android tail -n 100 files/mihomo
 ## 常见情况
 
 - `page.open` 返回 ok 但页面没变：应用在后台，改用 `debug-open-page.sh`。
-- 装包报签名冲突：先 `adb uninstall com.stelliberty.android`。
+- 装包报签名冲突：先 `adb uninstall com.clashgo.android`。
 - 行为没变：确认 APK 已重新打包并安装。
 - 代理指令报 not running：预期返回；模拟器的 VPN 授权框要人点。
 - MainActivity 每次回到前台重检 ROOT，授权后返回应用即可刷新 `has_root` 与界面；检测超时或执行异常时保留最近一次确定结果。

@@ -1,5 +1,5 @@
 [workspace]
-members = ["stelliberty-backend"]
+members = ["clashgo-backend"]
 resolver = "2"
 
 [workspace.package]

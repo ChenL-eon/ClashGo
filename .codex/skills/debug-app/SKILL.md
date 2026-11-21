@@ -1,12 +1,12 @@
 ---
 name: debug-app
-description: Use the debug command provider to navigate or exercise Stelliberty on a device. Triggers on phrases like 调试应用, 测试应用, 验证应用, app验证, app测试, 测试app, 验证app, 实机测试, 实机验证, 模拟器测试, 测试某项功能, 验证某项功能, 验证某个页面, 测试某个页面, 验证某个提交, 测试某个提交, 验证修改, 验证修复, 验证改动, 验证 commit, 测试 commit.
+description: Use the debug command provider to navigate or exercise ClashGo on a device. Triggers on phrases like 调试应用, 测试应用, 验证应用, app验证, app测试, 测试app, 验证app, 实机测试, 实机验证, 模拟器测试, 测试某项功能, 验证某项功能, 验证某个页面, 测试某个页面, 验证某个提交, 测试某个提交, 验证修改, 验证修复, 验证改动, 验证 commit, 测试 commit.
 user_invocable: true
 ---
 
 ## 使用原则
 
-调试、测试或验证 Stelliberty 时优先用 debug 指令，坐标点击只用来验证控件本身。
+调试、测试或验证 ClashGo 时优先用 debug 指令，坐标点击只用来验证控件本身。
 
 - 先用 `debug-open-page.sh` 把应用拉到前台：它先 `am start` 再发 `page.open`。指令靠组合树内的 collector 生效，应用在后台时只会返回 ok。
 - 返回 Bundle 的 `ok=true` 才算成功。
@@ -46,7 +46,7 @@ user_invocable: true
 
 ## 指令入口
 
-包名 `com.stelliberty.android`（debug 与 release 同包名，装包前留意签名）；Activity `com.stelliberty.android/.MainActivity`；命令 Provider `content://com.stelliberty.android.commands`。
+包名 `com.clashgo.android`（debug 与 release 同包名，装包前留意签名）；Activity `com.clashgo.android/.MainActivity`；命令 Provider `content://com.clashgo.android.commands`。
 
 页面切换：
 
@@ -71,7 +71,7 @@ user_invocable: true
 
 ```bash
 adb shell content call \
-  --uri content://com.stelliberty.android.commands \
+  --uri content://com.clashgo.android.commands \
   --method <domain.action> \
   --arg <target> \
   --extra value:s:<value>
@@ -88,6 +88,6 @@ Provider 只存在于 debug source set（`android/app/src/debug/`）；`exported
 
 ## 维护
 
-指令一律 `domain.action`，实现放 `android/app/src/debug/kotlin/com/stelliberty/android/debug/` 下对应的 `*DebugCommands.kt`，并登记进 `DebugCommandContracts.kt` 的方法集合，Provider 才能分发。增删改指令时就地更新对应 guide 的表格。
+指令一律 `domain.action`，实现放 `android/app/src/debug/kotlin/com/clashgo/android/debug/` 下对应的 `*DebugCommands.kt`，并登记进 `DebugCommandContracts.kt` 的方法集合，Provider 才能分发。增删改指令时就地更新对应 guide 的表格。
 
-新增可交互控件在 [TestTags.kt](../../../android/app/src/main/kotlin/com/stelliberty/android/ui/util/TestTags.kt) 登记测试 ID，命名「页面.控件」；设置项由 `groupedCardItems` 按 `CardItem` 的 key 自动生成。
+新增可交互控件在 [TestTags.kt](../../../android/app/src/main/kotlin/com/clashgo/android/ui/util/TestTags.kt) 登记测试 ID，命名「页面.控件」；设置项由 `groupedCardItems` 按 `CardItem` 的 key 自动生成。

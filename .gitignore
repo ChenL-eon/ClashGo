@@ -54,11 +54,11 @@
 !/android/app/src/main/cpp/*.h
 !/android/app/src/main/cpp/CMakeLists.txt
 !/android/app/src/main/keepRules/*.keep
-!/android/app/src/main/native/stelliberty_core/.gitignore
-!/android/app/src/main/native/stelliberty_core/*.go
-!/android/app/src/main/native/stelliberty_core/overrides/*.go
-!/android/app/src/main/native/stelliberty_core/go.mod
-!/android/app/src/main/native/stelliberty_core/go.sum
+!/android/app/src/main/native/clashgo_core/.gitignore
+!/android/app/src/main/native/clashgo_core/*.go
+!/android/app/src/main/native/clashgo_core/overrides/*.go
+!/android/app/src/main/native/clashgo_core/go.mod
+!/android/app/src/main/native/clashgo_core/go.sum
 
 # Rust 后端源码与锁定依赖；target 与产出的 .so 不进提交。
 !/rust/Cargo.toml

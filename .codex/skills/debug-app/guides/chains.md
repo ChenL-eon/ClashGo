@@ -13,6 +13,6 @@
 debug-call.sh -s <dev> -m chain.add -a Example -e name:s:ExampleChain -e group:s:Proxy -e hops:s:HK,JP
 ```
 
-写入类指令返回 `cycle=true|false`；检测到循环照常保存，与页面一致。当前订阅保存后按页面行为重启，运行时结果用 mihomo `/proxies` 核对：中间跳名为 `__stelliberty_chain_*`，末跳用显示名并出现在所属组的 `all` 里。
+写入类指令返回 `cycle=true|false`；检测到循环照常保存，与页面一致。当前订阅保存后按页面行为重启，运行时结果用 mihomo `/proxies` 核对：中间跳名为 `__clashgo_chain_*`，末跳用显示名并出现在所属组的 `all` 里。
 
 页面从订阅编辑页的 `Settings.Entry.subscriptionChainProxies` 进入，控件前缀为 `ChainProxy.*`。编辑页的候选项为 `Settings.Entry.chainCandidate.<Kind 序号>:<名称>`，名称输入框点完要先收起键盘再点候选项。

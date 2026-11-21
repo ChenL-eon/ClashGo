@@ -8,7 +8,7 @@
 
 ## 页面与保存
 
-- 上下文经 `StellibertyCoreBridge.chainProxyContext` 读取：只套覆写、不套链，候选项为没有 `dialer-proxy` 的节点加全部代理组。读取只用独立锁，不占 processLock。
+- 上下文经 `ClashGoCoreBridge.chainProxyContext` 读取：只套覆写、不套链，候选项为没有 `dialer-proxy` 的节点加全部代理组。读取只用独立锁，不占 processLock。
 - 列表页与编辑页共用 `ChainProxyViewModel` 里的草稿，路由的 session 区分每次进入列表页；点保存才写入订阅，直接返回即放弃。
 - 保存在 processLock 内先用完整变换校验再写入，校验失败保留原值。检测到 `dialer-proxy` 循环只提示、不阻止保存。当前订阅保存后经 `restartWhenReady` 生效。
 
@@ -17,4 +17,4 @@
 - 顺序：原订阅 → 覆写 → 链式代理 → 规则覆写 → 运行参数。
 - 禁用的内置链从 `proxies` 与各组成员中移除；组被清空且成员不来自 `use` / `include-all*` 时补 `empty-fallback`（默认 `COMPATIBLE`）。
 - 上游不可达的内置链按传递关系一并移除，只在本次运行生效、不写回订阅；PC 会把它们写入禁用列表。
-- 自定义链至少两跳，代理组只能做首跳，显示名不能被占用，所属组必须存在；不满足的链在运行时跳过。中间跳命名为 `__stelliberty_chain_{id}_{序号}`，冲突时加后缀，末跳用显示名并追加到所属组。
+- 自定义链至少两跳，代理组只能做首跳，显示名不能被占用，所属组必须存在；不满足的链在运行时跳过。中间跳命名为 `__clashgo_chain_{id}_{序号}`，冲突时加后缀，末跳用显示名并追加到所属组。

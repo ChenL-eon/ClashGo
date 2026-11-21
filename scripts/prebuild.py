@@ -173,7 +173,7 @@ def _extract(archive: Path, dest: Path) -> None:
 
 def _download(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(url, headers={"User-Agent": "stelliberty-prebuild"})
+    request = urllib.request.Request(url, headers={"User-Agent": "clashgo-prebuild"})
     with urllib.request.urlopen(request) as response, dest.open("wb") as out:
         shutil.copyfileobj(response, out)
 
@@ -190,7 +190,7 @@ def install_portable_jdk(project_root: Path, *, verbose: bool = False) -> Jdk:
     dest.mkdir(parents=True)
     tmp_root = project_root / TMP_DIR
     tmp_root.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="stelliberty-jdk-", dir=tmp_root) as tmp:
+    with tempfile.TemporaryDirectory(prefix="clashgo-jdk-", dir=tmp_root) as tmp:
         archive = Path(tmp) / "jdk.bin"
         _download(url, archive)
         _extract(archive, dest)
@@ -251,7 +251,7 @@ def ensure_portable_go(project_root: Path, *, refresh: bool = False, verbose: bo
     tmp_root = project_root / TMP_DIR
     tmp_root.mkdir(parents=True, exist_ok=True)
     print(f"[info] downloading {version} {os_name}/{arch}")
-    with tempfile.TemporaryDirectory(prefix="stelliberty-go-", dir=tmp_root) as tmp:
+    with tempfile.TemporaryDirectory(prefix="clashgo-go-", dir=tmp_root) as tmp:
         archive = Path(tmp) / package["filename"]
         _download(f"https://go.dev/dl/{package['filename']}", archive)
         if hashlib.sha256(archive.read_bytes()).hexdigest() != package["sha256"]:
@@ -478,7 +478,7 @@ def run_gradle(
     env.pop("JDK_HOME", None)
     full_args = [
         f"-Dorg.gradle.java.home={toolchain.jdk.home}",
-        f"-Pstelliberty.goVersion={toolchain.go.version}",
+        f"-Pclashgo.goVersion={toolchain.go.version}",
         *args,
     ]
     executable = gradlew_path(project_root)
@@ -510,7 +510,7 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(
-        prog="stelliberty-prebuild",
+        prog="clashgo-prebuild",
         description="Prepare submodules, portable JDK / Go toolchains and GeoIP assets.",
     )
     parser.add_argument("--force", action="store_true", help="Replace the existing portable JDK")

@@ -90,7 +90,7 @@ abstract class RustBuildTask : DefaultTask() {
             )
         }
 
-        val built = targetDir.resolve("$triple/release/libstelliberty_backend.so")
+        val built = targetDir.resolve("$triple/release/libclashgo_backend.so")
         if (!built.isFile) {
             error("Rust build finished but ${built.absolutePath} is missing")
         }

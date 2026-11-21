@@ -18,7 +18,7 @@ build 的 `--jobs` 默认 12，范围 1～64，实际命令透传 `--max-workers
 
 `prebuild.py` 首次下载最新稳定版 Go 到 `build/go/` 并校验官方 SHA256，日常构建离线复用；`--refresh-go` 检查更新，本地与发布工作流共用这套流程。`go.mod` 的兼容级别不能当作实际编译器版本。
 
-编译入口为 Gradle 注入便携 Go 的 `GOROOT` / `PATH` 和 `GOTOOLCHAIN=local`。实际版本通过 `stelliberty.goVersion` 传入 `GoBuildTask` 的任务输入，升级编译器必须触发内核重编译。
+编译入口为 Gradle 注入便携 Go 的 `GOROOT` / `PATH` 和 `GOTOOLCHAIN=local`。实际版本通过 `clashgo.goVersion` 传入 `GoBuildTask` 的任务输入，升级编译器必须触发内核重编译。
 
 [GoBuildTask](../../../../android/buildSrc/src/main/kotlin/GoBuildTask.kt) 产出 `libmihomo.so`（CGO_ENABLED=1，NDK clang 取自 `androidComponents.sdkComponents.ndkDirectory`）。三条硬约束：
 
@@ -30,4 +30,4 @@ build 的 `--jobs` 默认 12，范围 1～64，实际命令透传 `--max-workers
 
 ## CMake
 
-CMake `dependsOn(buildMihomo)`，产出两个链接 libmihomo.so 的轻量库（IMPORTED + IMPORTED_SONAME）：`libmihomo_runner.so`（PIE wrapper）与 `libstelliberty_jni.so`（JNI 桥）。
+CMake `dependsOn(buildMihomo)`，产出两个链接 libmihomo.so 的轻量库（IMPORTED + IMPORTED_SONAME）：`libmihomo_runner.so`（PIE wrapper）与 `libclashgo_jni.so`（JNI 桥）。

@@ -1,6 +1,6 @@
 ---
 name: subscription
-description: 订阅的导入管线（Pending → Processing → Imported）、协程锁、活跃订阅、自动更新与备份恢复。改 data/repository/ 下的 ProfileProcessor / SubscriptionRepositoryImpl、service/ProfileWorker、data/backup/ 或调 StellibertyCoreBridge 前必须先读。触发词包括 导入订阅, 添加订阅, 更新订阅, 删除订阅, 切换订阅, 订阅管线, ProfileProcessor, 订阅锁, processLock, 深链, clash://, age 加密, 自动更新, 备份, 恢复, WebDAV, 订阅流量, 到期时间, 链式代理, dialer-proxy, 规则覆写, 自定义规则, 规则模板.
+description: 订阅的导入管线（Pending → Processing → Imported）、协程锁、活跃订阅、自动更新与备份恢复。改 data/repository/ 下的 ProfileProcessor / SubscriptionRepositoryImpl、service/ProfileWorker、data/backup/ 或调 ClashGoCoreBridge 前必须先读。触发词包括 导入订阅, 添加订阅, 更新订阅, 删除订阅, 切换订阅, 订阅管线, ProfileProcessor, 订阅锁, processLock, 深链, clash://, age 加密, 自动更新, 备份, 恢复, WebDAV, 订阅流量, 到期时间, 链式代理, dialer-proxy, 规则覆写, 自定义规则, 规则模板.
 user_invocable: true
 ---
 

@@ -26,4 +26,4 @@ user_invocable: true
 
 ## 维护
 
-新增启动入口（Wear / shortcut / 自动化）一律经 controller。新增 CLI flag 同步注册到 `stelliberty_core/runtime.go` 的 flag 集合。
+新增启动入口（Wear / shortcut / 自动化）一律经 controller。新增 CLI flag 同步注册到 `clashgo_core/runtime.go` 的 flag 集合。

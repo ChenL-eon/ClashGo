@@ -12,7 +12,7 @@
 
 ## 卡内水印绘制
 
-速度卡折线图 [TrafficSparkline](../../../../android/app/src/main/kotlin/com/stelliberty/android/ui/screen/home/TrafficSparkline.kt) 与订阅卡用量条 [SubscriptionUsageBar](../../../../android/app/src/main/kotlin/com/stelliberty/android/ui/screen/home/SubscriptionUsageBar.kt) 共用 `HomeShared.kt` 的 `Watermark*` 常量（用量条的形状就是折线退化成的方波），新增水印同样复用，同行两卡的绘图区高度与浓度才一致。miuix `Card` 走 `squircleSurface`（fill + clip），子内容自动裁到圆角，卡内直接铺满绘制即可。
+速度卡折线图 [TrafficSparkline](../../../../android/app/src/main/kotlin/com/clashgo/android/ui/screen/home/TrafficSparkline.kt) 与订阅卡用量条 [SubscriptionUsageBar](../../../../android/app/src/main/kotlin/com/clashgo/android/ui/screen/home/SubscriptionUsageBar.kt) 共用 `HomeShared.kt` 的 `Watermark*` 常量（用量条的形状就是折线退化成的方波），新增水印同样复用，同行两卡的绘图区高度与浓度才一致。miuix `Card` 走 `squircleSurface`（fill + clip），子内容自动裁到圆角，卡内直接铺满绘制即可。
 
 1. `insideMargin = PaddingValues(0.dp)` + 内层 `Box(fillMaxSize)`，文字放进 `Column(padding(16.dp))`，绘制层才能铺满（`BasicCard` 用 `propagateMinConstraints = true`，`fillMaxHeight` 的 Card 会把 min 约束传给 content）。
 2. 绘制层用 `Modifier.matchParentSize()`，不参与测量，卡片高度由文字决定，同一 `IntrinsicSize.Min` Row 里的邻卡高度保持一致。

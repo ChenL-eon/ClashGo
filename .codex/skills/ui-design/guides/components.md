@@ -16,7 +16,7 @@
 
 ## 多行卡片拆成 lazy item
 
-`LazyColumn` 里的多行卡片用 [GroupedCardItems](../../../../android/app/src/main/kotlin/com/stelliberty/android/ui/component/GroupedCardItems.kt) 拆成逐行的 lazy item：`groupedCardItems(keyPrefix, items = listOf(CardItem("k") { row() }, ...))`，由 `CardSegment` 分角拼回视觉连续的卡片，滚动与展开时按行组合。
+`LazyColumn` 里的多行卡片用 [GroupedCardItems](../../../../android/app/src/main/kotlin/com/clashgo/android/ui/component/GroupedCardItems.kt) 拆成逐行的 lazy item：`groupedCardItems(keyPrefix, items = listOf(CardItem("k") { row() }, ...))`，由 `CardSegment` 分角拼回视觉连续的卡片，滚动与展开时按行组合。
 
 - 分角背景：首 / 末段用 `squircleBackground`，中间段用纯 `background`；每行内容单独 `squircleClip(16.dp)`，按压轮廓不随分段缺角。
 - 语义对齐 miuix Card：surfaceContainer + 16.dp 圆角；preference 自带内边距，段的 `insidePadding = 0`。

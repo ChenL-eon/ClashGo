@@ -34,7 +34,7 @@ testTag 挂在最外层节点，按钮文字在子节点，`get` 返回整棵子
 
 ## 测试 ID
 
-全部登记在 [TestTags.kt](../../../../android/app/src/main/kotlin/com/stelliberty/android/ui/util/TestTags.kt)，命名「页面.控件」：
+全部登记在 [TestTags.kt](../../../../android/app/src/main/kotlin/com/clashgo/android/ui/util/TestTags.kt)，命名「页面.控件」：
 
 | 前缀 | 覆盖 |
 |---|---|

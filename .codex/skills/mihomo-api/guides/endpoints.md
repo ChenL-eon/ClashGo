@@ -22,7 +22,7 @@ CMFA embed mode 下 `PATCH/PUT /configs`、`POST /restart`、`POST /configs/geo`
 
 ## 首页延迟测试走规则
 
-首页延迟测试经本机 mixed-port 发真实 HTTP 请求（[RuleLatencyTester](../../../../android/app/src/main/kotlin/com/stelliberty/android/data/api/RuleLatencyTester.kt)），出口由规则引擎决定，结果反映该域名实际命中的分流。Stelliberty 自身流量始终绕过 TUN，mixed-port 是自身请求经过 mihomo 的唯一入口。`/proxies/{name}/delay` 直接拨测指定组的当前节点、绕过规则引擎，且要求传入 proxy 名，适合代理页的节点 / 组测速。
+首页延迟测试经本机 mixed-port 发真实 HTTP 请求（[RuleLatencyTester](../../../../android/app/src/main/kotlin/com/clashgo/android/data/api/RuleLatencyTester.kt)），出口由规则引擎决定，结果反映该域名实际命中的分流。ClashGo 自身流量始终绕过 TUN，mixed-port 是自身请求经过 mihomo 的唯一入口。`/proxies/{name}/delay` 直接拨测指定组的当前节点、绕过规则引擎，且要求传入 proxy 名，适合代理页的节点 / 组测速。
 
 实现约束：
 1. 每次测量新建 client，每次都完整握手，结果可比；
@@ -31,7 +31,7 @@ CMFA embed mode 下 `PATCH/PUT /configs`、`POST /restart`、`POST /configs/geo`
 
 ## 自动测试延迟
 
-[AutoDelayTester](../../../../android/app/src/main/kotlin/com/stelliberty/android/data/api/AutoDelayTester.kt) 在应用启动时开始工作，与界面无关：连接中的 client、当前订阅与其 `AutoTestDelayIntervalMinutes` 任一变化就重新计时，首轮在一个间隔之后，与 PC 的排期一致。
+[AutoDelayTester](../../../../android/app/src/main/kotlin/com/clashgo/android/data/api/AutoDelayTester.kt) 在应用启动时开始工作，与界面无关：连接中的 client、当前订阅与其 `AutoTestDelayIntervalMinutes` 任一变化就重新计时，首轮在一个间隔之后，与 PC 的排期一致。
 
 1. 测全部代理组的成员（去重），经 `MihomoRepository.testDelays` 逐个节点测，与组测速同一路径，不解除固定选择；PC 测完会解除。
 2. 每轮结束发出所用的 client，`ProxyViewModel` 只在它仍是自己当前的 client 时刷新，避免 Activity 销毁后拿旧实例请求。
@@ -40,7 +40,7 @@ CMFA embed mode 下 `PATCH/PUT /configs`、`POST /restart`、`POST /configs/geo`
 
 ## 连接速率自行差分
 
-`/connections`（WS，1Hz 全量列表）每条只给累计的 `upload` / `download`。[SpeedDetailSheet](../../../../android/app/src/main/kotlin/com/stelliberty/android/ui/screen/home/SpeedDetailSheet.kt) + `updateConnectionRates` 按 `id` 对相邻两次快照差分，再除以实际间隔。
+`/connections`（WS，1Hz 全量列表）每条只给累计的 `upload` / `download`。[SpeedDetailSheet](../../../../android/app/src/main/kotlin/com/clashgo/android/ui/screen/home/SpeedDetailSheet.kt) + `updateConnectionRates` 按 `id` 对相邻两次快照差分，再除以实际间隔。
 
 1. 首轮只记基准，第二轮起才输出速率。
 2. `topConnectionRates` 用 null 表示「首轮未完成」、空列表表示「无活跃连接」，UI 分别显示 loading 与空态。
