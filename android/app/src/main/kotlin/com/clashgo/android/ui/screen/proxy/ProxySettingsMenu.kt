@@ -13,7 +13,6 @@ import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import com.clashgo.android.BuildConfig
 import com.clashgo.android.R
-import com.clashgo.android.platform.TunMode
 import com.clashgo.android.ui.icon.AppIcons
 import com.clashgo.android.ui.util.TestTags
 import top.yukonga.miuix.kmp.basic.DropdownEntry
@@ -23,7 +22,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowCascadingListPopup
 
 private val MODE_OPTIONS = listOf("rule" to "Rule", "global" to "Global", "direct" to "Direct")
-private val TUN_STACK_OPTIONS = listOf("mixed" to "Mixed", "gvisor" to "gVisor", "system" to "System", "mips" to "MIPS")
 
 private fun menuIcon(
     icon: ImageVector,
@@ -45,10 +43,7 @@ internal fun ProxySettingsMenu(
     show: Boolean,
     onDismissRequest: () -> Unit,
     mode: String,
-    onApplyRouting: (String?, String?) -> Unit,
-    tunStack: String,
-    tunMode: TunMode,
-    isRunning: Boolean,
+    onModeChange: (String) -> Unit,
     groupTabs: Boolean,
     onGroupTabsChange: (Boolean) -> Unit,
     columnCount: Int,
@@ -64,10 +59,8 @@ internal fun ProxySettingsMenu(
     onSortOptionChange: (Int) -> Unit,
 ) {
     val modeIndex = MODE_OPTIONS.indexOfFirst { it.first == mode.lowercase() }.coerceAtLeast(0)
-    val tunStackIndex = TUN_STACK_OPTIONS.indexOfFirst { it.first == tunStack.lowercase() }.coerceAtLeast(0)
     val sortKey = (sortOption / 2).coerceIn(0, 2)
     val globalMode = mode.equals("global", ignoreCase = true)
-    val tunStackEnabled = isRunning && tunMode != TunMode.RootTproxy
     val sortChoices = listOf(
         0 to stringResource(R.string.proxy_sort_default),
         2 to stringResource(R.string.proxy_sort_delay),
@@ -152,20 +145,7 @@ internal fun ProxySettingsMenu(
                         DropdownItem(
                             text = label,
                             selected = modeIndex == index,
-                            onClick = { if (modeIndex != index) onApplyRouting(value, null) },
-                        )
-                    },
-                ),
-                DropdownItem(
-                    text = stringResource(R.string.proxy_tun_stack),
-                    summary = TUN_STACK_OPTIONS[tunStackIndex].second,
-                    icon = menuIcon(AppIcons.Link, tunStackEnabled),
-                    enabled = tunStackEnabled,
-                    children = TUN_STACK_OPTIONS.mapIndexed { index, (value, label) ->
-                        DropdownItem(
-                            text = label,
-                            selected = tunStackIndex == index,
-                            onClick = { if (tunStackIndex != index) onApplyRouting(null, value) },
+                            onClick = { if (modeIndex != index) onModeChange(value) },
                         )
                     },
                 ),

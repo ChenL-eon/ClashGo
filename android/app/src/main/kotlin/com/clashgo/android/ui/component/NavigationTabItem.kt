@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Icon
@@ -34,6 +35,7 @@ fun NavigationTabItem(
     label: String,
     modifier: Modifier = Modifier,
     showLabel: Boolean = true,
+    height: Dp = 72.dp,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -44,7 +46,7 @@ fun NavigationTabItem(
     )
     Column(
         modifier = modifier
-            .height(72.dp)
+            .height(height)
             .selectable(
                 selected = selected,
                 onClick = onClick,

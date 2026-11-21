@@ -312,12 +312,12 @@ private fun ProxyNodeCard(
 ) {
     val primary = MiuixTheme.colorScheme.primary
     val horizontalPadding = when (nodeSize) { 0 -> 12.dp; 2 -> 16.dp; else -> 14.dp }
-    val topPadding = when (nodeSize) { 0 -> 10.dp; 2 -> 14.dp; else -> 12.dp }
-    val bottomPadding = when (nodeSize) { 0 -> 4.dp; 2 -> 8.dp; else -> 6.dp }
+    val topPadding = when (nodeSize) { 0 -> 16.dp; 2 -> 20.dp; else -> 18.dp }
+    val bottomPadding = when (nodeSize) { 0 -> 10.dp; 2 -> 14.dp; else -> 12.dp }
     val titleFontSize = when (nodeSize) { 0 -> 13.sp; 2 -> 15.sp; else -> 14.sp }
-    val titleLineHeight = when (nodeSize) { 0 -> 18.sp; 2 -> 22.sp; else -> 20.sp }
+    val titleLineHeight = when (nodeSize) { 0 -> 20.sp; 2 -> 24.sp; else -> 22.sp }
     val detailFontSize = when (nodeSize) { 0 -> 10.sp; 2 -> 12.sp; else -> 11.sp }
-    val detailLineHeight = when (nodeSize) { 0 -> 14.sp; 2 -> 18.sp; else -> 16.sp }
+    val detailLineHeight = when (nodeSize) { 0 -> 15.sp; 2 -> 19.sp; else -> 17.sp }
     val cardRadius = when (nodeSize) { 0 -> 12.dp; 2 -> 16.dp; else -> 14.dp }
     Box(
         modifier = Modifier
@@ -355,8 +355,8 @@ private fun ProxyNodeCard(
                 }
             }
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = if (nodeSize == 2) 10.dp else 8.dp)
-                    .heightIn(min = if (nodeSize == 0) 18.dp else if (nodeSize == 2) 22.dp else 20.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = if (nodeSize == 2) 12.dp else 10.dp)
+                    .heightIn(min = if (nodeSize == 0) 20.dp else if (nodeSize == 2) 24.dp else 22.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(

@@ -4,6 +4,7 @@
 
 - Scaffold + TopAppBar(scrollBehavior) + LazyColumn。LazyColumn 加 `.scrollEndHaptic().overScrollVertical().nestedScroll(scrollBehavior.nestedScrollConnection)`；设置页 `contentPadding.top` 为顶栏占高 + 10dp，底距由 `pageBottomPadding` 合并安全区与页面留白，不再叠加末尾导航 Spacer。
 - 子页的应用底栏占高为 0。四个 Pager Tab 由外层 `MainPage` Scaffold 持有共享 bottomBar，将实际占高透传；系统导航栏显示时额外留白 12dp，两类底栏均隐藏时 20dp。
+- 悬浮底栏的 Miuix 与 iOS 两种风格共用 62dp（有标签）/ 56dp（纯图标）容器和同一底部间距（导航栏可见 8dp + inset，否则 36dp）。Miuix 不用 `FloatingNavigationBar`：它内部固定叠加 26dp + 导航栏 inset，会让整条高于 iOS；改为自建圆角容器，条目高度经 `NavigationTabItem(height = ...)` 传入，普通底部 `NavigationBar` 仍用默认 72dp。
 - 设置首页水平 12dp、设置子页 16dp，功能块间距 12dp；普通块不显示标题，普通行不显示摘要。间距集中在 `PreferenceLayout`，逐行卡片通过 `LocalPreferenceHorizontalPadding` 继承页面边距。
 
 - 可编辑表单的滚动容器加 `.imePadding()`，键盘弹出时缩小可视区域，焦点输入框才能自动滚动到键盘上方。

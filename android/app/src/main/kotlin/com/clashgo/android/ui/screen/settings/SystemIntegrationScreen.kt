@@ -21,11 +21,15 @@ import com.clashgo.android.ui.util.label
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 
+private val TUN_STACK_OPTIONS = listOf("mixed" to "Mixed", "gvisor" to "gVisor", "system" to "System", "mips" to "MIPS")
+
 @Composable
 fun SystemIntegrationScreen(
     storage: PlatformStorage,
     hasRootPermission: Boolean,
     isProxyRunning: Boolean,
+    tunStack: String,
+    onTunStackChange: (String) -> Unit,
     onBack: () -> Unit = {},
     onNavigateVpnSettings: () -> Unit = {},
     onNavigateRootSettings: () -> Unit = {},
@@ -35,6 +39,7 @@ fun SystemIntegrationScreen(
     var tunMode by remember(storedTunMode) {
         mutableIntStateOf(TunMode.fromStorage(storedTunMode).ordinal)
     }
+    val tunStackIndex = TUN_STACK_OPTIONS.indexOfFirst { it.first == tunStack.lowercase() }.coerceAtLeast(0)
 
     SettingsSubPage(title = stringResource(R.string.system_integration_title), onBack = onBack) {
         item { Spacer(Modifier.height(12.dp)) }
@@ -76,6 +81,22 @@ fun SystemIntegrationScreen(
                             title = stringResource(R.string.root_settings_title),
                             summary = stringResource(R.string.root_settings_summary),
                             onClick = onNavigateRootSettings,
+                        )
+                    })
+                }
+                if (TunMode.entries[tunMode] != TunMode.RootTproxy) {
+                    add(CardItem("tunStack") {
+                        OverlayDropdownPreference(
+                            title = stringResource(R.string.proxy_tun_stack),
+                            summary = TUN_STACK_OPTIONS[tunStackIndex].second,
+                            items = TUN_STACK_OPTIONS.map { it.second },
+                            selectedIndex = tunStackIndex,
+                            onSelectedIndexChange = { index ->
+                                val stack = TUN_STACK_OPTIONS[index].first
+                                if (stack != TUN_STACK_OPTIONS[tunStackIndex].first) {
+                                    onTunStackChange(stack)
+                                }
+                            },
                         )
                     })
                 }

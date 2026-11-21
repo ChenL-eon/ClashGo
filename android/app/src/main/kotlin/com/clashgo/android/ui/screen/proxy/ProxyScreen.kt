@@ -40,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clashgo.android.R
-import com.clashgo.android.platform.TunMode
 import com.clashgo.android.platform.showToast
 import com.clashgo.android.ui.component.AdaptiveTopAppBar
 import com.clashgo.android.ui.component.CardSegment
@@ -72,11 +71,8 @@ fun ProxyScreen(
     modifier: Modifier = Modifier,
     bottomPadding: Dp = 0.dp,
     viewModel: ProxyViewModel? = null,
-    isRunning: Boolean = false,
     mode: String = "",
-    tunStack: String = "",
-    tunMode: TunMode = TunMode.Vpn,
-    onApplyRouting: (String?, String?) -> Unit = { _, _ -> },
+    onModeChange: (String) -> Unit = {},
 ) {
     val uiState = viewModel?.uiState?.collectAsStateWithLifecycle()?.value ?: ProxyUiState()
     val context = LocalContext.current
@@ -199,10 +195,7 @@ fun ProxyScreen(
                                     show = showSettings,
                                     onDismissRequest = { showSettings = false },
                                     mode = mode,
-                                    onApplyRouting = onApplyRouting,
-                                    tunStack = tunStack,
-                                    tunMode = tunMode,
-                                    isRunning = isRunning,
+                                    onModeChange = onModeChange,
                                     groupTabs = groupTabs,
                                     onGroupTabsChange = { viewModel?.updateGroupTabs(it) },
                                     columnCount = columnCount,

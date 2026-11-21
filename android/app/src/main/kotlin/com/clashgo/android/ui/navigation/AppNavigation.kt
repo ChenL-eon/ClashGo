@@ -4,6 +4,10 @@ import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.MutatePriority
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -13,12 +17,15 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
@@ -42,6 +49,8 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -140,7 +149,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationItem
 import top.yukonga.miuix.kmp.basic.NavigationRail
@@ -539,6 +547,8 @@ fun AppNavigation(
                         storage = it,
                         hasRootPermission = hasRootPermission,
                         isProxyRunning = homeState?.isRunning == true || homeState?.isStarting == true,
+                        tunStack = homeState?.tunStack.orEmpty(),
+                        onTunStackChange = { stack -> homeViewModel?.applyProxyRouting(null, stack) },
                         onBack = { navigator.pop() },
                         onNavigateVpnSettings = { navigator.push(Route.VpnSettings) },
                         onNavigateRootSettings = { navigator.push(Route.RootSettings) },
@@ -742,11 +752,8 @@ private fun MainPage(
                     1 -> ProxyScreen(
                         bottomPadding = bottomPadding,
                         viewModel = proxyViewModel,
-                        isRunning = homeUiState.isRunning,
                         mode = homeUiState.mode,
-                        tunStack = homeUiState.tunStack,
-                        tunMode = homeUiState.tunMode,
-                        onApplyRouting = { mode, stack -> homeViewModel?.applyProxyRouting(mode, stack) },
+                        onModeChange = { mode -> homeViewModel?.applyProxyRouting(mode, null) },
                     )
                     2 -> subscriptionViewModel?.let {
                         SubscriptionScreen(
@@ -842,6 +849,11 @@ private fun MainPage(
             Modifier
         }
         val showBottomBarLabels = themeConfig.bottomBarMode == BottomBarMode.IconAndText
+        val floatingBarHeight = if (showBottomBarLabels) 62.dp else 56.dp
+        val floatingBarHorizontalPadding = if (showBottomBarLabels) 44.dp else 60.dp
+        val navBarBottomPadding = WindowInsets.navigationBars
+            .only(WindowInsetsSides.Bottom).asPaddingValues().calculateBottomPadding()
+        val floatingBarBottomPadding = if (navBarBottomPadding != 0.dp) 8.dp + navBarBottomPadding else 36.dp
         val navigationItems = NAV_TABS.mapIndexed { index, tab ->
             NavigationItem(label = stringResource(tab.labelRes), icon = tab.icon(selectedPage == index))
         }
@@ -861,19 +873,40 @@ private fun MainPage(
                             showLabels = showBottomBarLabels,
                         )
                     } else {
-                        FloatingNavigationBar(
-                            modifier = floatingBarModifier,
-                            color = floatingBarColor,
-                            cornerRadius = floatingPillRadius,
+                        BoxWithConstraints(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = floatingBarBottomPadding),
                         ) {
-                            navigationItems.forEachIndexed { index, item ->
-                                MiuixFloatingNavigationBarItem(
-                                    item = item,
-                                    selected = selectedPage == index,
-                                    onClick = { mainPagerState.animateToPage(index) },
-                                    showLabel = showBottomBarLabels,
-                                    modifier = Modifier.testTag(TestTags.Nav.tab(index)),
-                                )
+                            val itemWidth = (
+                                maxWidth - floatingBarHorizontalPadding * 2f - 24.dp - 36.dp
+                                ) / 4f
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = floatingBarHorizontalPadding)
+                                    .height(floatingBarHeight)
+                                    .shadow(10.dp, floatingBarShape)
+                                    .then(floatingBarModifier)
+                                    .clip(floatingBarShape)
+                                    .background(floatingBarColor, floatingBarShape),
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    navigationItems.forEachIndexed { index, item ->
+                                        MiuixFloatingNavigationBarItem(
+                                            item = item,
+                                            selected = selectedPage == index,
+                                            onClick = { mainPagerState.animateToPage(index) },
+                                            showLabel = showBottomBarLabels,
+                                            height = floatingBarHeight,
+                                            modifier = Modifier.width(itemWidth).testTag(TestTags.Nav.tab(index)),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -920,6 +953,7 @@ private fun MiuixFloatingNavigationBarItem(
     selected: Boolean,
     onClick: () -> Unit,
     showLabel: Boolean,
+    height: Dp,
     modifier: Modifier = Modifier,
 ) {
     NavigationTabItem(
@@ -928,6 +962,7 @@ private fun MiuixFloatingNavigationBarItem(
         icon = item.icon,
         label = item.label,
         showLabel = showLabel,
+        height = height,
         modifier = modifier.defaultMinSize(minWidth = if (showLabel) 56.dp else 48.dp),
     )
 }
