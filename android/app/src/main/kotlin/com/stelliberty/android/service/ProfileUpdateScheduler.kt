@@ -6,9 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import com.stelliberty.android.data.repository.MIN_AUTO_UPDATE_INTERVAL_MINUTES
+import com.stelliberty.android.data.repository.UpdatePlanItem
+import com.stelliberty.android.data.repository.UpdateSchedule
 import com.stelliberty.android.data.store.SubscriptionStore
 import com.stelliberty.android.domain.model.Subscription
-import com.stelliberty.android.domain.model.SubscriptionAutoUpdateMode
 import com.stelliberty.android.util.AppLogger
 import kotlin.time.Clock
 import kotlinx.coroutines.CoroutineScope
@@ -35,20 +36,27 @@ class ProfileUpdateScheduler(
 
     fun reconcileNow() = reconcile()
 
-    fun isDue(subscription: Subscription): Boolean {
-        val interval = subscription.intervalMillisOrNull() ?: return false
-        return Clock.System.now().toEpochMilliseconds() >= subscription.lastAttemptMillis() + interval
+    fun isDue(subscription: Subscription): Boolean = runCatching {
+        UpdateSchedule.isDue(subscription, Clock.System.now().toEpochMilliseconds())
+    }.getOrElse { error ->
+        AppLogger.error(TAG, "Cannot evaluate update due state for ${subscription.id}", error)
+        false
     }
 
     // 闹钟集合完全由订阅列表推导出来，跟着列表的变化持续核对：新增订阅、改间隔立刻生效，删订阅自动撤闹钟。
     // 不要改成「在每个增删改的地方各自布置闹钟」，那样漏一处就是设了自动更新却永远不更新。
+    // 可调度项与绝对触发点由 Rust 计算，这里只负责 AlarmManager 的取消与布置。
     @Synchronized
     private fun reconcile() {
         val subscriptions = store.imported()
-        val eligible = subscriptions.filter { it.intervalMillisOrNull() != null }
-        val keep = eligible.mapTo(mutableSetOf()) { it.id }
+        val now = Clock.System.now().toEpochMilliseconds()
+        val plan = runCatching { UpdateSchedule.plan(subscriptions, now) }.getOrElse { error ->
+            AppLogger.error(TAG, "Cannot plan automatic updates", error)
+            return
+        }
+        val keep = plan.mapTo(mutableSetOf()) { it.id }
         ((armed + subscriptions.map { it.id }) - keep).forEach { cancelNext(context, it) }
-        eligible.forEach { scheduleNext(context, it) }
+        plan.forEach { scheduleNext(context, it, now) }
         armed.clear()
         armed += keep
     }
@@ -58,28 +66,15 @@ class ProfileUpdateScheduler(
 
         const val MIN_INTERVAL_MS = MIN_AUTO_UPDATE_INTERVAL_MINUTES * 60 * 1000L
 
-        // 本地文件与「启动时更新」不布置闹钟；间隔低于下限的视为关闭。
-        private fun Subscription.intervalMillisOrNull(): Long? {
-            if (isLocalFile || autoUpdateMode != SubscriptionAutoUpdateMode.Interval) return null
-            return (autoUpdateIntervalMinutes * 60_000L).takeIf { it >= MIN_INTERVAL_MS }
-        }
-
-        private fun Subscription.lastAttemptMillis(): Long =
-            listOfNotNull(lastUpdatedAt ?: createdAt, lastErrorAt).max().toEpochMilliseconds()
-
-        private fun scheduleNext(context: Context, subscription: Subscription) {
-            val intent = pendingIntentOf(context, subscription.id)
+        private fun scheduleNext(context: Context, plan: UpdatePlanItem, now: Long) {
+            val intent = pendingIntentOf(context, plan.id)
             val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
 
             alarmManager.cancel(intent)
-            val interval = subscription.intervalMillisOrNull() ?: return
-
-            val current = Clock.System.now().toEpochMilliseconds()
             // 同 PC：起点取最近一次成功或失败，失败后也顺延一个间隔，不会立刻重试。
-            val lastAttempt = subscription.lastAttemptMillis()
-            val delay = (interval - (current - lastAttempt)).coerceAtLeast(0)
-            AppLogger.info(TAG, "Schedule ${subscription.id} (${subscription.name}) in ${delay / 1000}s")
-            scheduleAlarm(alarmManager, current + delay, intent)
+            val delay = (plan.dueAtMillis - now).coerceAtLeast(0)
+            AppLogger.info(TAG, "Schedule ${plan.id} in ${delay / 1000}s")
+            scheduleAlarm(alarmManager, plan.dueAtMillis, intent)
         }
 
         fun cancelNext(context: Context, uuid: String) {

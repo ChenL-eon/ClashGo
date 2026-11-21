@@ -1,3 +1,4 @@
+mod backup_policy;
 mod error;
 mod ffi;
 mod fsutil;
@@ -5,6 +6,7 @@ mod profile_fs;
 mod profile_pipeline;
 mod runtime_override;
 mod state;
+mod update_schedule;
 
 pub use error::BackendError;
 
@@ -25,6 +27,11 @@ pub fn dispatch(method: &str, payload: &str) -> Result<serde_json::Value, Backen
         "profile.pipeline_begin" => profile_pipeline::begin(payload),
         "profile.pipeline_commit" => profile_pipeline::commit(payload),
         "profile.pipeline_abort" => profile_pipeline::abort(payload),
+        "update.plan" => update_schedule::plan(payload),
+        "backup.map_entries" => backup_policy::map_entries(payload),
+        "backup.merge_ids" => backup_policy::merge_ids(payload),
+        "backup.validate_ids" => backup_policy::validate_ids(payload),
+        "backup.plan_remote" => backup_policy::plan_remote(payload),
         other => Err(BackendError::new(
             "unknown_method",
             format!("unknown backend method: {other}"),

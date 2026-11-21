@@ -13,7 +13,6 @@ import com.stelliberty.android.data.store.ProxySelectionStore
 import com.stelliberty.android.data.store.StoreJson
 import com.stelliberty.android.data.store.SubscriptionListFile
 import com.stelliberty.android.data.store.SubscriptionStore
-import com.stelliberty.android.domain.model.OverrideFormat
 import com.stelliberty.android.domain.model.Subscription
 import com.stelliberty.android.platform.BootStartManager
 import com.stelliberty.android.platform.PlatformStorage
@@ -21,13 +20,12 @@ import com.stelliberty.android.platform.StorageKeys
 import com.stelliberty.android.service.ProfileFileOps
 import com.stelliberty.android.util.AppLogger
 import java.io.File
-import java.io.InputStream
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -160,18 +158,21 @@ class BackupManager(
     }
 
     suspend fun importFrom(uri: Uri, mode: RestoreMode) = withContext(Dispatchers.IO) {
-        val input = context.contentResolver.openInputStream(uri)
-            ?: throw BackupException("Cannot open $uri for reading")
-        input.use { restoreBackup(it, mode) }
+        withTransferFile { file ->
+            context.contentResolver.openInputStream(uri)?.use { source ->
+                file.outputStream().use { target -> source.copyTo(target) }
+            } ?: throw BackupException("Cannot open $uri for reading")
+            restoreBackupFrom(file, mode)
+        }
     }
 
     suspend fun restoreBackupFrom(file: File, mode: RestoreMode) = withContext(Dispatchers.IO) {
-        file.inputStream().use { restoreBackup(it, mode) }
+        restoreBackup(file, mode)
     }
 
-    private suspend fun restoreBackup(input: InputStream, mode: RestoreMode) = ProfileProcessor.withProcessLock {
+    private suspend fun restoreBackup(file: File, mode: RestoreMode) = ProfileProcessor.withProcessLock {
         withContext(Dispatchers.IO) {
-            val archive = extractToStaging(input)
+            val archive = extractToStaging(file)
             when (mode) {
                 RestoreMode.Overwrite -> overwrite(archive)
                 RestoreMode.Merge -> merge()
@@ -232,8 +233,9 @@ class BackupManager(
                 ?.subscriptions.orEmpty()
             mergeOverrides(staging)
             repository.withProfileLock {
-                val known = subscriptionStore.imported().mapTo(HashSet()) { it.id }
-                val added = incoming.filter { it.id !in known && ID_PATTERN.matches(it.id) }.distinctBy { it.id }
+                val known = subscriptionStore.imported().map { it.id }
+                val addedIds = BackupPolicy.mergeIds(known, incoming.map { it.id })
+                val added = addedIds.mapNotNull { id -> incoming.firstOrNull { it.id == id } }
                 added.forEach { moveStagedProfile(staging, it.id) }
                 subscriptionStore.addImported(added)
                 added.forEach { subscription ->
@@ -250,8 +252,9 @@ class BackupManager(
     private suspend fun mergeOverrides(staging: File) {
         val incoming = readStaged(staging, OverrideProfileStore.LIST_PATH, OverrideListFile.serializer())
             ?.overrides.orEmpty()
-        val known = overrideProfileStore.all().mapTo(HashSet()) { it.id }
-        val added = incoming.filter { it.id !in known && ID_PATTERN.matches(it.id) }.distinctBy { it.id }
+        val known = overrideProfileStore.all().map { it.id }
+        val addedIds = BackupPolicy.mergeIds(known, incoming.map { it.id })
+        val added = addedIds.mapNotNull { id -> incoming.firstOrNull { it.id == id } }
         added.forEach { profile ->
             val path = overrideProfileStore.contentPath(profile)
             val source = File(staging, path)
@@ -294,7 +297,9 @@ class BackupManager(
         closeEntry()
     }
 
-    private fun extractToStaging(input: InputStream): StagedArchive {
+    // 先用中央目录拿到全部条目名，让 Rust 一次性给出暂存映射，再逐个流式解压；
+    // 仍然不把整个压缩包攒进内存。
+    private fun extractToStaging(file: File): StagedArchive {
         val staging = File(mihomoDir, RESTORE_STAGING)
         staging.deleteRecursively()
         val stagingRoot = staging.also { it.mkdirs() }.canonicalPath + File.separator
@@ -302,28 +307,29 @@ class BackupManager(
             var snapshotBytes: ByteArray? = null
             var settingsBytes: ByteArray? = null
             var hasProfiles = false
-            ZipInputStream(input.buffered()).use { zis ->
-                var entry = zis.nextEntry
-                while (entry != null) {
-                    val name = entry.name
-                    if (!entry.isDirectory) {
-                        when (name) {
-                            ENTRY_SETTINGS -> settingsBytes = zis.readBytes()
-                            "$ANDROID_DIR/$ENTRY_SNAPSHOT" -> snapshotBytes = zis.readBytes()
-                            else -> stagingPathOf(name)?.let { path ->
-                                val target = File(staging, path)
-                                if (!target.canonicalPath.startsWith(stagingRoot)) {
-                                    throw BackupException("Illegal entry path: $name")
-                                }
-                                target.parentFile?.mkdirs()
-                                target.outputStream().use { zis.copyTo(it) }
-                                if (path == SubscriptionStore.IMPORTED_PATH || path == OverrideProfileStore.LIST_PATH) {
-                                    hasProfiles = true
-                                }
+            ZipFile(file).use { zip ->
+                val entries = zip.entries().asSequence().filter { !it.isDirectory }.toList()
+                val paths = BackupPolicy.mapEntries(entries.map { it.name })
+                entries.forEachIndexed { index, entry ->
+                    when (entry.name) {
+                        ENTRY_SETTINGS -> settingsBytes = zip.getInputStream(entry).use { it.readBytes() }
+                        "$ANDROID_DIR/$ENTRY_SNAPSHOT" ->
+                            snapshotBytes = zip.getInputStream(entry).use { it.readBytes() }
+
+                        else -> paths[index]?.let { path ->
+                            val target = File(staging, path)
+                            if (!target.canonicalPath.startsWith(stagingRoot)) {
+                                throw BackupException("Illegal entry path: ${entry.name}")
+                            }
+                            target.parentFile?.mkdirs()
+                            zip.getInputStream(entry).use { input ->
+                                target.outputStream().use { output -> input.copyTo(output) }
+                            }
+                            if (path == SubscriptionStore.IMPORTED_PATH || path == OverrideProfileStore.LIST_PATH) {
+                                hasProfiles = true
                             }
                         }
                     }
-                    entry = zis.nextEntry
                 }
             }
 
@@ -353,39 +359,13 @@ class BackupManager(
     private fun validateStagedOverrides(staging: File) {
         val profiles = readStaged(staging, OverrideProfileStore.LIST_PATH, OverrideListFile.serializer())
             ?.overrides.orEmpty()
-        val ids = HashSet<String>()
+        if (!BackupPolicy.validateIds(profiles.map { it.id })) {
+            throw BackupException("Invalid or duplicate override id")
+        }
         profiles.forEach { profile ->
-            if (!ID_PATTERN.matches(profile.id) || !ids.add(profile.id)) {
-                throw BackupException("Invalid or duplicate override id")
-            }
             if (!File(staging, overrideProfileStore.contentPath(profile)).isFile) {
                 throw BackupException("Missing content for override ${profile.id}")
             }
-        }
-    }
-
-    // 包内路径 → 暂存区路径；不认识的条目（PC 的 dns.json 等）返回 null 跳过。
-    private fun stagingPathOf(name: String): String? {
-        if (name == SubscriptionStore.IMPORTED_PATH || name == OverrideProfileStore.LIST_PATH) return name
-        val overrideFile = name.removePrefix("${OverrideProfileStore.DIRECTORY}/")
-        if (overrideFile != name) {
-            val id = overrideFile.substringBeforeLast('.')
-            val extension = overrideFile.substringAfterLast('.', "")
-            return name.takeIf { ID_PATTERN.matches(id) && extension in OVERRIDE_EXTENSIONS }
-        }
-        val subscriptionConfig = name.removePrefix("${SubscriptionStore.DIRECTORY}/")
-        if (subscriptionConfig != name && subscriptionConfig.endsWith(CONFIG_SUFFIX)) {
-            val id = subscriptionConfig.removeSuffix(CONFIG_SUFFIX)
-            return if (ID_PATTERN.matches(id)) "$IMPORTED_DIR/$id/$CONFIG_FILE" else null
-        }
-        val path = name.removePrefix("$ANDROID_DIR/")
-        if (path == name) return null
-        return when {
-            path in ANDROID_FILES -> path
-            path.startsWith("$PENDING_DIR/") -> path
-            // 订阅配置以根目录的明文为准。
-            path.startsWith("$IMPORTED_DIR/") && path.substringAfter('/').substringAfter('/') != CONFIG_FILE -> path
-            else -> null
         }
     }
 
@@ -457,15 +437,6 @@ class BackupManager(
         private const val CONFIG_FILE = "config.yaml"
         private const val CONFIG_SUFFIX = ".yaml"
         private const val OVERRIDE_FILE = OverrideJsonStore.FILE_NAME
-        private val ID_PATTERN = Regex("[A-Za-z0-9-]+")
-        private val OVERRIDE_EXTENSIONS = OverrideFormat.entries.map { it.extension }.toSet()
-
-        private val ANDROID_FILES = setOf(
-            SubscriptionStore.PENDING_PATH,
-            SubscriptionStore.SELECTION_PATH,
-            ProxySelectionStore.SELECTION_PATH,
-            OVERRIDE_FILE,
-        )
 
         private const val RESTORE_STAGING = ".restore"
         private const val RESTORE_OLD = ".restore-old"

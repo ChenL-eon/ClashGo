@@ -67,15 +67,15 @@ class WebDavClient(
             if (!resp.status.isSuccess()) {
                 throw WebDavException("PUT failed: HTTP ${resp.status.value}")
             }
-            client.list().drop(RETENTION).forEach { client.delete(it.name) }
+            BackupPolicy.planRemote(client.list(), RETENTION).delete.forEach { client.delete(it) }
         }
     }
 
     // 取修改时间最新的一份；远端没有备份时返回 false。
     suspend fun downloadLatest(target: File): Boolean {
         buildClient().use { client ->
-            val latest = client.list().firstOrNull() ?: return false
-            val resp = client.davRequest(fileUrl(latest.name), HttpMethod.Get)
+            val latest = BackupPolicy.planRemote(client.list(), RETENTION).latest ?: return false
+            val resp = client.davRequest(fileUrl(latest), HttpMethod.Get)
             if (!resp.status.isSuccess()) {
                 throw WebDavException("GET failed: HTTP ${resp.status.value}")
             }
@@ -176,7 +176,7 @@ class WebDavClient(
     }
 }
 
-// PROPFIND 多状态应答 → 备份文件列表，按修改时间从新到旧、同时间按文件名倒序，与 PC 的排序一致。
+// PROPFIND 多状态应答 → 备份文件列表。排序、最新一份与保留轮换由 Rust 决定；
 // 元素按本地名匹配，不同服务器的命名空间前缀各不相同。
 internal fun parseBackupList(input: InputStream): List<RemoteBackup> {
     val document = DocumentBuilderFactory.newInstance()
@@ -186,7 +186,6 @@ internal fun parseBackupList(input: InputStream): List<RemoteBackup> {
     val responses = document.getElementsByTagNameNS("*", "response")
     return (0 until responses.length)
         .mapNotNull { (responses.item(it) as Element).toRemoteBackup() }
-        .sortedWith(compareByDescending<RemoteBackup> { it.lastModified }.thenByDescending { it.name })
 }
 
 private fun Element.toRemoteBackup(): RemoteBackup? {
