@@ -1,8 +1,15 @@
 package com.stelliberty.android.service
 
 import android.content.Context
+import com.stelliberty.android.data.bridge.RustBackend
 import com.stelliberty.android.data.bridge.StellibertyCoreBridge
 import com.stelliberty.android.util.AppLogger
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -11,12 +18,57 @@ import java.nio.file.StandardCopyOption
 import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.thread
 
+@Serializable
+private data class ProfileWorkDirRequest(val workDir: String)
+
+@Serializable
+private data class ProfileUuidRequest(val workDir: String, val uuid: String)
+
+@Serializable
+private data class ProfileOrphansRequest(val workDir: String, val knownUuids: List<String>)
+
+@Serializable
+private data class ProfileFileRequest(
+    val workDir: String,
+    val uuid: String,
+    val relativePath: String,
+)
+
+@Serializable
+private data class ProfileWriteFileRequest(
+    val workDir: String,
+    val uuid: String,
+    val relativePath: String,
+    val content: String,
+)
+
+@Serializable
+private data class PrepareProcessingResult(val path: String)
+
+@Serializable
+private data class RootRetryResult(
+    val rootRequired: List<String> = emptyList(),
+    val cleanupPaths: List<String> = emptyList(),
+)
+
+@Serializable
+private data class OrphanCleanupResult(
+    val orphans: List<String> = emptyList(),
+    val rootRequired: List<String> = emptyList(),
+    val cleanupPaths: List<String> = emptyList(),
+)
+
+@Serializable
+private data class ReadImportedFileResult(val content: String? = null)
+
 object ProfileFileOps {
 
     private const val TAG = "ProfileFileOps"
-    private const val COMMIT_STAGING = "commit.new"
-    private const val COMMIT_OLD_PREFIX = "commit.old."
     private const val PROVIDERS_DIR = "providers"
+    private val rustJson = Json {
+        encodeDefaults = true
+        explicitNulls = false
+    }
 
     private fun getWorkDir(context: Context): File {
         val dir = File(context.filesDir, "mihomo")
@@ -32,12 +84,6 @@ object ProfileFileOps {
 
     fun getPendingDir(context: Context, uuid: String): File {
         val dir = File(getWorkDir(context), "pending/$uuid")
-        if (!dir.exists()) dir.mkdirs()
-        return dir
-    }
-
-    fun getProcessingDir(context: Context): File {
-        val dir = File(getWorkDir(context), "processing")
         if (!dir.exists()) dir.mkdirs()
         return dir
     }
@@ -70,15 +116,15 @@ object ProfileFileOps {
 
     // processing 目录全进程只有一个（路径里不带订阅编号），所以从清空到提交必须完全串行。
     // 并发两个更新会交错清空同一个目录，把一个订阅下载的配置提交进另一个订阅里。
+    // 事务本身在 Rust 侧执行；这里只负责把工作目录和编号传过去。
     fun prepareProcessing(context: Context, uuid: String): File {
-        val processing = getProcessingDir(context)
-        processing.deleteRecursively()
-        processing.mkdirs()
-        val pending = File(getWorkDir(context), "pending/$uuid")
-        if (pending.exists()) {
-            pending.copyRecursively(processing, overwrite = true)
-        }
-        return processing
+        val workDir = getWorkDir(context).absolutePath
+        val result = RustBackend.call(
+            "profile.prepare_processing",
+            rustJson.encodeToString(ProfileUuidRequest.serializer(), ProfileUuidRequest(workDir, uuid)),
+            PrepareProcessingResult.serializer(),
+        )
+        return File(result.path)
     }
 
     // 直接写文件是先清空再写入，中途断电会留下半个文件，对用户设置来说等于全部丢失。
@@ -104,50 +150,56 @@ object ProfileFileOps {
     }
 
     fun cleanupProcessing(context: Context) {
-        val workDir = getWorkDir(context)
-        val processing = File(workDir, "processing")
-        if (processing.exists()) processing.deleteRecursively()
-        File(workDir, COMMIT_STAGING).deleteRecursively()
-        workDir.listFiles { f -> f.isDirectory && f.name.startsWith(COMMIT_OLD_PREFIX) }
-            ?.forEach { saved ->
-                val imported = File(workDir, "imported/${saved.name.removePrefix(COMMIT_OLD_PREFIX)}")
-                if (imported.exists()) removeMaybeRootOwned(saved) else saved.renameTo(imported)
-            }
+        val workDir = getWorkDir(context).absolutePath
+        val payload = rustJson.encodeToString(
+            ProfileWorkDirRequest.serializer(),
+            ProfileWorkDirRequest(workDir),
+        )
+        val result = retryRootOwned(
+            { RustBackend.call("profile.cleanup_processing", payload, RootRetryResult.serializer()) },
+            { it.rootRequired },
+        )
+        if (result.rootRequired.isNotEmpty()) {
+            AppLogger.warn(TAG, "Some interrupted commit directories remain root-owned: ${result.rootRequired}")
+        }
     }
 
     // 先拷到临时目录再改名换上去，所有删除都排在拷贝之后：失败时原目录仍然完整——
     // 更新订阅的场景下它是唯一一份。两次改名中间挂了，靠留下的旧目录在下次启动时还原。
     fun commitProcessingToImported(context: Context, uuid: String) {
-        val workDir = getWorkDir(context)
-        val processing = getProcessingDir(context)
-        val imported = File(workDir, "imported/$uuid")
-        val pending = File(workDir, "pending/$uuid")
-        val staging = File(workDir, COMMIT_STAGING)
-        val old = File(workDir, "$COMMIT_OLD_PREFIX$uuid")
+        val workDir = getWorkDir(context).absolutePath
+        val payload = rustJson.encodeToString(
+            ProfileUuidRequest.serializer(),
+            ProfileUuidRequest(workDir, uuid),
+        )
+        val result = retryRootOwned(
+            { RustBackend.call("profile.commit_processing", payload, RootRetryResult.serializer()) },
+            { it.rootRequired },
+        )
+        if (result.rootRequired.isNotEmpty()) {
+            throw IOException("Cannot remove root-owned commit directories: ${result.rootRequired}")
+        }
+        result.cleanupPaths.forEach { path ->
+            if (!RootHelper.rmRfAsRoot(path)) {
+                AppLogger.warn(TAG, "Failed to remove old imported copy: $path")
+            }
+        }
+    }
 
-        staging.deleteRecursively()
-        removeMaybeRootOwned(old)
-        try {
-            staging.mkdirs()
-            if (processing.exists()) processing.copyRecursively(staging, overwrite = true)
-        } catch (e: Throwable) {
-            staging.deleteRecursively()
-            throw e
+    private fun <T> retryRootOwned(block: () -> T, paths: (T) -> List<String>): T {
+        var result = block()
+        repeat(2) {
+            val required = paths(result)
+            if (required.isEmpty()) return result
+            AppLogger.warn(TAG, "Removing root-owned profile paths: $required")
+            required.forEach { path ->
+                if (!RootHelper.rmRfAsRoot(path)) {
+                    AppLogger.warn(TAG, "Root removal failed: $path")
+                }
+            }
+            result = block()
         }
-
-        imported.parentFile?.mkdirs()
-        val movedAside = imported.exists() && imported.renameTo(old)
-        if (imported.exists()) {
-            staging.deleteRecursively()
-            throw IOException("Cannot move aside imported/$uuid")
-        }
-        if (!staging.renameTo(imported)) {
-            if (movedAside) old.renameTo(imported)
-            staging.deleteRecursively()
-            throw IOException("Cannot swap in imported/$uuid")
-        }
-        if (movedAside) removeMaybeRootOwned(old)
-        if (pending.exists()) pending.deleteRecursively()
+        return result
     }
 
     private fun removeMaybeRootOwned(dir: File) {
@@ -155,29 +207,36 @@ object ProfileFileOps {
     }
 
     fun deleteProfileDirs(context: Context, uuid: String) {
-        val imported = File(getWorkDir(context), "imported/$uuid")
-        val pending = File(getWorkDir(context), "pending/$uuid")
-        val runtime = File(getWorkDir(context), "runtime/$uuid")
-        if (imported.exists() && !imported.deleteRecursively()) {
-            RootHelper.rmRfAsRoot(imported.absolutePath)
-        }
-        if (pending.exists()) pending.deleteRecursively()
-        if (runtime.exists() && !runtime.deleteRecursively()) {
-            RootHelper.rmRfAsRoot(runtime.absolutePath)
+        val workDir = getWorkDir(context).absolutePath
+        val payload = rustJson.encodeToString(
+            ProfileUuidRequest.serializer(),
+            ProfileUuidRequest(workDir, uuid),
+        )
+        val result = retryRootOwned(
+            { RustBackend.call("profile.delete_profile_dirs", payload, RootRetryResult.serializer()) },
+            { it.rootRequired },
+        )
+        if (result.rootRequired.isNotEmpty()) {
+            AppLogger.warn(TAG, "Some profile directories remain root-owned: ${result.rootRequired}")
         }
     }
 
     // 删订阅是「先删列表条目、再删目录」两步，中间进程挂了就留下永远没人认领的目录。
     // 只有订阅列表知道哪些还算数，所以按现存的编号反着扫。
     fun deleteOrphanProfileDirs(context: Context, knownUuids: Set<String>): List<String> {
-        val workDir = getWorkDir(context)
-        val orphans = listOf("imported", "pending")
-            .flatMap { sub -> File(workDir, sub).listFiles()?.filter { it.isDirectory }.orEmpty() }
-            .map { it.name }
-            .distinct()
-            .filter { it !in knownUuids }
-        orphans.forEach { deleteProfileDirs(context, it) }
-        return orphans
+        val workDir = getWorkDir(context).absolutePath
+        val payload = rustJson.encodeToString(
+            ProfileOrphansRequest.serializer(),
+            ProfileOrphansRequest(workDir, knownUuids.toList()),
+        )
+        val result = retryRootOwned(
+            { RustBackend.call("profile.delete_orphan_dirs", payload, OrphanCleanupResult.serializer()) },
+            { it.rootRequired },
+        )
+        if (result.rootRequired.isNotEmpty()) {
+            AppLogger.warn(TAG, "Some orphan directories remain root-owned: ${result.rootRequired}")
+        }
+        return result.orphans
     }
 
     // ROOT 模式下 mihomo 以 root 身份运行，会往工作目录里写缓存文件，普通权限删不掉。
@@ -227,38 +286,39 @@ object ProfileFileOps {
     }
 
     fun listImportedFiles(context: Context, uuid: String): List<String> {
-        val root = File(getWorkDir(context), "imported/$uuid")
-        if (!root.exists() || !root.isDirectory) return emptyList()
-        val result = mutableListOf<String>()
-        root.walkTopDown().forEach { file ->
-            if (file.isFile) {
-                val rel = file.relativeTo(root).invariantSeparatorsPath
-                result.add(rel)
-            }
-        }
-        return result.sorted()
+        val workDir = getWorkDir(context).absolutePath
+        val payload = rustJson.encodeToString(
+            ProfileUuidRequest.serializer(),
+            ProfileUuidRequest(workDir, uuid),
+        )
+        return RustBackend.call(
+            "profile.list_imported_files",
+            payload,
+            ListSerializer(String.serializer()),
+        )
     }
 
     fun readImportedFile(context: Context, uuid: String, relativePath: String): String? {
-        val root = File(getWorkDir(context), "imported/$uuid")
-        val target = File(root, relativePath)
-        val canonicalRoot = root.canonicalFile
-        val canonicalTarget = runCatching { target.canonicalFile }.getOrNull() ?: return null
-        if (!canonicalTarget.startsWith(canonicalRoot)) return null
-        if (!canonicalTarget.isFile) return null
-        return runCatching { canonicalTarget.readText() }.getOrNull()
+        val workDir = getWorkDir(context).absolutePath
+        val payload = rustJson.encodeToString(
+            ProfileFileRequest.serializer(),
+            ProfileFileRequest(workDir, uuid, relativePath),
+        )
+        val result = RustBackend.call(
+            "profile.read_imported_file",
+            payload,
+            ReadImportedFileResult.serializer(),
+        )
+        return result.content
     }
 
     fun writeImportedFile(context: Context, uuid: String, relativePath: String, content: String) {
-        val root = File(getWorkDir(context), "imported/$uuid")
-        val target = File(root, relativePath)
-        val canonicalRoot = root.canonicalFile
-        val canonicalTarget = target.canonicalFile
-        require(canonicalTarget.startsWith(canonicalRoot)) {
-            "Path traversal blocked: $relativePath"
-        }
-        canonicalTarget.parentFile?.mkdirs()
-        canonicalTarget.writeText(content)
+        val workDir = getWorkDir(context).absolutePath
+        val payload = rustJson.encodeToString(
+            ProfileWriteFileRequest.serializer(),
+            ProfileWriteFileRequest(workDir, uuid, relativePath, content),
+        )
+        RustBackend.call("profile.write_imported_file", payload, Unit.serializer())
     }
 
     internal val GEODATA_FILES = listOf(
