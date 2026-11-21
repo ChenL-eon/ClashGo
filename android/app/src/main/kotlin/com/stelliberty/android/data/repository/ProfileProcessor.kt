@@ -160,9 +160,11 @@ class ProfileProcessor(
                 withContext(NonCancellable) {
                     // 先让 Rust 丢掉当前会话；清理目录仍走单独的 cleanup，权限不足时可以重放。
                     runCatching { fileManager.abortProcessing(session.token) }
-                    fileManager.cleanupProcessing()
+                    runCatching { fileManager.cleanupProcessing() }
+                        .onFailure { AppLogger.warn(TAG, "Cleanup after profile failure failed", it) }
                     if (isUpdate && t !is CancellationException) {
-                        repo.withProfileLock { repo.markFailed(uuid, t.describe()) }
+                        runCatching { repo.withProfileLock { repo.markFailed(uuid, t.describe()) } }
+                            .onFailure { AppLogger.warn(TAG, "Cannot record profile failure for $uuid", it) }
                     }
                 }
                 throw t
