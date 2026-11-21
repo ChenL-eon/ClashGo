@@ -172,6 +172,10 @@ class BackupManager(
 
     private suspend fun restoreBackup(file: File, mode: RestoreMode) = ProfileProcessor.withProcessLock {
         withContext(Dispatchers.IO) {
+            // 上一次恢复如果在 swap 中途被杀，先由启动恢复放回旧目录；这里再兜一次，避免在残留目录上继续覆盖。
+            if (!BackupRestoreRecovery.recover(context)) {
+                throw BackupException("Cannot recover an interrupted restore; retry after fixing .restore-old")
+            }
             val archive = extractToStaging(file)
             when (mode) {
                 RestoreMode.Overwrite -> overwrite(archive)
@@ -372,17 +376,29 @@ class BackupManager(
     private fun swapStagedFiles() {
         val staging = File(mihomoDir, RESTORE_STAGING)
         val old = File(mihomoDir, RESTORE_OLD)
-        old.deleteRecursively()
+        // 上一次恢复的旧副本必须已经由启动恢复处理干净；这里再删一次失败时要停下，
+        // 否则下面的 rename 会撞上同名目标并触发回滚，反而可能删掉新的正式目录。
+        if (old.exists() && !old.deleteRecursively()) {
+            throw BackupException("Cannot clear unresolved restore backup")
+        }
+        if (!old.mkdirs()) {
+            throw BackupException("Cannot create restore backup directory")
+        }
         try {
-            old.mkdirs()
             RESTORE_TARGETS.forEach { swapIn(it, staging, old) }
+            old.deleteRecursively()
         } catch (e: Throwable) {
             AppLogger.error(TAG, "Restore swap failed, rolling back", e)
-            RESTORE_TARGETS.forEach { rollbackFrom(it, old) }
+            val restored = RESTORE_TARGETS.map { rollbackFrom(it, old) }.all { it }
+            if (restored) {
+                old.deleteRecursively()
+            } else {
+                // 回滚失败时旧副本是唯一完整数据，必须留给下一次启动的恢复器。
+                AppLogger.error(TAG, "Restore rollback incomplete; keeping $RESTORE_OLD for recovery")
+            }
             throw e
         } finally {
             staging.deleteRecursively()
-            old.deleteRecursively()
         }
     }
 
@@ -397,12 +413,12 @@ class BackupManager(
         }
     }
 
-    private fun rollbackFrom(name: String, old: File) {
+    private fun rollbackFrom(name: String, old: File): Boolean {
         val saved = File(old, name)
-        if (!saved.exists()) return
+        if (!saved.exists()) return true
         val current = File(mihomoDir, name)
-        current.deleteRecursively()
-        saved.renameTo(current)
+        if (!current.deleteRecursively()) return false
+        return saved.renameTo(current)
     }
 
     private fun zipDirIfExists(zip: ZipOutputStream, dir: File, entryPrefix: String, skipConfig: Boolean) {
@@ -438,12 +454,12 @@ class BackupManager(
         private const val CONFIG_SUFFIX = ".yaml"
         private const val OVERRIDE_FILE = OverrideJsonStore.FILE_NAME
 
-        private const val RESTORE_STAGING = ".restore"
-        private const val RESTORE_OLD = ".restore-old"
+        internal const val RESTORE_STAGING = ".restore"
+        internal const val RESTORE_OLD = ".restore-old"
 
         private const val TRANSFER_FILE = "stelliberty-backup-transfer$BACKUP_EXTENSION"
         private const val DECRYPT_FILE = "stelliberty-backup-decrypt.yaml"
-        private val RESTORE_TARGETS = listOf(
+        internal val RESTORE_TARGETS = listOf(
             IMPORTED_DIR,
             PENDING_DIR,
             SubscriptionStore.DIRECTORY,

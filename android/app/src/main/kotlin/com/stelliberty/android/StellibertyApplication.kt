@@ -7,6 +7,7 @@ import android.content.pm.ApplicationInfo
 import android.os.Build
 import com.stelliberty.android.data.api.AutoDelayTester
 import com.stelliberty.android.data.api.MihomoConnectionManager
+import com.stelliberty.android.data.backup.BackupRestoreRecovery
 import com.stelliberty.android.data.bridge.RustBackend
 import com.stelliberty.android.data.bridge.StellibertyCoreBridge
 import com.stelliberty.android.di.androidAppModule
@@ -59,6 +60,9 @@ class StellibertyApplication : Application() {
         instance = this
         // 排在最前：后面每一步都要打日志，未初始化时文件写入会静默降级、只剩 logcat。
         AppLogger.initialize(this, PlatformStorage(this).getString(StorageKeys.APP_LOG_LEVEL, AppLogger.DEFAULT_LEVEL))
+        // 必须在 Koin 读取订阅/设置之前完成：恢复中断的覆盖操作可能还要把旧目录换回来。
+        runCatching { BackupRestoreRecovery.recover(this) }
+            .onFailure { AppLogger.error("Application", "Backup restore recovery failed", it) }
         startKoin {
             androidContext(this@StellibertyApplication)
             modules(dataModule, androidPlatformModule, androidAppModule, viewModelModule)
