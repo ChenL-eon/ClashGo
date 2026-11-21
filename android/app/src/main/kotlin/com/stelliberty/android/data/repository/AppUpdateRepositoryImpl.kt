@@ -84,7 +84,7 @@ class AppUpdateRepositoryImpl(
     }
 
     private companion object {
-        const val RELEASES_URL = "https://api.github.com/repos/Kindness-Kismet/stelliberty_android/releases"
+        const val RELEASES_URL = "https://api.github.com/repos/ChenL-eon/ClashGo/releases"
     }
 }
 
