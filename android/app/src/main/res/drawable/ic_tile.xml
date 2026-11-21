@@ -1,4 +1,0 @@
-<!-- 抵消启动图标的安全留白，让前景图案占满磁贴的图标区域。 -->
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:drawable="@drawable/ic_launcher_foreground"
-    android:inset="-50%" />

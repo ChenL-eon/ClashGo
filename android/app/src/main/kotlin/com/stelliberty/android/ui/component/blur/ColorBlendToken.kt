@@ -17,16 +17,4 @@ internal object ColorBlendToken {
         BlendColorEntry(Color(0x4DA9A9A9), BlurBlendMode.Luminosity),
         BlendColorEntry(Color(0x1A9C9C9C), BlurBlendMode.PlusDarker),
     )
-
-    val LogoLight = listOf(
-        BlendColorEntry(Color(0xcc4a4a4a.toInt()), BlurBlendMode.ColorBurn),
-        BlendColorEntry(Color(0xff4f4f4f.toInt()), BlurBlendMode.LinearLight),
-        BlendColorEntry(Color(0xff1af200.toInt()), BlurBlendMode.Lab),
-    )
-
-    val LogoDark = listOf(
-        BlendColorEntry(Color(0xe6a1a1a1.toInt()), BlurBlendMode.ColorDodge),
-        BlendColorEntry(Color(0x4de6e6e6), BlurBlendMode.LinearLight),
-        BlendColorEntry(Color(0xff1af500.toInt()), BlurBlendMode.Lab),
-    )
 }

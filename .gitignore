@@ -49,6 +49,7 @@
 !/android/app/src/**/*.kt
 !/android/app/src/**/AndroidManifest.xml
 !/android/app/src/main/res/**/*.xml
+!/android/app/src/main/res/**/*.png
 !/android/app/src/main/cpp/*.c
 !/android/app/src/main/cpp/*.h
 !/android/app/src/main/cpp/CMakeLists.txt

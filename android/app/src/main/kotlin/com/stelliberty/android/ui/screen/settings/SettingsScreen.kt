@@ -229,14 +229,14 @@ fun SettingsScreen(
                             CardItem("overrides") {
                                 ArrowPreference(
                                     title = stringResource(R.string.override_title),
-                                    startAction = { PreferenceIcon(AppIcons.NavSubscription) },
+                                    startAction = { PreferenceIcon(AppIcons.Overrides) },
                                     onClick = onNavigateOverrides,
                                 )
                             },
                             CardItem("fileManager") {
                                 ArrowPreference(
                                     title = stringResource(R.string.settings_file_manager),
-                                    startAction = { PreferenceIcon(AppIcons.Backup) },
+                                    startAction = { PreferenceIcon(AppIcons.Folder) },
                                     onClick = onNavigateFileManager,
                                 )
                             },

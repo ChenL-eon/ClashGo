@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""从 MingCute 的 SVG 生成 Compose ImageVector。
+"""从 ClashGo 的 SVG 生成 Compose ImageVector。
 
-一次性工具：改 ICONS 表后重跑，产物提交进仓库。运行时不依赖网络，也不引 MingCute 依赖——
-只取用到的那二十几个图标，避免 material-icons-extended 那种「为 3 个图标拖进整个库」。
+一次性工具：改 ICONS 表后重跑，产物提交进仓库。运行时不依赖网络，也不引图标库——
+只取实际用到的 SVG，避免 material-icons-extended 那种「为几个图标拖进整个库」。
 
 用法：
     python scripts/gen_icons.py            # 增量：SVG 已缓存则不重新下载
@@ -19,78 +19,92 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-REPO_RAW = "https://raw.githubusercontent.com/Richard9394/MingCute/main/assets/svg/core"
-SVG_CACHE = Path("build/tmp/mingcute/svg")
+REPO_RAW = "https://raw.githubusercontent.com/ChenL-eon/ClashGo/main/assets"
+SVG_CACHE = Path("build/tmp/clashgo-assets")
 OUT_PACKAGE = "com.stelliberty.android.ui.icon"
 OUT_DIR = Path("android/app/src/main/kotlin/com/stelliberty/android/ui/icon")
 SVG_NS = "{http://www.w3.org/2000/svg}"
 
-# AppIcons 属性名 → MingCute 的 <风格>/<分类>/<文件>.svg（风格取 regular / filled）。左侧对齐
-# 调用点语义、右侧是原名；生成的 val 按右侧命名，语义名可共用一个。换图标只改右侧，调用点不动。
+# AppIcons 属性名 → ClashGo 的 assets/icons 文件名。左侧对齐调用点语义、右侧是上游原名；
+# 生成产物按右侧命名，同名 vector 可由多个语义名共用。换图标只改右侧，调用点不动。
 ICONS: dict[str, str] = {
-    "Add": "regular/system/add.svg",
-    "ArrowRight": "regular/arrow/arrow_right.svg",
-    "Back": "regular/arrow/arrow_left.svg",
-    "Backup": "regular/files/upload.svg",
-    "Check": "regular/system/check.svg",
-    "ChevronRight": "regular/arrow/right_small.svg",
-    "Close": "regular/system/close.svg",
-    "Delete": "regular/system/delete_2.svg",
-    "Filter": "regular/business/filter_3.svg",
-    "File": "regular/files/file.svg",
-    "Global": "regular/locations/earth.svg",
-    "Info": "regular/system/information.svg",
-    "Layers": "regular/design/layer.svg",
-    "Layout": "regular/design/layout.svg",
-    "Link": "regular/files/link.svg",
-    "More": "regular/system/more_1.svg",
-    "MoveDown": "regular/arrow/down_small.svg",
-    "MoveUp": "regular/arrow/up_small.svg",
-    "Pin": "regular/files/pin.svg",
-    "QrCode": "regular/devices/qrcode.svg",
-    "Refresh": "regular/system/refresh_2.svg",
-    "Restore": "regular/files/download.svg",
-    "Route": "regular/locations/route.svg",
-    "Search": "regular/files/search.svg",
-    "SearchCleanup": "regular/system/close_circle.svg",
-    "Settings": "regular/system/settings_3.svg",
-    "SingleColumn": "regular/design/rows_2.svg",
-    "Sort": "regular/editing/sort_ascending.svg",
-    "StatusClock": "regular/system/time.svg",
-    "StatusSubscription": "regular/devices/rss.svg",
-    "SubscriptionRefresh": "regular/system/refresh_1.svg",
-    "TestDelay": "regular/devices/dashboard_2.svg",
-    "Unpin": "regular/system/close_circle.svg",
-    "Wifi": "regular/devices/wifi.svg",
-    # 四个 Tab 各一对：未选中用 regular，选中用 filled
-    "NavHome": "regular/buildings/home_2.svg",
-    "NavHomeActive": "filled/buildings/home_2.svg",
-    "NavProxy": "regular/shapes/shield_shape.svg",
-    "NavProxyActive": "filled/shapes/shield_shape.svg",
-    "NavSubscription": "regular/weather/moon_cloudy.svg",
-    "NavSubscriptionActive": "filled/weather/moon_cloudy.svg",
-    "NavSettings": "regular/system/settings_3.svg",
-    "NavSettingsActive": "filled/system/settings_3.svg",
+    "Add": "icons/add-line.svg",
+    "ArrowRight": "icons/right-small-line.svg",
+    "Back": "icons/arrow-left-line.svg",
+    "Backup": "icons/upload-line.svg",
+    "Check": "icons/check-line.svg",
+    "ChevronRight": "icons/right-small-line.svg",
+    "Close": "icons/close-line.svg",
+    "Delete": "icons/delete-2-line.svg",
+    "Filter": "icons/sort-alpha-line.svg",
+    "File": "icons/file-line.svg",
+    "Folder": "icons/folder-line.svg",
+    "Global": "icons/globe-line.svg",
+    "Info": "icons/information-line.svg",
+    "Layers": "icons/columns-2-line.svg",
+    "Layout": "icons/layout-tabs-line.svg",
+    "Link": "icons/link-line.svg",
+    "More": "icons/more-1-line.svg",
+    "MoveDown": "icons/down-small-line.svg",
+    "MoveUp": "icons/up-small-line.svg",
+    "Overrides": "icons/list-check-line.svg",
+    "Pin": "icons/pin-line.svg",
+    "QrCode": "icons/qrcode-line.svg",
+    "Refresh": "icons/refresh-2-line.svg",
+    "Restore": "icons/download-2-line.svg",
+    "Route": "icons/transfer-line.svg",
+    "Search": "icons/search-line.svg",
+    "SearchCleanup": "icons/close-circle-line.svg",
+    "Settings": "icons/settings-3-line.svg",
+    "SingleColumn": "icons/columns-1-line.svg",
+    "Sort": "icons/sort-ascending-line.svg",
+    "StatusClock": "icons/clock-line.svg",
+    "StatusSubscription": "icons/list-check-line.svg",
+    "SubscriptionRefresh": "icons/refresh-2-line.svg",
+    "TestDelay": "icons/speed-line.svg",
+    "Unpin": "icons/close-circle-line.svg",
+    "Wifi": "icons/wifi-line.svg",
+    # 四个 Tab 各一对：未选中用线框，选中用填充
+    "NavHome": "icons/home-2-line.svg",
+    "NavHomeActive": "icons/home-2-fill.svg",
+    "NavProxy": "icons/shield-shape-line.svg",
+    "NavProxyActive": "MingCuteShieldShapeFill",
+    "NavSubscription": "icons/cloud-line.svg",
+    "NavSubscriptionActive": "MingCuteCloudFill",
+    "NavSettings": "icons/settings-3-line.svg",
+    "NavSettingsActive": "icons/settings-3-fill.svg",
+    "Appearance": "icons/grid-line.svg",
+    "BlurOn": "icons/focus-line.svg",
+    "DarkMode": "icons/eye-off-line.svg",
+    "GitHub": "icons/terminal-line.svg",
+    "Language": "icons/translate-line.svg",
+    "LibraryBooks": "icons/folder-line.svg",
+    "SwipeHorizontal": "icons/layout-sidebar-line.svg",
 }
+
+# 上游只有线框版的 Tab 图标，用同一路径额外生成填充态，保留选中/未选中的视觉差异。
+SOLID_SOURCES: dict[str, str] = {
+    "icons/shield-shape-line.svg": "MingCuteShieldShapeFill",
+    "icons/cloud-line.svg": "MingCuteCloudFill",
+}
+
+
+def is_svg_source(value: str) -> bool:
+    return value.endswith(".svg")
+
+
+def vector_for(value: str) -> str:
+    return vector_name(value) if is_svg_source(value) else value
 
 
 def vector_name(rel: str) -> str:
-    """`regular/system/close_circle.svg` → `MingCuteCloseCircle`；filled 风格加 `Filled` 后缀。"""
-    style, _, tail = rel.partition("/")
-    stem = tail.rsplit("/", 1)[-1].removesuffix(".svg")
-    name = "MingCute" + "".join(part.capitalize() for part in stem.split("_"))
-    return name + "Filled" if style == "filled" else name
+    """`icons/close-circle-line.svg` → `MingCuteCloseCircleLine`。"""
+    stem = rel.rsplit("/", 1)[-1].removesuffix(".svg")
+    name = "MingCute" + "".join(part.capitalize() for part in stem.replace("-", "_").split("_"))
+    return name
 
 # 快照图标仅生成入口映射，矢量来源与许可见 .github/licenses/NOTICE.md。
-FIXED_ICONS = {
-    "Appearance": "MingCuteAppearance",
-    "BlurOn": "MingCuteBlurOn",
-    "DarkMode": "MingCuteDarkMode",
-    "GitHub": "MingCuteGithubLine",
-    "Language": "MingCuteLanguage",
-    "LibraryBooks": "MingCuteLibraryBooks",
-    "SwipeHorizontal": "MingCuteSwipeHorizontal",
-}
+FIXED_ICONS = {}
 
 CAP = {"butt": "Butt", "round": "Round", "square": "Square"}
 JOIN = {"miter": "Miter", "round": "Round", "bevel": "Bevel"}
@@ -122,9 +136,30 @@ def fetch(rel: str, dest: Path, force: bool) -> str:
     return body
 
 
+def shape_path(node: ET.Element, tag: str) -> str:
+    """把 simple <circle> / <rect> 转成 path data，保持与应用现有 PathParser 一致。"""
+    a = node.attrib
+    if tag == "circle":
+        cx, cy, r = float(a["cx"]), float(a["cy"]), float(a["r"])
+        return (
+            f"M{cx - r:g},{cy:g} A{r:g},{r:g} 0 1,0 {cx + r:g},{cy:g} "
+            f"A{r:g},{r:g} 0 1,0 {cx - r:g},{cy:g} Z"
+        )
+    x, y, w, h = float(a["x"]), float(a["y"]), float(a["width"]), float(a["height"])
+    r = min(float(a.get("rx") or a.get("ry") or 0), w / 2, h / 2)
+    if r <= 0:
+        return f"M{x:g},{y:g} H{x + w:g} V{y + h:g} H{x:g} Z"
+    return (
+        f"M{x + r:g},{y:g} H{x + w - r:g} "
+        f"A{r:g},{r:g} 0 0,1 {x + w:g},{y + r:g} V{y + h - r:g} "
+        f"A{r:g},{r:g} 0 0,1 {x + w - r:g},{y + h:g} H{x + r:g} "
+        f"A{r:g},{r:g} 0 0,1 {x:g},{y + h - r:g} V{y + r:g} "
+        f"A{r:g},{r:g} 0 0,1 {x + r:g},{y:g} Z"
+    )
+
+
 def parse_paths(svg: str, rel: str) -> tuple[float, float, list[dict[str, str]]]:
-    """抽出 viewBox 与各 <path>。只认 <path>——遇到 rect/circle 直接报错，
-    不静默跳过：漏掉一段的图标看起来只是「画得不对」，追起来很费时间。"""
+    """抽出 viewBox 与各图形，支持上游用到的 path / circle / rect。"""
     root = ET.fromstring(svg)
     box = (root.get("viewBox") or "0 0 24 24").split()
     if len(box) != 4:
@@ -141,11 +176,12 @@ def parse_paths(svg: str, rel: str) -> tuple[float, float, list[dict[str, str]]]
         tag = node.tag.replace(SVG_NS, "")
         if tag in ("svg", "g", "defs", "title", "desc"):
             continue
-        if tag != "path":
+        if tag in ("path", "circle", "rect"):
+            data = node.get("d") if tag == "path" else shape_path(node, tag)
+            if not data:
+                sys.exit(f"error: {rel} 有 <{tag}> 缺少几何数据")
+        else:
             sys.exit(f"error: {rel} 含不支持的元素 <{tag}>，需扩展生成器")
-        data = node.get("d")
-        if not data:
-            sys.exit(f"error: {rel} 有 <path> 缺少 d")
         paths.append(
             {
                 "d": re.sub(r"\s+", " ", data).strip(),
@@ -162,10 +198,10 @@ def parse_paths(svg: str, rel: str) -> tuple[float, float, list[dict[str, str]]]
     return width, height, paths
 
 
-def render_path(p: dict[str, str], rel: str) -> str:
+def render_path(p: dict[str, str], rel: str, solid: bool = False) -> str:
     """描边与填充都落成 Color.Black；实际着色由调用点的 tint 覆盖，
     源 SVG 里的 #10161F 属于 MingCute 的预览色，不该带进来。"""
-    has_fill = p["fill"] not in ("none", "")
+    has_fill = solid or p["fill"] not in ("none", "")
     has_stroke = p["stroke"] not in ("none", "")
     if not has_fill and not has_stroke:
         sys.exit(f"error: {rel} 有既不填充也不描边的 path")
@@ -192,8 +228,15 @@ def render_path(p: dict[str, str], rel: str) -> str:
     return "\n".join(lines)
 
 
-def render_icon(val: str, rel: str, width: float, height: float, paths: list[dict[str, str]]) -> str:
-    body = "\n".join(render_path(p, rel) for p in paths)
+def render_icon(
+    val: str,
+    rel: str,
+    width: float,
+    height: float,
+    paths: list[dict[str, str]],
+    solid: bool = False,
+) -> str:
+    body = "\n".join(render_path(p, rel, solid) for p in paths)
     imports = [
         "androidx.compose.ui.graphics.Color",
         "androidx.compose.ui.graphics.PathFillType",
@@ -229,7 +272,7 @@ internal val {val}: ImageVector by lazy {{
 
 
 def render_entry() -> str:
-    icons = {name: vector_name(rel) for name, rel in ICONS.items()} | FIXED_ICONS
+    icons = {name: vector_for(value) for name, value in ICONS.items()} | FIXED_ICONS
     props = "\n".join(
         f"    val {name}: ImageVector get() = {vector}" for name, vector in sorted(icons.items())
     )
@@ -255,7 +298,10 @@ def main() -> int:
     out = root / OUT_DIR
     out.mkdir(parents=True, exist_ok=True)
 
-    for rel in sorted(set(ICONS.values())):
+    for old in out.glob("MingCute*.kt"):
+        old.unlink()
+
+    for rel in sorted({value for value in ICONS.values() if is_svg_source(value)}):
         svg = fetch(rel, cache / rel, args.force)
         width, height, paths = parse_paths(svg, rel)
         val = vector_name(rel)
@@ -263,8 +309,17 @@ def main() -> int:
         aliases = sorted(n for n, r in ICONS.items() if r == rel)
         print(f"[ ok ] {val}.kt  <- {rel}  ({len(paths)} path)  {', '.join(aliases)}")
 
+    for rel, val in sorted(SOLID_SOURCES.items()):
+        svg = fetch(rel, cache / rel, args.force)
+        width, height, paths = parse_paths(svg, rel)
+        (out / f"{val}.kt").write_text(
+            render_icon(val, rel, width, height, paths, solid=True), encoding="utf-8", newline="\n"
+        )
+        aliases = sorted(n for n, r in ICONS.items() if r == val)
+        print(f"[ ok ] {val}.kt  <- {rel} (solid)  {', '.join(aliases)}")
+
     (out / "AppIcons.kt").write_text(render_entry(), encoding="utf-8", newline="\n")
-    print(f"[ ok ] AppIcons.kt  ({len(ICONS)} 个语义名 / {len(set(ICONS.values()))} 个 vector)")
+    print(f"[ ok ] AppIcons.kt  ({len(ICONS)} 个语义名 / {len({vector_for(v) for v in ICONS.values()})} 个 vector)")
     print(f"[info] 输出目录 {OUT_DIR}")
     return 0
 

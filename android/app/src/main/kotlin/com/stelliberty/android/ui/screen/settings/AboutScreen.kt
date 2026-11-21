@@ -34,10 +34,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
@@ -85,7 +83,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
-internal const val PROJECT_REPOSITORY_URL = "https://github.com/Kindness-Kismet/stelliberty_android"
+internal const val PROJECT_REPOSITORY_URL = "https://github.com/ChenL-eon/ClashGo"
 
 @Composable
 fun AboutScreen(
@@ -162,14 +160,9 @@ private fun AboutContent(
     val cardBlendColors = remember(isDark) {
         if (isDark) ColorBlendToken.Overlay_Thin_Light else ColorBlendToken.Pured_Regular_Light
     }
-    val logoBlend = remember(isDark) {
-        if (isDark) ColorBlendToken.LogoDark else ColorBlendToken.LogoLight
-    }
     var logoHeightDp by remember { mutableStateOf(300.dp) }
     val quickActionsVisible by remember { derivedStateOf { scrollProgress() < 0.2f } }
     val versionProgress = { ((scrollProgress() - 0.05f) / 0.15f).coerceIn(0f, 1f) }
-    val projectNameProgress = { ((scrollProgress() - 0.20f) / 0.15f).coerceIn(0f, 1f) }
-    val iconProgress = { ((scrollProgress() - 0.35f) / 0.15f).coerceIn(0f, 1f) }
     val scrollPadding = PaddingValues(
         top = innerPadding.calculateTopPadding(),
         start = innerPadding.calculateStartPadding(layoutDirection),
@@ -203,43 +196,16 @@ private fun AboutContent(
         ) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.size(100.dp).clipToBounds().testTag(TestTags.About.ICON).graphicsLayer {
-                    val progress = iconProgress()
-                    alpha = 1 - progress
-                    scaleX = 1 - progress * 0.05f
-                    scaleY = 1 - progress * 0.05f
-                },
+                modifier = Modifier.size(100.dp).clip(RoundedCornerShape(22.dp)).testTag(TestTags.About.ICON),
             ) {
                 Image(
-                    modifier = Modifier.requiredSize(200.dp).then(
-                        if (backdrop != null) Modifier.textureBlur(
-                            backdrop = backdrop,
-                            shape = RoundedCornerShape(0.dp),
-                            blurRadius = 150f,
-                            colors = BlurColors(blendColors = logoBlend),
-                            contentBlendMode = BlendMode.DstIn,
-                        ) else Modifier,
-                    ),
-                    painter = painterResource(R.drawable.ic_launcher_foreground),
-                    colorFilter = ColorFilter.tint(colorScheme.onBackground),
+                    modifier = Modifier.requiredSize(100.dp),
+                    painter = painterResource(R.drawable.app_icon),
                     contentDescription = null,
                 )
             }
             Text(
-                modifier = Modifier.padding(top = 12.dp, bottom = 5.dp).testTag(TestTags.About.NAME).graphicsLayer {
-                    val progress = projectNameProgress()
-                    alpha = 1 - progress
-                    scaleX = 1 - progress * 0.05f
-                    scaleY = 1 - progress * 0.05f
-                }.then(
-                    if (backdrop != null) Modifier.textureBlur(
-                        backdrop = backdrop,
-                        shape = RoundedCornerShape(16.dp),
-                        blurRadius = 150f,
-                        colors = BlurColors(blendColors = logoBlend),
-                        contentBlendMode = BlendMode.DstIn,
-                    ) else Modifier,
-                ),
+                modifier = Modifier.padding(top = 12.dp, bottom = 5.dp).testTag(TestTags.About.NAME),
                 text = stringResource(R.string.app_name),
                 color = colorScheme.onBackground,
                 fontWeight = FontWeight.Bold,
