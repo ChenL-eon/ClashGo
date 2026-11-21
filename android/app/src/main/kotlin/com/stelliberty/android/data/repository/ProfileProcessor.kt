@@ -43,14 +43,20 @@ class ProfileProcessor(
     // 中间进程挂了就会留下孤儿）。必须和处理流程用同一把锁，否则会擦掉后台任务正在写的内容。
     suspend fun cleanupResidual() = withContext(Dispatchers.IO) {
         processLock.withLock {
-            fileManager.cleanupProcessing()
-            val known = repo.knownUuidsOrNull()
-            if (known == null) {
-                AppLogger.warn(TAG, "Subscription list incomplete, skipping orphan cleanup")
-                return@withLock
+            try {
+                fileManager.cleanupProcessing()
+                val known = repo.knownUuidsOrNull()
+                if (known == null) {
+                    AppLogger.warn(TAG, "Subscription list incomplete, skipping orphan cleanup")
+                    return@withLock
+                }
+                val orphans = fileManager.deleteOrphanDirs(known)
+                if (orphans.isNotEmpty()) AppLogger.info(TAG, "Removed orphan profile dirs: $orphans")
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                // 清理是启动时的 best-effort：Rust 后端不可用时不能让它把主线程协程打崩。
+                AppLogger.warn(TAG, "Startup cleanup skipped", e)
             }
-            val orphans = fileManager.deleteOrphanDirs(known)
-            if (orphans.isNotEmpty()) AppLogger.info(TAG, "Removed orphan profile dirs: $orphans")
         }
     }
 
