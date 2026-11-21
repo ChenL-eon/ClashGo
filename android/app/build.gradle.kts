@@ -266,6 +266,34 @@ val buildMihomoTasks = supportedAbis.map { abi ->
 tasks.named("preBuild") {
     dependsOn(buildMihomoTasks)
 }
+val rustRootDir = rootProject.layout.projectDirectory.dir("../rust")
+val cargoExecutableProvider = providers.gradleProperty("stelliberty.cargo")
+    .orElse(providers.environmentVariable("CARGO"))
+    .orElse("cargo")
+val rustSourcesTree = fileTree(rustRootDir) {
+    exclude("target/**")
+    include("Cargo.toml", "Cargo.lock", "**/Cargo.toml", "**/*.rs")
+}
+
+val buildRustTasks = supportedAbis.map { abi ->
+    tasks.register<RustBuildTask>("buildRust_${abi.replace("-", "_")}") {
+        group = "rust"
+        description = "Build the Rust backend libstelliberty_backend.so for $abi"
+        rustRoot.set(rustRootDir)
+        rustSources.from(rustSourcesTree)
+        this.abi.set(abi)
+        ndkDirectory.set(ndkDirectoryProvider)
+        minSdk.set(ProjectConfig.Android.MIN_SDK)
+        cargoExecutable.set(cargoExecutableProvider)
+        outputFile.set(layout.projectDirectory.file("src/main/jniLibs/$abi/libstelliberty_backend.so"))
+    }
+}
+
+tasks.configureEach {
+    if (name.startsWith("merge") && name.contains("JniLibFolders")) {
+        dependsOn(buildRustTasks)
+    }
+}
 
 tasks.configureEach {
     if (name.startsWith("configureCMake") || name.startsWith("buildCMake")) {

@@ -149,6 +149,7 @@ android/app/src/main/kotlin/com/stelliberty/android/
 └── service/      VPN, ROOT, subscriptions, and background services
 android/app/src/main/cpp/                        JNI and process helpers
 android/app/src/main/native/stelliberty_core/     Go core integration
+rust/                                            Rust backend (cdylib, JNI JSON envelope)
 third_party/                                    mihomo and scripta submodules
 scripts/                                        Prebuild and build entry points
 ```

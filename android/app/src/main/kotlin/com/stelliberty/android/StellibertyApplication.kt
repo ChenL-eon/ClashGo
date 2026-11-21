@@ -7,6 +7,7 @@ import android.content.pm.ApplicationInfo
 import android.os.Build
 import com.stelliberty.android.data.api.AutoDelayTester
 import com.stelliberty.android.data.api.MihomoConnectionManager
+import com.stelliberty.android.data.bridge.RustBackend
 import com.stelliberty.android.data.bridge.StellibertyCoreBridge
 import com.stelliberty.android.di.androidAppModule
 import com.stelliberty.android.di.androidPlatformModule
@@ -17,6 +18,7 @@ import com.stelliberty.android.platform.ProxyServiceBridge
 import com.stelliberty.android.platform.StorageKeys
 import com.stelliberty.android.platform.TunMode
 import com.stelliberty.android.platform.initToastPlatform
+import com.stelliberty.android.service.ConfigGenerator
 import com.stelliberty.android.service.NotificationHelper
 import com.stelliberty.android.service.ProfileFileOps
 import com.stelliberty.android.service.ProfileUpdateScheduler
@@ -69,6 +71,7 @@ class StellibertyApplication : Application() {
         initToastPlatform(this)
         NotificationHelper.createChannels(this)
         StellibertyCoreBridge.init(homeDir = ProfileFileOps.getGeodataDir(this).absolutePath)
+        RustBackend.init(workDir = ConfigGenerator.getWorkDir(this).absolutePath)
         // 解压不能堵住启动；读地理数据的地方各自等 awaitGeodata()。
         thread(name = "geodata-extract") { ProfileFileOps.extractGeodata(this) }
         updateScheduler.start()

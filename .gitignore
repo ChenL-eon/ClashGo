@@ -58,6 +58,13 @@
 !/android/app/src/main/native/stelliberty_core/overrides/*.go
 !/android/app/src/main/native/stelliberty_core/go.mod
 !/android/app/src/main/native/stelliberty_core/go.sum
+
+# Rust 后端源码与锁定依赖；target 与产出的 .so 不进提交。
+!/rust/Cargo.toml
+!/rust/Cargo.lock
+!/rust/**/*.toml
+!/rust/**/*.rs
+/rust/target/
 !/android/baselineprofile/src/**/*.kt
 
 # 真机采集结果无法靠下载恢复，必须跟踪。

@@ -63,6 +63,7 @@ Kotlin（AGP 9 内置，不加独立 kotlin 插件）。UI：Compose（经 miuix
 ```
 scripts/        prebuild.py（子模块 + 补丁 + 便携 JDK / Go + GeoIP）/ build.py（编译与打包）/ gen_icons.py
                 build_support/（构建辅助模块，patches/ 存放内核独有修复）
+rust/           Rust 后端（Cargo workspace，cdylib libstelliberty_backend.so，源码在 stelliberty-backend/src）
 third_party/    mihomo（submodule，YuKongA fork branch Mishka，锁定原始提交）
                 scripta（includeBuild 复合构建，YAML 编辑器；app 依赖 scripta:editor）
 android/        Gradle 根（wrapper + settings.gradle.kts + buildSrc + 两个模块）
@@ -93,7 +94,7 @@ StellibertyApplication.startKoin ─ Koin（dataModule + androidPlatformModule +
 
 **Koin**（4 模块按职责拆分，均在 `di/`）：`dataModule` = appScope、SubscriptionStore、ProxySelectionStore、OverrideJsonStore、SubscriptionProxyResolver、RuleLatencyTester、MihomoConnectionManager、AutoDelayTester、OverrideProfileStore、RuleOverrideStore、ProfileTransformWriter、`SubscriptionRepositoryImpl` / `OverrideProfileRepositoryImpl` / `ChainProxyRepositoryImpl` / `RuleOverrideRepositoryImpl` / `AppUpdateRepositoryImpl` + 接口绑定、`factory { ProfileProcessor }`；`androidPlatformModule`（绑 `androidContext()`）= PlatformStorage、ProxyServiceController、AppListProvider、WifiPolicyController、BootStartManager、BackupManager、ProfileUpdateScheduler + `factory { ProfileUpdateTask }`；`androidAppModule` = `single<ProfileFileManager>`；`viewModelModule` = 14 个 ViewModel（单 Activity 用 `single`）。**组合根注入**：MainActivity `get()` 取图后透传给 `App(...)`，屏幕保持参数化、不用 koinViewModel；仅需 Activity 上下文的 FilePicker / VPN 授权 launcher 不入 Koin。**repo 实现必配接口**，ViewModel 依赖接口；`ProfileProcessor` 需实体级方法故依赖具体类。
 
-- **通信方案**：runtime（traffic/logs/connections/proxy select/provider 刷新）走 subprocess + Ktor REST + WS，三模式共用；订阅导入（fetch + provider prefetch + Parse）走 JNI in-process，由 [StellibertyCoreBridge](android/app/src/main/kotlin/com/stelliberty/android/data/bridge/StellibertyCoreBridge.kt) 调 libmihomo.so 的 cgo 导出。
+- **通信方案**：runtime（traffic/logs/connections/proxy select/provider 刷新）走 subprocess + Ktor REST + WS，三模式共用；订阅导入（fetch + provider prefetch + Parse）走 JNI in-process，由 [StellibertyCoreBridge](android/app/src/main/kotlin/com/stelliberty/android/data/bridge/StellibertyCoreBridge.kt) 调 libmihomo.so 的 cgo 导出。Rust 后端经 [RustBackend](android/app/src/main/kotlin/com/stelliberty/android/data/bridge/RustBackend.kt) 的单一 `nativeCall(method, payloadJson)` 入口承载纯业务逻辑（当前为运行参数合并），响应是 JSON 信封，失败时迁移期回退 Kotlin 实现。
 - **状态桥接**：ProxyServiceBridge（全局 StateFlow + TunMode），Service 写、ViewModel 读。**进程模型**：单进程（VpnService 与 UI 同进程），ROOT 模式 mihomo 为独立 root 进程。
 - **数据持久化**：订阅 JSON 文件（见「订阅数据」）+ PlatformStorage（简单偏好）+ StorageKeys（key 常量）+ OverrideJsonStore（`override.user.json` + `ConfigurationOverride`）；store 自带 `state: StateFlow` + `update(transform)`，「Clash 特性」各页共用 `ClashFeaturesViewModel` 读写。**OverrideJsonStore 的内存 state 是权威值**：`load()` 返回内存值不读盘，写入磁盘由 appScope 串行异步完成（排队期间被新值取代的快照直接放弃）。SubscriptionStore / ProxySelectionStore 同理：当前订阅与节点选择先发布、后异步写盘。因此 **Service / ProfileWorker / 各入口的 ProxyServiceController 必须用 Koin 单例，各自 `new` 会读到盘上旧值**——用户改完设置立刻启动就会用到改前的配置。
 - **订阅管理**：Pending → Processing → Imported 三阶段沙箱，`ProfileProcessor` 编排 snapshot → fetchAndValid（JNI 一次完成 fetch + provider prefetch + Parse）→ commit；processLock 串行，profileLock 守护订阅列表与目录一致。
@@ -130,6 +131,8 @@ DELETE → 列表、草稿与节点选择清理 + imported/{uuid}/ + pending/{uu
 ## 构建
 
 mihomo 经 submodule 锁定 YuKongA 的 `Mishka` 原始提交，独有修复保存在 `scripts/build_support/patches/mihomo-*.patch`。`prebuild.py` 同步子模块后按文件名排序应用补丁，`build.py` 每次编译前同样检查；已生效的补丁跳过，不兼容时停止并提示维护。更新上游时核对子模块提交、补丁和 `mihomo.version`，流程见 `native-build` 技能。Go 首次下载最新稳定版到 `build/go/`，后续复用缓存；更新工具链：`python scripts/prebuild.py --refresh-go`。Go 按 ABI 交叉编译，产物在 `android/app/src/main/jniLibs/<ABI>/`，APK 收集到 `build/apk/`。更新 GeoIP：`python scripts/prebuild.py --refresh-geo`。刷新 Baseline Profile：`python scripts/build.py gradle :app:generateReleaseBaselineProfile`（需 adb 连 arm64 真机，产物提交进仓库）。
+
+Rust 后端由 buildSrc 的 `RustBuildTask` 用 NDK clang 交叉编译（打包前由 `mergeJniLibFolders` 触发，纯 Kotlin 编译不需要 cargo），产物 `android/app/src/main/jniLibs/<ABI>/libstelliberty_backend.so`；cargo 不在 PATH 时用 `-Pstelliberty.cargo=<path>` 指定。Rust 单测与 lint：在 `rust/` 下跑 `cargo test` / `cargo clippy --all-targets -- -D warnings`。
 
 任务本身的硬约束（GoBuildTask 三条、downloadGeoFiles、CMake 链接）在 `native-build` skill。
 
