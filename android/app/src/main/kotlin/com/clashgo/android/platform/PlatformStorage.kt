@@ -59,6 +59,10 @@ object StorageKeys {
 
     const val PROXY_NODE_SINGLE_COLUMN = "proxy_node_single_column"
 
+    const val PROXY_NODE_COLUMNS = "proxy_node_columns"
+
+    const val PROXY_NODE_SIZE = "proxy_node_size"
+
     const val PROXY_GROUP_TABS = "proxy_group_tabs"
     const val PROXY_SELECTED_GROUP = "proxy_selected_group"
 

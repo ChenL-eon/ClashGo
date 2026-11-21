@@ -26,7 +26,6 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,7 +47,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.util.lerp
 import com.clashgo.android.R
 import com.clashgo.android.ui.icon.AppIcons
 import com.clashgo.android.ui.platform.IconLoader
@@ -254,7 +252,8 @@ internal fun ProxyGroupHeader(
 internal fun ProxyNodeRow(
     row: ImmutableList<String>,
     group: ProxyGroupUi,
-    singleColumnProgress: State<Float>,
+    columnCount: Int,
+    nodeSize: Int,
     testingNodes: ImmutableSet<String>,
     onTestNodeDelay: (String) -> Unit,
     onSelect: (String) -> Unit,
@@ -272,28 +271,28 @@ internal fun ProxyNodeRow(
                     isFixed = name == group.fixed,
                     isSelectable = group.isSelectable,
                     isTesting = name in testingNodes,
+                    nodeSize = nodeSize,
                     onTestDelay = { onTestNodeDelay(name) },
                     onClick = { onSelect(name) },
                 )
             }
         },
     ) { measurables, constraints ->
-        val fraction = singleColumnProgress.value
-        val gap = 10.dp.roundToPx()
-        val halfWidth = (constraints.maxWidth - gap) / 2
-        val cellWidth = lerp(halfWidth, constraints.maxWidth, fraction)
+        val columns = columnCount.coerceIn(1, 3)
+        val gap = when (nodeSize) {
+            0 -> 8.dp.roundToPx()
+            2 -> 12.dp.roundToPx()
+            else -> 10.dp.roundToPx()
+        }
+        val cellWidth = (constraints.maxWidth - gap * (columns - 1)) / columns
         val placeables = measurables.map {
             it.measure(constraints.copy(minWidth = cellWidth, maxWidth = cellWidth, minHeight = 0))
         }
-        val first = placeables.first()
-        val second = placeables.getOrNull(1)
-        val secondX = lerp(halfWidth + gap, 0, fraction)
-        val secondY = lerp(0, first.height + gap, fraction)
-        // 行始终占完整高度；从零高度展开会让懒列表在首帧组合整组节点。
-        val height = maxOf(first.height, if (second != null) secondY + second.height else 0)
+        val height = placeables.maxOfOrNull { it.height } ?: 0
         layout(constraints.maxWidth, height) {
-            first.placeRelative(0, 0)
-            second?.placeRelative(secondX, secondY)
+            placeables.forEachIndexed { index, placeable ->
+                placeable.placeRelative(index * (cellWidth + gap), 0)
+            }
         }
     }
 }
@@ -307,14 +306,23 @@ private fun ProxyNodeCard(
     isFixed: Boolean,
     isSelectable: Boolean,
     isTesting: Boolean,
+    nodeSize: Int,
     onTestDelay: () -> Unit,
     onClick: () -> Unit,
 ) {
     val primary = MiuixTheme.colorScheme.primary
+    val horizontalPadding = when (nodeSize) { 0 -> 12.dp; 2 -> 16.dp; else -> 14.dp }
+    val topPadding = when (nodeSize) { 0 -> 10.dp; 2 -> 14.dp; else -> 12.dp }
+    val bottomPadding = when (nodeSize) { 0 -> 4.dp; 2 -> 8.dp; else -> 6.dp }
+    val titleFontSize = when (nodeSize) { 0 -> 13.sp; 2 -> 15.sp; else -> 14.sp }
+    val titleLineHeight = when (nodeSize) { 0 -> 18.sp; 2 -> 22.sp; else -> 20.sp }
+    val detailFontSize = when (nodeSize) { 0 -> 10.sp; 2 -> 12.sp; else -> 11.sp }
+    val detailLineHeight = when (nodeSize) { 0 -> 14.sp; 2 -> 18.sp; else -> 16.sp }
+    val cardRadius = when (nodeSize) { 0 -> 12.dp; 2 -> 16.dp; else -> 14.dp }
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .squircleSurface(MiuixTheme.colorScheme.surfaceContainer, 14.dp)
+            .squircleSurface(MiuixTheme.colorScheme.surfaceContainer, cardRadius)
             .selectable(selected = isSelected, enabled = isSelectable, role = Role.RadioButton, onClick = onClick)
             .testTag(TestTags.Proxy.node(name)),
     ) {
@@ -324,13 +332,13 @@ private fun ProxyNodeCard(
                     .squircleBackground(if (isFixed) StatusColors.warning else primary, 2.dp),
             )
         }
-        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 6.dp)) {
+        Column(Modifier.padding(start = horizontalPadding, end = horizontalPadding, top = topPadding, bottom = bottomPadding)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = name,
                     modifier = Modifier.weight(1f),
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
+                    fontSize = titleFontSize,
+                    lineHeight = titleLineHeight,
                     fontWeight = FontWeight.SemiBold,
                     color = MiuixTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -341,21 +349,22 @@ private fun ProxyNodeCard(
                     Icon(
                         imageVector = if (isFixed) AppIcons.Pin else AppIcons.Check,
                         contentDescription = if (isFixed) stringResource(R.string.proxy_fixed) else null,
-                        modifier = Modifier.size(14.dp),
+                        modifier = Modifier.size(if (nodeSize == 0) 12.dp else 14.dp),
                         tint = if (isFixed) StatusColors.warning else primary,
                     )
                 }
             }
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).heightIn(min = 20.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = if (nodeSize == 2) 10.dp else 8.dp)
+                    .heightIn(min = if (nodeSize == 0) 18.dp else if (nodeSize == 2) 22.dp else 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = type,
                     modifier = Modifier.weight(1f).alignByBaseline(),
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
+                    fontSize = detailFontSize,
+                    lineHeight = detailLineHeight,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -384,8 +393,8 @@ private fun ProxyNodeCard(
                                 delay < 0 -> "-1"
                                 else -> FormatUtils.formatLatency(delay)
                             },
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp,
+                            fontSize = detailFontSize,
+                            lineHeight = detailLineHeight,
                             fontWeight = FontWeight.Medium,
                             color = delayColor,
                         )

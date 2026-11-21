@@ -90,8 +90,11 @@ class ProxyViewModel(
     private val _sortOption = MutableStateFlow(loadInitialSortOption())
     val sortOption: StateFlow<Int> = _sortOption.asStateFlow()
 
-    private val _singleColumn = MutableStateFlow(loadInitialSingleColumn())
-    val singleColumn: StateFlow<Boolean> = _singleColumn.asStateFlow()
+    private val _columnCount = MutableStateFlow(loadInitialColumnCount())
+    val columnCount: StateFlow<Int> = _columnCount.asStateFlow()
+
+    private val _nodeSize = MutableStateFlow(loadInitialNodeSize())
+    val nodeSize: StateFlow<Int> = _nodeSize.asStateFlow()
 
     private val _groupTabs = MutableStateFlow(
         storage?.getString(StorageKeys.PROXY_GROUP_TABS, "true") != "false",
@@ -161,16 +164,31 @@ class ProxyViewModel(
         storage?.putString(StorageKeys.PROXY_NODE_SORT_OPTION, option.toString())
     }
 
-    private fun loadInitialSortOption(): Int =
-        storage?.getString(StorageKeys.PROXY_NODE_SORT_OPTION, "0")?.toIntOrNull() ?: 0
-
-    fun updateSingleColumn(enabled: Boolean) {
-        _singleColumn.value = enabled
-        storage?.putString(StorageKeys.PROXY_NODE_SINGLE_COLUMN, if (enabled) "true" else "false")
+    private fun loadInitialSortOption(): Int {
+        val stored = storage?.getString(StorageKeys.PROXY_NODE_SORT_OPTION, "0")?.toIntOrNull() ?: 0
+        return stored - stored % 2
     }
 
-    private fun loadInitialSingleColumn(): Boolean =
-        storage?.getString(StorageKeys.PROXY_NODE_SINGLE_COLUMN, "false") == "true"
+    fun updateColumnCount(count: Int) {
+        val columns = count.coerceIn(1, 3)
+        _columnCount.value = columns
+        storage?.putString(StorageKeys.PROXY_NODE_COLUMNS, columns.toString())
+    }
+
+    private fun loadInitialColumnCount(): Int {
+        val stored = storage?.getString(StorageKeys.PROXY_NODE_COLUMNS, "0")?.toIntOrNull()
+        if (stored != null && stored in 1..3) return stored
+        return if (storage?.getString(StorageKeys.PROXY_NODE_SINGLE_COLUMN, "false") == "true") 1 else 2
+    }
+
+    fun updateNodeSize(size: Int) {
+        val value = size.coerceIn(0, 2)
+        _nodeSize.value = value
+        storage?.putString(StorageKeys.PROXY_NODE_SIZE, value.toString())
+    }
+
+    private fun loadInitialNodeSize(): Int =
+        storage?.getString(StorageKeys.PROXY_NODE_SIZE, "1")?.toIntOrNull()?.coerceIn(0, 2) ?: 1
 
     fun updateHideUnavailableNodes(enabled: Boolean) {
         _hideUnavailableNodes.value = enabled

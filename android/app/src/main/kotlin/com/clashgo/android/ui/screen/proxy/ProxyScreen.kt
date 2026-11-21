@@ -1,7 +1,6 @@
 package com.clashgo.android.ui.screen.proxy
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -88,13 +87,9 @@ fun ProxyScreen(
         }
     }
     val sortOption = viewModel?.sortOption?.collectAsStateWithLifecycle()?.value ?: 0
-    val singleColumn = viewModel?.singleColumn?.collectAsStateWithLifecycle()?.value == true
+    val columnCount = viewModel?.columnCount?.collectAsStateWithLifecycle()?.value ?: 2
+    val nodeSize = viewModel?.nodeSize?.collectAsStateWithLifecycle()?.value ?: 1
     val groupTabs = viewModel?.groupTabs?.collectAsStateWithLifecycle()?.value != false
-    val singleColumnProgress = animateFloatAsState(
-        targetValue = if (singleColumn) 1f else 0f,
-        animationSpec = tween(300),
-        label = "singleColumnProgress",
-    )
     val hideUnavailable = viewModel?.hideUnavailableNodes?.collectAsStateWithLifecycle()?.value == true
     val showGlobalGroup = viewModel?.showGlobalGroup?.collectAsStateWithLifecycle()?.value != false
     val scrollBehavior = MiuixScrollBehavior()
@@ -121,6 +116,7 @@ fun ProxyScreen(
     val selectedGroupName = viewModel?.selectedGroupName?.collectAsStateWithLifecycle()?.value.orEmpty()
     var searchVisible by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
+    var scrollToSelectedRequest by remember { mutableStateOf(0) }
     val visibleGroups = remember(groups, query) { filterGroups(groups, query) }
     val selectedGroup = visibleGroups.firstOrNull { it.name == selectedGroupName } ?: visibleGroups.firstOrNull()
     val groupNames = remember(visibleGroups) { visibleGroups.map { it.name }.toPersistentList() }
@@ -209,8 +205,11 @@ fun ProxyScreen(
                                     isRunning = isRunning,
                                     groupTabs = groupTabs,
                                     onGroupTabsChange = { viewModel?.updateGroupTabs(it) },
-                                    singleColumn = singleColumn,
-                                    onSingleColumnChange = { viewModel?.updateSingleColumn(it) },
+                                    columnCount = columnCount,
+                                    onColumnCountChange = { viewModel?.updateColumnCount(it) },
+                                    nodeSize = nodeSize,
+                                    onNodeSizeChange = { viewModel?.updateNodeSize(it) },
+                                    onScrollToSelected = { scrollToSelectedRequest++ },
                                     hideUnavailable = hideUnavailable,
                                     onHideUnavailableChange = { viewModel?.updateHideUnavailableNodes(it) },
                                     showGlobalGroup = showGlobalGroup,
@@ -255,14 +254,8 @@ fun ProxyScreen(
                     .associate { group ->
                         val rows = key(group.name) {
                             val relevantDelays = group.delays.takeIf { hideUnavailable || sortOption / 2 == 2 }
-                            remember(group.all, relevantDelays, query, sortOption, hideUnavailable) {
-                                val trimmed = query.trim()
-                                val nodes = group.all.filter { name ->
-                                    (!hideUnavailable || (group.delays[name] ?: 0) >= 0) &&
-                                        (trimmed.isEmpty() || group.name.contains(trimmed, true) || name.contains(trimmed, true))
-                                }
-                                sortNodes(nodes, group.delays, sortOption).chunked(2)
-                                    .map { it.toPersistentList() }.toPersistentList()
+                            remember(group.all, relevantDelays, query, sortOption, hideUnavailable, columnCount) {
+                                buildNodeRows(group, query, sortOption, hideUnavailable, columnCount)
                             }
                         }
                         group.name to rows
@@ -277,6 +270,53 @@ fun ProxyScreen(
                     }
                     LaunchedEffect(searchVisible) {
                         if (searchVisible) listState.scrollToItem(0)
+                    }
+                    LaunchedEffect(
+                        scrollToSelectedRequest,
+                        expandedGroups,
+                        query,
+                        searchVisible,
+                        sortOption,
+                        hideUnavailable,
+                        columnCount,
+                    ) {
+                        if (scrollToSelectedRequest == 0) return@LaunchedEffect
+                        val target = selectedGroup
+                        if (target == null) {
+                            scrollToSelectedRequest = 0
+                            return@LaunchedEffect
+                        }
+                        if (!tabContent && target.name !in expandedGroups) {
+                            viewModel?.toggleExpandedGroup(target.name)
+                            return@LaunchedEffect
+                        }
+                        val rows = rowsByGroup[target.name]
+                        if (rows == null) {
+                            scrollToSelectedRequest = 0
+                            return@LaunchedEffect
+                        }
+                        var index = (if (tabContent && !searchVisible) 1 else 0) +
+                            (if (searchVisible) 1 else 0) +
+                            (if (modeHintRes != null) 1 else 0) +
+                            (if (visibleGroups.isEmpty()) 1 else 0)
+                        if (!tabContent) {
+                            for (group in displayedGroups) {
+                                if (group.name == target.name) break
+                                index += 1
+                                if (group.name in expandedGroups) {
+                                    val precedingRows = rowsByGroup[group.name]
+                                    index += if (precedingRows.isNullOrEmpty()) 1 else precedingRows.size
+                                }
+                            }
+                            index += 1
+                        }
+                        val rowIndex = rows.indexOfFirst { target.now in it }
+                        if (rowIndex >= 0) {
+                            listState.animateScrollToItem(index + rowIndex)
+                        } else if (!tabContent) {
+                            listState.animateScrollToItem(index - 1)
+                        }
+                        scrollToSelectedRequest = 0
                     }
                     LazyColumn(
                         state = listState,
@@ -373,14 +413,15 @@ fun ProxyScreen(
                                     ProxyNodeRow(
                                         row = rows[index],
                                         group = group,
-                                        singleColumnProgress = singleColumnProgress,
+                                        columnCount = columnCount,
+                                        nodeSize = nodeSize,
                                         testingNodes = uiState.testingNodes,
                                         onTestNodeDelay = { viewModel?.testNodeDelay(it) },
                                         onSelect = { viewModel?.selectProxy(group.name, it) },
                                         modifier = Modifier
                                             .animateItem(fadeInSpec = tween(150), fadeOutSpec = null, placementSpec = tween(180))
                                             .padding(horizontal = if (tabContent) 12.dp else 20.dp)
-                                            .padding(bottom = 10.dp),
+                                            .padding(bottom = if (nodeSize == 0) 8.dp else if (nodeSize == 2) 12.dp else 10.dp),
                                     )
                                 }
                             }
@@ -403,6 +444,22 @@ private fun filterGroups(
         group.name.contains(trimmed, ignoreCase = true) ||
             group.all.any { it.contains(trimmed, ignoreCase = true) }
     }
+}
+
+private fun buildNodeRows(
+    group: ProxyGroupUi,
+    query: String,
+    sortOption: Int,
+    hideUnavailable: Boolean,
+    columnCount: Int,
+): ImmutableList<ImmutableList<String>> {
+    val trimmed = query.trim()
+    val nodes = group.all.filter { name ->
+        (!hideUnavailable || (group.delays[name] ?: 0) >= 0) &&
+            (trimmed.isEmpty() || group.name.contains(trimmed, true) || name.contains(trimmed, true))
+    }
+    return sortNodes(nodes, group.delays, sortOption).chunked(columnCount.coerceIn(1, 3))
+        .map { it.toPersistentList() }.toPersistentList()
 }
 
 private fun sortNodes(
