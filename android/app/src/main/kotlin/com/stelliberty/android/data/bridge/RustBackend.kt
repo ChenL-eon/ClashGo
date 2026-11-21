@@ -42,7 +42,7 @@ object RustBackend {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    // 加载失败只降级，不在这里抛：调用方决定是回退旧实现还是报错。
+    // 加载失败只降级，不在这里抛：调用方决定如何报错或降级。
     private val loadError: Throwable? = runCatching { System.loadLibrary("stelliberty_backend") }.exceptionOrNull()
 
     @Volatile
@@ -55,7 +55,7 @@ object RustBackend {
         val loadError = loadError
         if (loadError != null) {
             initError = loadError
-            AppLogger.warn(TAG, "Rust backend library unavailable; keeping Kotlin implementations", loadError)
+            AppLogger.warn(TAG, "Rust backend library unavailable", loadError)
             return
         }
         try {
@@ -71,7 +71,7 @@ object RustBackend {
             )
         } catch (t: Throwable) {
             initError = t
-            AppLogger.warn(TAG, "Rust backend init failed; keeping Kotlin implementations", t)
+            AppLogger.warn(TAG, "Rust backend init failed", t)
         }
     }
 

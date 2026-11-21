@@ -295,14 +295,28 @@ class StellibertyTunService : VpnService() {
 
             val secret = ConfigGenerator.resolveSecret(this@StellibertyTunService, userOverride, subscriptionId)
             val extCtl = userOverride.resolveExternalController()
-            val overrideFile = RuntimeOverrideBuilder.buildAndWriteForRun(
-                context = this@StellibertyTunService,
-                userOverride = userOverride,
-                tunFd = fd,
-                tunMode = TunMode.Vpn,
-                mixedPortRequired = mixedPortRequired,
-                subscriptionMixedPort = subMixedPort,
-            )
+            val overrideFile = try {
+                RuntimeOverrideBuilder.buildAndWriteForRun(
+                    context = this@StellibertyTunService,
+                    userOverride = userOverride,
+                    tunFd = fd,
+                    tunMode = TunMode.Vpn,
+                    mixedPortRequired = mixedPortRequired,
+                    subscriptionMixedPort = subMixedPort,
+                )
+            } catch (e: Exception) {
+                AppLogger.error(TAG, "Failed to build runtime override", e)
+                ProxyServiceBridge.updateState(
+                    ProxyServiceStatus(
+                        ProxyState.Error,
+                        errorMessage = getString(R.string.error_start_failed),
+                        tunMode = TunMode.Vpn,
+                    )
+                )
+                closeTunFd()
+                stopSelf()
+                return@launch
+            }
 
             val subscription = subscriptionId?.let(subscriptionStore::findImported)
             val success = runner.start(

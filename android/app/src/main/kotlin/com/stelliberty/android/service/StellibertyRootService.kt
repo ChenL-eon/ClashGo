@@ -343,15 +343,28 @@ class StellibertyRootService : Service() {
             val subMixedPort = subscriptionId?.let {
                 ConfigGenerator.readSubscriptionMixedPort(this@StellibertyRootService, it)
             }
-            val overrideFile = RuntimeOverrideBuilder.buildAndWriteForRun(
-                context = this@StellibertyRootService,
-                userOverride = userOverride,
-                tunFd = -1,
-                tunMode = submode.tunMode,
-                mixedPortRequired = subscriptionStore.anyUpdatesViaCore(),
-                subscriptionMixedPort = subMixedPort,
-                tproxyForTether = tproxyForTether,
-            )
+            val overrideFile = try {
+                RuntimeOverrideBuilder.buildAndWriteForRun(
+                    context = this@StellibertyRootService,
+                    userOverride = userOverride,
+                    tunFd = -1,
+                    tunMode = submode.tunMode,
+                    mixedPortRequired = subscriptionStore.anyUpdatesViaCore(),
+                    subscriptionMixedPort = subMixedPort,
+                    tproxyForTether = tproxyForTether,
+                )
+            } catch (e: Exception) {
+                AppLogger.error(TAG, "Failed to build runtime override", e)
+                ProxyServiceBridge.updateState(
+                    ProxyServiceStatus(
+                        ProxyState.Error,
+                        errorMessage = getString(R.string.error_start_failed),
+                        tunMode = submode.tunMode,
+                    )
+                )
+                stopSelf()
+                return@launch
+            }
 
             val subscription = subscriptionId?.let(subscriptionStore::findImported)
             val success = runner.start(
