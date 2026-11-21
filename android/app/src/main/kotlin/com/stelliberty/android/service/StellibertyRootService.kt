@@ -100,18 +100,26 @@ class StellibertyRootService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
+        if (intent == null) {
+            // 进程被杀后系统会用 null Intent 重建 STICKY 服务；root 内核仍可由下一次 attach 接管，
+            // 但服务本身不能挂着一个空转的前台通知。
+            AppLogger.warn(TAG, "Service restarted without intent; stopping idle instance")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
+        if (intent.action == ACTION_STOP) {
             stopProxy()
             return START_STICKY
         }
-        val requested = Submode.from(intent?.getStringExtra(EXTRA_SUBMODE))
-        currentSubmode = if (intent?.hasExtra(EXTRA_SUBMODE) == true) {
+        val requested = Submode.from(intent.getStringExtra(EXTRA_SUBMODE))
+        currentSubmode = if (intent.hasExtra(EXTRA_SUBMODE)) {
             requested
         } else {
             val active = PlatformStorage(this).getString(StorageKeys.ROOT_SUBMODE_ACTIVE, "")
             Submode.from(active.ifEmpty { requested.storageValue })
         }
-        when (intent?.action) {
+        when (intent.action) {
             ACTION_START -> {
                 val subscriptionId = intent.getStringExtra(ProxyServiceController.EXTRA_SUBSCRIPTION_ID)
                 val attachOnly = intent.getBooleanExtra(EXTRA_ATTACH_ONLY, false)

@@ -82,7 +82,15 @@ class StellibertyTunService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+        if (intent == null) {
+            // START_STICKY 在进程被杀后会以 null Intent 重建服务；此时 bridge 已回到 Stopped，
+            // 不能只挂着一个前台 loading 通知空转。
+            AppLogger.warn(TAG, "Service restarted without intent; stopping idle instance")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
+        when (intent.action) {
             ACTION_START -> {
                 val subscriptionId = intent.getStringExtra(ProxyServiceController.EXTRA_SUBSCRIPTION_ID)
                 startProxy(subscriptionId)
