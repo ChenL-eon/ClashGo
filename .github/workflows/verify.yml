@@ -1,6 +1,7 @@
 name: Verify Pull Request
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [beta, main]
 
