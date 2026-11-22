@@ -1,9 +1,12 @@
 package com.clashgo.android.data.api
 
 import android.os.SystemClock
+import com.clashgo.android.domain.model.DelayTestUrl
 import com.clashgo.android.domain.repository.MihomoRepository
 import com.clashgo.android.domain.repository.SubscriptionRepository
 import com.clashgo.android.platform.AutoDelayAlarm
+import com.clashgo.android.platform.PlatformStorage
+import com.clashgo.android.platform.StorageKeys
 import com.clashgo.android.util.AppLogger
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +28,7 @@ class AutoDelayTester(
     private val connectionManager: MihomoConnectionManager,
     private val subscriptions: SubscriptionRepository,
     private val alarm: AutoDelayAlarm,
+    private val storage: PlatformStorage,
 ) {
     data class Snapshot(
         val subscriptionId: String?,
@@ -137,7 +141,11 @@ class AutoDelayTester(
         repo.getProviders().getOrNull()?.providers?.forEach { (provider, detail) ->
             detail.proxies.forEach { node -> if (node.name !in runtime) providerOf.putIfAbsent(node.name, provider) }
         }
-        repo.testDelays(groups.flatMapTo(LinkedHashSet()) { it.all }, providerOf)
+        repo.testDelays(
+            groups.flatMapTo(LinkedHashSet()) { it.all },
+            providerOf,
+            DelayTestUrl.normalize(storage.getString(StorageKeys.DELAY_TEST_URL, DelayTestUrl.DEFAULT)),
+        )
     }
 
     private companion object {

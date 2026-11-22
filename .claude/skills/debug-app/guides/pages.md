@@ -30,7 +30,7 @@ Tab 间走 `HorizontalPager.animateToPage`，动画约 300ms，截图前留出�
 | `connection` | 连接 |
 | `settings.theme` | 主题设置 |
 | `settings.clash` | Clash 特性（以下五页的入口与核心日志等级） |
-| `settings.network` | 网络设置（统一延迟、局域网、IPv6、嗅探器） |
+| `settings.network` | 网络设置（延迟检测链接、统一延迟、局域网、IPv6、嗅探器） |
 | `settings.port_control` | 端口控制（代理端口、外部控制器） |
 | `settings.system_integration` | 系统集成（隧道模式，VPN / ROOT 设置与分应用代理的入口） |
 | `settings.dns` | DNS 配置 |

@@ -503,6 +503,8 @@
 
     <!-- Meta Settings -->
     <string name="network_unified_delay">Unified Delay</string>
+    <string name="network_delay_test_url">Latency Test URL</string>
+    <string name="network_delay_test_url_custom">Custom URL</string>
     <string name="performance_geodata_mode">Geodata Mode</string>
     <string name="network_tcp_concurrent">TCP Concurrent</string>
     <string name="performance_find_process_mode">Process Match Mode</string>

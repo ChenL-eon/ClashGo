@@ -501,6 +501,8 @@
 
     <!-- Meta Settings -->
     <string name="network_unified_delay">統一延遲</string>
+    <string name="network_delay_test_url">延遲檢測連結</string>
+    <string name="network_delay_test_url_custom">自訂連結</string>
     <string name="performance_geodata_mode">Geodata 模式</string>
     <string name="network_tcp_concurrent">TCP 並行</string>
     <string name="performance_find_process_mode">處理程序比對模式</string>

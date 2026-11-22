@@ -39,12 +39,12 @@ testTag 挂在最外层节点，按钮文字在子节点，`get` 返回整棵子
 | 前缀 | 覆盖 |
 |---|---|
 | `Home.*` | 启停按钮、状态卡、延迟测试、流量卡、订阅卡 |
-| `Proxy.*` | 顶栏 `TestAllDelays` / `SearchButton` / `SettingsButton`；原生级联菜单宿主 `SettingsMenu`，内部条目由 miuix 生成，按可见文案与选择语义定位。第一层为滚动到已选、风格、排序、布局、尺寸、隐藏超时代理，以及代理模式、TUN Stack、GLOBAL 组 |
+| `Proxy.*` | 顶栏 `TestAllDelays` / `SearchButton` / `SettingsButton`；`TestAllDelays` 只在标签风格出现，列表风格隐藏。原生级联菜单宿主 `SettingsMenu`，内部条目由 miuix 生成，按可见文案与选择语义定位。第一层为滚动到已选、风格、排序、布局、尺寸、隐藏超时代理，以及代理模式、TUN Stack、GLOBAL 组 |
 | `Dialog.*` | 对话框根节点、通用 `Cancel` / `Confirm`、输入 `Input` 与热点接口扫描 `ScanInterfaces`；按钮默认次要取消、主色确定，单选类只有取消 |
 | `Backup.*` | 本地导出 / 恢复 `ExportLocal` / `RestoreLocal`，恢复模式 `RestoreMerge` / `RestoreOverwrite`，WebDAV 表单 `WebDavUrl` / `WebDavUsername` / `WebDavPassword` 与草稿动作 `WebDavAction.Test/Backup/Restore` |
 | `AgeKey.*` / `Dns.*` | 密钥复制 `CopySecret` / `CopyPublic`，缓存操作 `ClearDnsCache` / `ClearFakeIpCache`；点操作后关闭弹窗 |
 | `Proxy.GroupTab.<组名>` | 横向组标签 |
-| `Proxy.Group.<组名>` | 代理组行；`.TestButton` 是组测速（兼作右侧延迟标签），`.ToggleButton` 是展开，`.UnfixButton` 是解除固定 |
+| `Proxy.Group.<组名>` | 代理组行；`.TestButton` 是展开按钮左侧的组测速图标，`.ToggleButton` 是展开，`.UnfixButton` 是解除固定；右侧延迟数字只显示状态，不响应点击 |
 | `Proxy.Node.<节点名>` | 节点项；`.TestButton` 是节点测速 |
 | `Subscription.*` | 新增按钮 `AddButton` 与菜单 `AddMenu`，菜单入口为 `AddFile` / `AddUrl` / `AddQr`；全部更新、进度弹窗（`ProgressDialog`）与取消按钮（`CancelUpdateButton`）、添加页与编辑页的名称（`NameField`）、地址（`UrlField`）、请求标识（`UserAgentField`）、密钥（`AgeKeyField`）、更新间隔（`IntervalField`）与自动测试延迟输入框（`AutoDelayField`）；`Subscription.Item.<uuid>` 是订阅行，`.DeleteButton` 为删除入口 |
 | `Overrides.*` | 新增、保存、名称与地址输入；`Item.<id>` 的编辑 / 更新 / 删除按钮，`Select.<id>` 的选择与上下移动 |

@@ -75,12 +75,20 @@ class MihomoRepositoryImpl(
     ): Result<DelayResult> =
         testDelay(name) { apiClient.getProviderProxyDelay(provider, name, testUrl, timeout) }
 
-    override suspend fun testDelays(nodes: Collection<String>, providerOf: Map<String, String>) {
+    override suspend fun testDelays(
+        nodes: Collection<String>,
+        providerOf: Map<String, String>,
+        testUrl: String,
+    ) {
         coroutineScope {
             nodes.distinct().map { name ->
                 async {
                     val provider = providerOf[name]
-                    if (provider != null) getProviderProxyDelay(provider, name) else getProxyDelay(name)
+                    if (provider != null) {
+                        getProviderProxyDelay(provider, name, testUrl)
+                    } else {
+                        getProxyDelay(name, testUrl)
+                    }
                 }
             }.awaitAll()
         }

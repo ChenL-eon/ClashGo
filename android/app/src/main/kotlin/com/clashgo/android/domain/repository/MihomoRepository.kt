@@ -2,6 +2,7 @@ package com.clashgo.android.domain.repository
 
 import com.clashgo.android.domain.model.ConnectionsResponse
 import com.clashgo.android.domain.model.DelayResult
+import com.clashgo.android.domain.model.DelayTestUrl
 import com.clashgo.android.domain.model.DnsQueryResponse
 import com.clashgo.android.domain.model.GroupsResponse
 import com.clashgo.android.domain.model.LogEvent
@@ -37,20 +38,24 @@ interface MihomoRepository {
     suspend fun unfixProxy(group: String): Result<Unit>
     suspend fun getProxyDelay(
         name: String,
-        testUrl: String = "http://www.gstatic.com/generate_204",
+        testUrl: String = DelayTestUrl.DEFAULT,
         timeout: Int = 5000,
     ): Result<DelayResult>
 
     suspend fun getProviderProxyDelay(
         provider: String,
         name: String,
-        testUrl: String = "http://www.gstatic.com/generate_204",
+        testUrl: String = DelayTestUrl.DEFAULT,
         timeout: Int = 5000,
     ): Result<DelayResult>
 
     // 逐个节点测，不用整组测速接口：后者会先把非手选类型的组解除固定。结果写进内核的延迟记录。
     // providerOf 给出 provider 节点所属的 provider，这些节点不在 /proxies 里，只能走 provider 的健康检查。
-    suspend fun testDelays(nodes: Collection<String>, providerOf: Map<String, String>)
+    suspend fun testDelays(
+        nodes: Collection<String>,
+        providerOf: Map<String, String>,
+        testUrl: String = DelayTestUrl.DEFAULT,
+    )
 
     suspend fun getRules(): Result<RulesResponse>
     suspend fun getConnections(): Result<ConnectionsResponse>

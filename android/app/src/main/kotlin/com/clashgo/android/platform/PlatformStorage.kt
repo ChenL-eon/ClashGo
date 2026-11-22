@@ -70,6 +70,8 @@ object StorageKeys {
 
     const val PROXY_HIDE_UNAVAILABLE_NODES = "proxy_hide_unavailable_nodes"
 
+    const val DELAY_TEST_URL = "delay_test_url"
+
     const val DARK_MODE = "dark_mode"
     const val THEME_PURE_BLACK = "theme_pure_black"
     const val THEME_MONET = "theme_monet"

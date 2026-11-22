@@ -3,6 +3,7 @@ package com.clashgo.android.data.repository
 import android.content.Context
 import com.clashgo.android.data.bridge.ClashGoCoreBridge
 import com.clashgo.android.data.store.ProfileTransformWriter
+import com.clashgo.android.domain.model.DelayTestUrl
 import com.clashgo.android.domain.model.OfflineProxySnapshot
 import com.clashgo.android.domain.repository.SubscriptionRepository
 import com.clashgo.android.service.ProfileFileOps
@@ -47,7 +48,7 @@ class OfflineProxyRepository(
     suspend fun testDelays(
         data: OfflineProxyData,
         nodes: Collection<String>,
-        testUrl: String = "http://www.gstatic.com/generate_204",
+        testUrl: String = DelayTestUrl.DEFAULT,
         timeout: Int = 5000,
     ): Result<Map<String, Int>> = withContext(Dispatchers.IO) {
         runCatching {

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.clashgo.android.data.repository.OfflineProxyData
 import com.clashgo.android.data.repository.OfflineProxyRepository
 import com.clashgo.android.data.store.ProxySelectionStore
+import com.clashgo.android.domain.model.DelayTestUrl
 import com.clashgo.android.domain.model.ProviderInfo
 import com.clashgo.android.domain.model.ProxyNode
 import com.clashgo.android.domain.model.TestedDelay
@@ -528,14 +529,15 @@ class ProxyViewModel(
         if (group in _uiState.value.testingGroups) return
         val nodes = groupOf(group)?.all ?: return
         if (nodes.isEmpty()) return
+        val testUrl = currentDelayTestUrl()
         updateTestingGroups(current, listOf(group), testing = true)
 
         current.scope.launch {
             try {
                 if (current.isOffline) {
-                    runOfflineTest(current, nodes)
+                    runOfflineTest(current, nodes, testUrl)
                 } else {
-                    current.repository?.testDelays(nodes, nodeProviderMap)
+                    current.repository?.testDelays(nodes, nodeProviderMap, testUrl)
                     if (!isCurrent(current)) return@launch
                     loadProxies()
                 }
@@ -553,15 +555,16 @@ class ProxyViewModel(
         val nodes = groups.flatMapTo(LinkedHashSet()) { it.all }
         if (nodes.isEmpty()) return
         val names = groups.map { it.name }
+        val testUrl = currentDelayTestUrl()
         updateTestingGroups(current, names, testing = true)
         _uiState.value = _uiState.value.copy(isTestingAllDelays = true)
         current.scope.launch {
             try {
                 if (current.isOffline) {
-                    runOfflineTest(current, nodes)
+                    runOfflineTest(current, nodes, testUrl)
                 } else {
                     val alreadyTesting = current.repository?.testingNodes?.value.orEmpty()
-                    current.repository?.testDelays(nodes.filterNot { it in alreadyTesting }, nodeProviderMap)
+                    current.repository?.testDelays(nodes.filterNot { it in alreadyTesting }, nodeProviderMap, testUrl)
                     if (!isCurrent(current)) return@launch
                     loadProxies()
                 }
@@ -572,14 +575,14 @@ class ProxyViewModel(
         }
     }
 
-    private suspend fun runOfflineTest(current: Session, nodes: Collection<String>) {
+    private suspend fun runOfflineTest(current: Session, nodes: Collection<String>, testUrl: String) {
         val data = current.offlineData ?: return
         val repository = offlineRepository ?: return
         val names = nodes.distinct()
         if (names.isEmpty()) return
         updateOfflineTestingNodes(current, names, testing = true)
         try {
-            repository.testDelays(data, names)
+            repository.testDelays(data, names, testUrl)
                 .onSuccess { delays ->
                     if (!isCurrent(current)) return@onSuccess
                     current.offlineDelays.putAll(delays)
@@ -621,21 +624,26 @@ class ProxyViewModel(
         val current = session ?: return
         if (!isCurrent(current)) return
         if (nodeName in _uiState.value.testingNodes) return
+        val testUrl = currentDelayTestUrl()
         if (current.isOffline) {
-            current.scope.launch { runOfflineTest(current, listOf(nodeName)) }
+            current.scope.launch { runOfflineTest(current, listOf(nodeName), testUrl) }
             return
         }
         current.scope.launch {
             val provider = nodeProviderMap[nodeName]
             if (provider != null) {
-                current.repository?.getProviderProxyDelay(provider, nodeName)
+                current.repository?.getProviderProxyDelay(provider, nodeName, testUrl)
             } else {
-                current.repository?.getProxyDelay(nodeName)
+                current.repository?.getProxyDelay(nodeName, testUrl)
             }
             if (!isCurrent(current)) return@launch
             loadProxies()
         }
     }
+
+    // 设置页写入后立即生效：每次点击测速都重新读取，不能只在 ViewModel 创建时缓存。
+    private fun currentDelayTestUrl(): String =
+        DelayTestUrl.normalize(storage?.getString(StorageKeys.DELAY_TEST_URL, DelayTestUrl.DEFAULT))
 
     private fun groupOf(name: String): ProxyGroupUi? =
         _uiState.value.groups.firstOrNull { it.name == name }

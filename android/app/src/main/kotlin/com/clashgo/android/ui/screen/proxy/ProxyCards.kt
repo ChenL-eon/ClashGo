@@ -200,35 +200,39 @@ internal fun ProxyGroupHeader(
             modifier = Modifier
                 .height(28.dp)
                 .widthIn(min = 36.dp)
-                .clickable(
-                    interactionSource = null,
-                    indication = null,
-                    enabled = !isTesting,
-                    role = Role.Button,
-                    onClickLabel = stringResource(R.string.proxy_test_group_delay),
-                    onClick = onTestDelay,
-                )
-                .testTag(TestTags.Proxy.groupTest(group.name))
                 .padding(horizontal = 8.dp),
             contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = when {
+                    delay == null -> "—"
+                    delay < 0 -> "-1"
+                    else -> FormatUtils.formatLatency(delay)
+                },
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = delayColor,
+                maxLines = 1,
+            )
+        }
+        IconButton(
+            onClick = onTestDelay,
+            enabled = !isTesting,
+            minWidth = 36.dp,
+            minHeight = 36.dp,
+            modifier = Modifier.testTag(TestTags.Proxy.groupTest(group.name)),
         ) {
             if (isTesting) {
                 CircularProgressIndicator(size = 14.dp, strokeWidth = 2.dp)
             } else {
-                Text(
-                    text = when {
-                        delay == null -> "—"
-                        delay < 0 -> "-1"
-                        else -> FormatUtils.formatLatency(delay)
-                    },
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = delayColor,
-                    maxLines = 1,
+                Icon(
+                    imageVector = AppIcons.TestDelay,
+                    contentDescription = stringResource(R.string.proxy_test_group_delay),
+                    modifier = Modifier.size(18.dp),
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
         }
-        Spacer(Modifier.width(10.dp))
         IconButton(
             onClick = onToggle,
             minWidth = 36.dp,

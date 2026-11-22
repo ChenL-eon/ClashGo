@@ -150,19 +150,22 @@ fun ProxyScreen(
                             }
                         },
                         actions = {
-                            val canTestAllDelays = uiState.groups.isNotEmpty() && !uiState.isTestingAllDelays
-                            IconButton(
-                                onClick = { viewModel?.testAllDelays() },
-                                enabled = canTestAllDelays,
-                                modifier = Modifier.testTag(TestTags.Proxy.TEST_ALL_DELAYS),
-                            ) {
-                                Icon(
-                                    imageVector = AppIcons.TestDelay,
-                                    contentDescription = stringResource(R.string.proxy_test_all_delays),
-                                    modifier = Modifier.size(24.dp),
-                                    tint = if (canTestAllDelays) MiuixTheme.colorScheme.onSurface
-                                    else MiuixTheme.colorScheme.disabledOnSecondaryVariant,
-                                )
+                            // 列表风格的每个组头自带测速按钮，顶栏全量入口只在标签风格保留。
+                            if (groupTabs) {
+                                val canTestAllDelays = uiState.groups.isNotEmpty() && !uiState.isTestingAllDelays
+                                IconButton(
+                                    onClick = { viewModel?.testAllDelays() },
+                                    enabled = canTestAllDelays,
+                                    modifier = Modifier.testTag(TestTags.Proxy.TEST_ALL_DELAYS),
+                                ) {
+                                    Icon(
+                                        imageVector = AppIcons.TestDelay,
+                                        contentDescription = stringResource(R.string.proxy_test_all_delays),
+                                        modifier = Modifier.size(24.dp),
+                                        tint = if (canTestAllDelays) MiuixTheme.colorScheme.onSurface
+                                        else MiuixTheme.colorScheme.disabledOnSecondaryVariant,
+                                    )
+                                }
                             }
                             IconButton(
                                 onClick = {

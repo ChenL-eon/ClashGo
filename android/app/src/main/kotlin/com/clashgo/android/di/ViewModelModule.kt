@@ -58,7 +58,7 @@ val viewModelModule = module {
             serviceController = get(),
         )
     }
-    single { ClashFeaturesViewModel(get()) }
+    single { ClashFeaturesViewModel(get(), get()) }
     single { LogViewModel() }
     single { ProviderViewModel() }
     single { ConnectionViewModel() }

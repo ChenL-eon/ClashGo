@@ -2,6 +2,7 @@ package com.clashgo.android.data.api
 
 import com.clashgo.android.domain.model.ConnectionsResponse
 import com.clashgo.android.domain.model.DelayResult
+import com.clashgo.android.domain.model.DelayTestUrl
 import com.clashgo.android.domain.model.DnsQueryResponse
 import com.clashgo.android.domain.model.GroupsResponse
 import com.clashgo.android.domain.model.MihomoConfig
@@ -101,7 +102,7 @@ class MihomoApiClient(
 
     // 测速失败时内核回的是 404 / 503 / 504 加一段 message，这里必须按状态码判成失败：
     // 那种响应体解析成 DelayResult 会得到 delay=0，跟「真的 0 毫秒」再也分不开。
-    suspend fun getProxyDelay(name: String, testUrl: String = "http://www.gstatic.com/generate_204", timeout: Int = 5000): DelayResult {
+    suspend fun getProxyDelay(name: String, testUrl: String = DelayTestUrl.DEFAULT, timeout: Int = 5000): DelayResult {
         val response = client.get(endpoint("proxies", name, "delay")) {
             url {
                 parameters.append("url", testUrl)
@@ -117,7 +118,7 @@ class MihomoApiClient(
     suspend fun getProviderProxyDelay(
         provider: String,
         name: String,
-        testUrl: String = "http://www.gstatic.com/generate_204",
+        testUrl: String = DelayTestUrl.DEFAULT,
         timeout: Int = 5000,
     ): DelayResult {
         val response = client.get(endpoint("providers", "proxies", provider, name, "healthcheck")) {
