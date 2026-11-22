@@ -97,6 +97,7 @@ fn vpn_mode_writes_runner_override_without_controller() {
     assert!(merged.get("secret").is_none());
     assert!(merged.get("mixed-port").is_none());
     assert_eq!(merged["tcp-concurrent"], json!(true));
+    assert_eq!(merged["unified-delay"], json!(true));
     assert_eq!(merged["find-process-mode"], json!("off"));
     assert_eq!(merged["profile"]["store-selected"], json!(false));
     assert_eq!(merged["profile"]["store-fake-ip"], json!(true));
@@ -210,6 +211,14 @@ fn wifi_runtime_mode_overrides_user_mode() {
 
     req.wifi_runtime_mode = Some("bogus".to_string());
     assert_eq!(build_json(&req)["mode"], json!("global"));
+}
+
+#[test]
+fn explicit_unified_delay_off_is_preserved() {
+    let dir = TempDir::new();
+    let mut req = request(dir.path(), "vpn");
+    req.user_override.unified_delay = Some(false);
+    assert_eq!(build_json(&req)["unified-delay"], json!(false));
 }
 
 #[test]

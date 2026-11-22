@@ -108,6 +108,8 @@ fn merge(request: &BuildRequest, mode: Mode) -> Override {
     merged.tproxy_port = select_tproxy_port(merged.tproxy_port, mode, request, platform);
 
     merged.tcp_concurrent = Some(merged.tcp_concurrent.unwrap_or(true));
+    // 统一延迟用第二次请求计时，避免把首次拨号、DNS 与 TLS 建连算进节点延迟。
+    merged.unified_delay = Some(merged.unified_delay.unwrap_or(true));
     merged.find_process_mode = Some(
         merged
             .find_process_mode
