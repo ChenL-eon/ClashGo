@@ -14,6 +14,7 @@ import com.clashgo.android.di.androidAppModule
 import com.clashgo.android.di.androidPlatformModule
 import com.clashgo.android.di.dataModule
 import com.clashgo.android.di.viewModelModule
+import com.clashgo.android.domain.model.DelayTestUrl
 import com.clashgo.android.platform.PlatformStorage
 import com.clashgo.android.platform.ProxyServiceBridge
 import com.clashgo.android.platform.StorageKeys
@@ -67,6 +68,10 @@ class ClashGoApplication : Application() {
             androidContext(this@ClashGoApplication)
             modules(dataModule, androidPlatformModule, androidAppModule, viewModelModule)
         }
+        // 旧版默认地址是 HTTP；升级时写回 HTTPS，避免统一延迟的第二次 HEAD 被 HTTP 劫持后退回首次耗时。
+        val storedDelayUrl = storage.getString(StorageKeys.DELAY_TEST_URL, DelayTestUrl.DEFAULT)
+        val delayUrl = DelayTestUrl.normalize(storedDelayUrl)
+        if (storedDelayUrl != delayUrl) storage.putString(StorageKeys.DELAY_TEST_URL, delayUrl)
         // 必须在任何人读桥之前填：MainActivity 与通知都在 onCreate 之后才起来，这里是唯一
         // 既拿得到设置、又早于全部读取方的位置。
         ProxyServiceBridge.setSelectedTunMode(
