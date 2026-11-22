@@ -233,7 +233,15 @@ val mihomoSubmoduleDir = rootProject.layout.projectDirectory.dir("../third_party
 val clashgoCoreSourceDir = layout.projectDirectory.dir("src/main/native/clashgo_core")
 // mishka 这个标签名不能跟着项目改名走：它被子模块自己的源码引用（几处文件名和编译约束里都写着），
 // 改了直接编译不过。
-val mihomoBuildTags = listOf("cmfa", "mishka", "with_gvisor")
+// 排除 Tailscale、ZeroTier 和 EasyTier 出站，避免把大量组网依赖打进 APK。
+val mihomoBuildTags = listOf(
+    "cmfa",
+    "mishka",
+    "with_gvisor",
+    "no_easytier",
+    "no_zerotier",
+    "no_tailscale",
+)
 val mihomoVersion = providers.gradleProperty("mihomo.version").orElse("dev").get()
 val mihomoVersionPath = "github.com/metacubex/mihomo/constant.Version"
 val ndkDirectoryProvider = androidComponents.sdkComponents.ndkDirectory
