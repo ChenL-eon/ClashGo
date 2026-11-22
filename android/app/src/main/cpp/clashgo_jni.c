@@ -130,7 +130,8 @@ Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeOfflineProxySnapsho
 JNIEXPORT jstring JNICALL
 Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeTestOfflineDelays(
         JNIEnv *env, jclass clazz,
-        jstring jWorkDir, jstring jTransform, jstring jKey, jstring jNames, jstring jUrl, jint jTimeout) {
+        jstring jWorkDir, jstring jTransform, jstring jKey, jstring jNames, jstring jUrl,
+        jint jTimeout, jboolean jUnifiedDelay) {
     char *workDir = jstring_to_cstr(env, jWorkDir);
     char *transform = jstring_to_cstr(env, jTransform);
     char *key = jstring_to_cstr(env, jKey);
@@ -138,7 +139,7 @@ Java_com_clashgo_android_data_bridge_ClashGoCoreBridge_nativeTestOfflineDelays(
     char *url = jstring_to_cstr(env, jUrl);
     char *result = clashgoTestOfflineDelays(
             workDir ? workDir : "", transform ? transform : "", key ? key : "",
-            names ? names : "[]", url ? url : "", jTimeout);
+            names ? names : "[]", url ? url : "", jTimeout, jUnifiedDelay ? 1 : 0);
     free(workDir);
     free(transform);
     free(key);

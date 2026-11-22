@@ -44,7 +44,7 @@ val dataModule = module {
     single { OverrideProfileStore(get(), get()) }
     single { RuleOverrideStore(get(), get()) }
     single { ProfileTransformWriter(get(), get(), get()) }
-    single { OfflineProxyRepository(androidContext(), get(), get()) }
+    single { OfflineProxyRepository(androidContext(), get(), get(), get()) }
 
     single { OverrideJsonStore(get(), get()) }
     single { SubscriptionProxyResolver(get()) }

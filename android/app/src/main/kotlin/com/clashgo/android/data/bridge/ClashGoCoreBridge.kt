@@ -203,6 +203,7 @@ object ClashGoCoreBridge {
     }
 
     // 离线测速在进程内直接拨测配置里的节点，与运行时 /proxies/{name}/delay 使用同一个 URLTest。
+    // unifiedDelay 必须由调用方传入：离线解析不经过 executor.Initial，不能指望配置自己写进全局开关。
     fun testOfflineDelays(
         workDir: File,
         transform: File?,
@@ -210,6 +211,7 @@ object ClashGoCoreBridge {
         nodes: Collection<String>,
         testUrl: String,
         timeout: Int,
+        unifiedDelay: Boolean,
     ): Map<String, Int> {
         ProfileFileOps.awaitGeodata()
         val names = json.encodeToString(ListSerializer(String.serializer()), nodes.toList())
@@ -221,6 +223,7 @@ object ClashGoCoreBridge {
                 names,
                 testUrl,
                 timeout,
+                unifiedDelay,
             ),
             OfflineDelaySnapshot.serializer(),
         ).delays
@@ -253,6 +256,7 @@ object ClashGoCoreBridge {
         namesJson: String,
         testUrl: String,
         timeout: Int,
+        unifiedDelay: Boolean,
     ): String?
 
     @JvmStatic

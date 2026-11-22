@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/metacubex/mihomo/adapter"
 	"github.com/metacubex/mihomo/adapter/outboundgroup"
 	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/component/age"
@@ -136,7 +137,7 @@ func clashgoOfflineProxySnapshot(cWorkDir, cTransform, cKey *C.char) *C.char {
 }
 
 //export clashgoTestOfflineDelays
-func clashgoTestOfflineDelays(cWorkDir, cTransform, cKey, cNames, cURL *C.char, cTimeout C.int) *C.char {
+func clashgoTestOfflineDelays(cWorkDir, cTransform, cKey, cNames, cURL *C.char, cTimeout C.int, cUnifiedDelay C.int) *C.char {
 	return guardString(func() string {
 		workDir := C.GoString(cWorkDir)
 		transformPath := C.GoString(cTransform)
@@ -155,6 +156,11 @@ func clashgoTestOfflineDelays(cWorkDir, cTransform, cKey, cNames, cURL *C.char, 
 		offlineParseMu.Lock()
 		age.SetGlobalSecretKeys(key)
 		cfg, _, err := parseOfflineConfig(workDir, transformPath, key)
+		// 离线进程没有 executor.Initial 这条启动路径，unified-delay 不会自己写进全局开关；
+		// 不补这一步，停止态测到的是含 DNS/TCP/TLS 建连的第一次请求，和运行态不可比。
+		if err == nil {
+			adapter.UnifiedDelay.Store(cUnifiedDelay != 0)
+		}
 		age.SetGlobalSecretKeys()
 		offlineParseMu.Unlock()
 		if err != nil {

@@ -25,6 +25,7 @@ class OfflineProxyRepository(
     private val context: Context,
     private val subscriptions: SubscriptionRepository,
     private val transformWriter: ProfileTransformWriter,
+    private val overrides: OverrideJsonStore,
 ) {
 
     suspend fun load(uuid: String): Result<OfflineProxyData> = withContext(Dispatchers.IO) {
@@ -52,6 +53,8 @@ class OfflineProxyRepository(
         timeout: Int = 5000,
     ): Result<Map<String, Int>> = withContext(Dispatchers.IO) {
         runCatching {
+            // 与运行时一致：unified-delay 默认开，测第二次请求；用户显式关掉时保留冷连接口径。
+            val unifiedDelay = overrides.load().unifiedDelay ?: true
             ClashGoCoreBridge.testOfflineDelays(
                 workDir = data.workDir,
                 transform = data.transformPath,
@@ -59,6 +62,7 @@ class OfflineProxyRepository(
                 nodes = nodes,
                 testUrl = testUrl,
                 timeout = timeout,
+                unifiedDelay = unifiedDelay,
             )
         }.onFailure {
             AppLogger.warn(TAG, "test offline delays failed: ${it.describe()}", it)
