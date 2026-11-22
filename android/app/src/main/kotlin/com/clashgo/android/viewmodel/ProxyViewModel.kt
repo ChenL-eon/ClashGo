@@ -144,11 +144,12 @@ class ProxyViewModel(
         val repository: MihomoRepository?,
         val uuid: String?,
         val scope: CoroutineScope,
+        initialDelays: Map<String, Int> = emptyMap(),
     ) {
         var selectionsRestored = false
         var displayMode = ""
         var offlineData: OfflineProxyData? = null
-        val offlineDelays = mutableMapOf<String, Int>()
+        val offlineDelays = initialDelays.toMutableMap()
         val activeOfflineTests = mutableMapOf<String, Int>()
         val groupTests = mutableMapOf<String, Int>()
         val isOffline: Boolean get() = repository == null
@@ -229,12 +230,20 @@ class ProxyViewModel(
     private fun newSessionScope(): CoroutineScope =
         CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
 
+    // 同一订阅切换运行态与离线态时，把上一侧已测出的结果带过去，启动后不必重新等待整轮测速。
+    private fun Session.delaySnapshot(): Map<String, Int> =
+        offlineDelays.toMutableMap().apply {
+            repository?.delayResults?.value?.forEach { (name, delay) -> put(name, delay.delay) }
+        }
+
     // 每个内核实例独占任务父节点；切换时取消请求和排队操作，响应再核对订阅归属。
     fun setRepository(repo: MihomoRepository?) {
         val uuid = getActiveUuid()
         if (session != null && session?.repository === repo && session?.uuid == uuid) return
-        session?.scope?.cancel()
-        session = Session(repo, uuid, newSessionScope())
+        val previous = session
+        val carriedDelays = if (previous != null && previous.uuid == uuid) previous.delaySnapshot() else emptyMap()
+        previous?.scope?.cancel()
+        session = Session(repo, uuid, newSessionScope(), carriedDelays)
         loadJob = null
         nodeProviderMap = emptyMap()
         _uiState.value = ProxyUiState(isProxyRunning = repo != null)
@@ -245,6 +254,7 @@ class ProxyViewModel(
                 combine(repo.testingNodes, repo.delayResults) { nodes, results -> nodes to results }
                     .collect { (nodes, results) ->
                         if (isCurrent(current)) {
+                            results.forEach { (name, delay) -> current.offlineDelays[name] = delay.delay }
                             val changedResults = results.filter { (name, delay) -> previousResults[name] != delay }
                             _uiState.value = _uiState.value.copy(
                                 testingNodes = nodes.toPersistentSet(),
@@ -306,12 +316,16 @@ class ProxyViewModel(
                     proxies = proxiesResult.getOrNull()?.proxies ?: emptyMap(),
                     providers = providersResult.getOrNull()?.providers ?: emptyMap(),
                     mode = mode,
+                    extraDelays = current.offlineDelays.toMap(),
+                    preferExtraDelays = false,
                 )
             }
             if (!isCurrent(current)) return@onSuccess
             // 刷新开始后的测量覆盖旧快照，其余延迟采用内核当前的健康检查记录。
             val recentDelays = repository.delayResults.value.filterValues { it.revision > delayRevision }
             val groups = mapped.first.map { it.withLiveDelays(recentDelays) }.toPersistentList()
+            // 内核 history 也是本会话已知结果，停止代理后要能继续显示。
+            groups.forEach { group -> group.delays.forEach { (name, delay) -> current.offlineDelays[name] = delay } }
             nodeProviderMap = mapped.second
             _uiState.value = _uiState.value.copy(groups = groups, mode = mode)
             if (!current.selectionsRestored) {
@@ -365,6 +379,7 @@ class ProxyViewModel(
         providers: Map<String, ProviderInfo>,
         mode: String,
         extraDelays: Map<String, Int> = emptyMap(),
+        preferExtraDelays: Boolean = true,
     ): Pair<ImmutableList<ProxyGroupUi>, Map<String, String>> {
         val allProxies = proxies.toMutableMap()
         val providerOf = mutableMapOf<String, String>()
@@ -411,7 +426,11 @@ class ProxyViewModel(
                             delays[proxyName] = -1
                         }
                     }
-                    extraDelays[proxyName]?.let { delays[proxyName] = it }
+                    extraDelays[proxyName]?.let { delay ->
+                        if (preferExtraDelays || delays[proxyName] == null) {
+                            delays[proxyName] = delay
+                        }
+                    }
                     if (proxy != null && proxy.type.isNotEmpty()) {
                         nodeTypes[proxyName] = proxy.type
                     }
