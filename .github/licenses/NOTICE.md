@@ -16,11 +16,13 @@
 
 ## 仓库入口图标
 
-`MingCuteGithubLine.kt` 来自 MingCute 官方版本 `9dc7d3ad074fb16477096a6a8109a6467d0e2fe3` 的 `assets/svg/core/regular/brands/github.svg`，为线框样式。原 SVG 的 SHA256 为 `5b4f94cc2564d3ab2d3d149d1332185cb4de1fbe9676708859b80712621c2974`，许可沿用 [MingCute-LICENSE.txt](MingCute-LICENSE.txt)。矢量文件保留完整来源地址。
+`MingCuteGithubLine.kt` 来自 MingCute 官方版本 `9dc7d3ad074fb16477096a6a8109a6467d0e2fe3` 的 `assets/svg/core/regular/brands/github.svg`，保留 MingCute Regular 的 GitHub 标志造型。原 SVG 的 SHA256 为 `5b4f94cc2564d3ab2d3d149d1332185cb4de1fbe9676708859b80712621c2974`，许可沿用 [MingCute-LICENSE.txt](MingCute-LICENSE.txt)。矢量文件保留完整来源地址。
 
 ## 开源库入口图标
 
 `MingCuteLibraryBooks.kt` 使用 Only Player 的 MingCute 书本线框快照，矢量路径与描边保持一致，许可沿用 [MingCute-LICENSE.txt](MingCute-LICENSE.txt)。[原始文件](https://github.com/Kindness-Kismet/only_player/blob/d537dac457a6fa700f831e0e10175c7796e9d684/core/ui/src/main/java/one/only/player/core/ui/designsystem/MingCuteLibraryBooks.kt) 的 SHA256 为 `c24e31e35f81b3b29b87162c9ce255756c90f12bcdc0df37d6d575e0ea11c62e`。
+
+以上两个固定快照由 `scripts/gen_icons.py` 的 `FIXED_ICONS` 映射，生成器不覆盖对应矢量文件。
 
 ## 关于页流光
 

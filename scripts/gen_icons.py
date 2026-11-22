@@ -77,10 +77,14 @@ ICONS: dict[str, str] = {
     "Appearance": "icons/grid-line.svg",
     "BlurOn": "icons/focus-line.svg",
     "DarkMode": "icons/eye-off-line.svg",
-    "GitHub": "icons/terminal-line.svg",
     "Language": "icons/translate-line.svg",
-    "LibraryBooks": "icons/folder-line.svg",
     "SwipeHorizontal": "icons/layout-sidebar-line.svg",
+}
+
+# 快照图标仅生成入口映射；矢量文件由固定快照维护，生成器不删除。
+FIXED_ICONS: dict[str, str] = {
+    "GitHub": "MingCuteGithubLine",
+    "LibraryBooks": "MingCuteLibraryBooks",
 }
 
 # 上游只有线框版的 Tab 图标，用同一路径额外生成填充态，保留选中/未选中的视觉差异。
@@ -104,8 +108,6 @@ def vector_name(rel: str) -> str:
     name = "MingCute" + "".join(part.capitalize() for part in stem.replace("-", "_").split("_"))
     return name
 
-# 快照图标仅生成入口映射，矢量来源与许可见 .github/licenses/NOTICE.md。
-FIXED_ICONS = {}
 
 CAP = {"butt": "Butt", "round": "Round", "square": "Square"}
 JOIN = {"miter": "Miter", "round": "Round", "bevel": "Bevel"}
@@ -300,6 +302,8 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
 
     for old in out.glob("MingCute*.kt"):
+        if old.stem in FIXED_ICONS.values():
+            continue
         old.unlink()
 
     for rel in sorted({value for value in ICONS.values() if is_svg_source(value)}):

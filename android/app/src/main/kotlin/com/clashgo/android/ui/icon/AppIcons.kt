@@ -19,13 +19,13 @@ object AppIcons {
     val File: ImageVector get() = MingCuteFileLine
     val Filter: ImageVector get() = MingCuteSortAlphaLine
     val Folder: ImageVector get() = MingCuteFolderLine
-    val GitHub: ImageVector get() = MingCuteTerminalLine
+    val GitHub: ImageVector get() = MingCuteGithubLine
     val Global: ImageVector get() = MingCuteGlobeLine
     val Info: ImageVector get() = MingCuteInformationLine
     val Language: ImageVector get() = MingCuteTranslateLine
     val Layers: ImageVector get() = MingCuteColumns2Line
     val Layout: ImageVector get() = MingCuteLayoutTabsLine
-    val LibraryBooks: ImageVector get() = MingCuteFolderLine
+    val LibraryBooks: ImageVector get() = MingCuteLibraryBooks
     val Link: ImageVector get() = MingCuteLinkLine
     val Locate: ImageVector get() = MingCuteFocusLine
     val More: ImageVector get() = MingCuteMore1Line
