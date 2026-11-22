@@ -44,6 +44,7 @@ ICONS: dict[str, str] = {
     "Layers": "icons/columns-2-line.svg",
     "Layout": "icons/layout-tabs-line.svg",
     "Link": "icons/link-line.svg",
+    "Locate": "icons/focus-line.svg",
     "More": "icons/more-1-line.svg",
     "MoveDown": "icons/down-small-line.svg",
     "MoveUp": "icons/up-small-line.svg",

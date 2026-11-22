@@ -113,6 +113,7 @@ fun ProxyScreen(
     var searchVisible by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var scrollToSelectedRequest by remember { mutableStateOf(0) }
+    var scrollTargetGroupName by remember { mutableStateOf<String?>(null) }
     val visibleGroups = remember(groups, query) { filterGroups(groups, query) }
     val selectedGroup = visibleGroups.firstOrNull { it.name == selectedGroupName } ?: visibleGroups.firstOrNull()
     val groupNames = remember(visibleGroups) { visibleGroups.map { it.name }.toPersistentList() }
@@ -205,7 +206,10 @@ fun ProxyScreen(
                                     onColumnCountChange = { viewModel?.updateColumnCount(it) },
                                     nodeSize = nodeSize,
                                     onNodeSizeChange = { viewModel?.updateNodeSize(it) },
-                                    onScrollToSelected = { scrollToSelectedRequest++ },
+                                    onScrollToSelected = {
+                                        scrollTargetGroupName = selectedGroup?.name
+                                        scrollToSelectedRequest++
+                                    },
                                     hideUnavailable = hideUnavailable,
                                     onHideUnavailableChange = { viewModel?.updateHideUnavailableNodes(it) },
                                     showGlobalGroup = showGlobalGroup,
@@ -269,6 +273,7 @@ fun ProxyScreen(
                     }
                     LaunchedEffect(
                         scrollToSelectedRequest,
+                        scrollTargetGroupName,
                         expandedGroups,
                         query,
                         searchVisible,
@@ -277,9 +282,12 @@ fun ProxyScreen(
                         columnCount,
                     ) {
                         if (scrollToSelectedRequest == 0) return@LaunchedEffect
-                        val target = selectedGroup
+                        val target = scrollTargetGroupName
+                            ?.let { name -> visibleGroups.firstOrNull { it.name == name } }
+                            ?: selectedGroup
                         if (target == null) {
                             scrollToSelectedRequest = 0
+                            scrollTargetGroupName = null
                             return@LaunchedEffect
                         }
                         if (!tabContent && target.name !in expandedGroups) {
@@ -289,6 +297,7 @@ fun ProxyScreen(
                         val rows = rowsByGroup[target.name]
                         if (rows == null) {
                             scrollToSelectedRequest = 0
+                            scrollTargetGroupName = null
                             return@LaunchedEffect
                         }
                         var index = (if (tabContent && !searchVisible) 1 else 0) +
@@ -313,6 +322,7 @@ fun ProxyScreen(
                             listState.animateScrollToItem(index - 1)
                         }
                         scrollToSelectedRequest = 0
+                        scrollTargetGroupName = null
                     }
                     LazyColumn(
                         state = listState,
@@ -387,6 +397,10 @@ fun ProxyScreen(
                                             isExpanded = expanded,
                                             isTesting = group.name in uiState.testingGroups,
                                             onTestDelay = { viewModel?.testGroupDelay(group.name) },
+                                            onLocateCurrent = {
+                                                scrollTargetGroupName = group.name
+                                                scrollToSelectedRequest++
+                                            },
                                             onUnfix = { viewModel?.unfixProxy(group.name) },
                                             onToggle = { viewModel?.toggleExpandedGroup(group.name) },
                                         )

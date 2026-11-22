@@ -44,7 +44,7 @@ testTag 挂在最外层节点，按钮文字在子节点，`get` 返回整棵子
 | `Backup.*` | 本地导出 / 恢复 `ExportLocal` / `RestoreLocal`，恢复模式 `RestoreMerge` / `RestoreOverwrite`，WebDAV 表单 `WebDavUrl` / `WebDavUsername` / `WebDavPassword` 与草稿动作 `WebDavAction.Test/Backup/Restore` |
 | `AgeKey.*` / `Dns.*` | 密钥复制 `CopySecret` / `CopyPublic`，缓存操作 `ClearDnsCache` / `ClearFakeIpCache`；点操作后关闭弹窗 |
 | `Proxy.GroupTab.<组名>` | 横向组标签 |
-| `Proxy.Group.<组名>` | 代理组行；`.TestButton` 是展开按钮左侧的组测速图标，`.ToggleButton` 是展开，`.UnfixButton` 是解除固定；右侧延迟数字只显示状态，不响应点击 |
+| `Proxy.Group.<组名>` | 代理组行；`.TestButton` 是组测速图标，只在展开时存在，收起时找不到；`.LocateButton` 是定位当前节点，收起时点击会展开并滚到当前节点；`.ToggleButton` 是展开，`.UnfixButton` 是解除固定；右侧延迟数字只显示状态，不响应点击 |
 | `Proxy.Node.<节点名>` | 节点项；`.TestButton` 是节点测速 |
 | `Subscription.*` | 新增按钮 `AddButton` 与菜单 `AddMenu`，菜单入口为 `AddFile` / `AddUrl` / `AddQr`；全部更新、进度弹窗（`ProgressDialog`）与取消按钮（`CancelUpdateButton`）、添加页与编辑页的名称（`NameField`）、地址（`UrlField`）、请求标识（`UserAgentField`）、密钥（`AgeKeyField`）、更新间隔（`IntervalField`）与自动测试延迟输入框（`AutoDelayField`）；`Subscription.Item.<uuid>` 是订阅行，`.DeleteButton` 为删除入口 |
 | `Overrides.*` | 新增、保存、名称与地址输入；`Item.<id>` 的编辑 / 更新 / 删除按钮，`Select.<id>` 的选择与上下移动 |

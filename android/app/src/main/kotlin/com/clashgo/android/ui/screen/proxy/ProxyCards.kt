@@ -139,6 +139,7 @@ internal fun ProxyGroupHeader(
     isExpanded: Boolean,
     isTesting: Boolean,
     onTestDelay: () -> Unit,
+    onLocateCurrent: () -> Unit,
     onUnfix: () -> Unit,
     onToggle: () -> Unit,
 ) {
@@ -215,22 +216,39 @@ internal fun ProxyGroupHeader(
                 maxLines = 1,
             )
         }
-        IconButton(
-            onClick = onTestDelay,
-            enabled = !isTesting,
-            minWidth = 36.dp,
-            minHeight = 36.dp,
-            modifier = Modifier.testTag(TestTags.Proxy.groupTest(group.name)),
-        ) {
-            if (isTesting) {
-                CircularProgressIndicator(size = 14.dp, strokeWidth = 2.dp)
-            } else {
+        if (group.now.isNotEmpty() && group.now in group.all) {
+            IconButton(
+                onClick = onLocateCurrent,
+                minWidth = 36.dp,
+                minHeight = 36.dp,
+                modifier = Modifier.testTag(TestTags.Proxy.groupLocate(group.name)),
+            ) {
                 Icon(
-                    imageVector = AppIcons.TestDelay,
-                    contentDescription = stringResource(R.string.proxy_test_group_delay),
+                    imageVector = AppIcons.Locate,
+                    contentDescription = stringResource(R.string.proxy_locate_current_node),
                     modifier = Modifier.size(18.dp),
                     tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
+            }
+        }
+        if (isExpanded) {
+            IconButton(
+                onClick = onTestDelay,
+                enabled = !isTesting,
+                minWidth = 36.dp,
+                minHeight = 36.dp,
+                modifier = Modifier.testTag(TestTags.Proxy.groupTest(group.name)),
+            ) {
+                if (isTesting) {
+                    CircularProgressIndicator(size = 14.dp, strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        imageVector = AppIcons.TestDelay,
+                        contentDescription = stringResource(R.string.proxy_test_group_delay),
+                        modifier = Modifier.size(18.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
             }
         }
         IconButton(

@@ -210,6 +210,7 @@
     <string name="proxy_sort_delay">Latency</string>
     <string name="proxy_sort_reverse">Reverse</string>
     <string name="proxy_test_group_delay">Test latency</string>
+    <string name="proxy_locate_current_node">Locate current node</string>
     <string name="proxy_test_node_delay">Test node delay</string>
     <string name="proxy_fixed">Fixed to this node</string>
     <string name="proxy_unfix">Unfix, restore automatic selection</string>

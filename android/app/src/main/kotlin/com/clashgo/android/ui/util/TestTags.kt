@@ -99,6 +99,8 @@ object TestTags {
 
         fun groupUnfix(name: String) = "Proxy.Group.$name.UnfixButton"
 
+        fun groupLocate(name: String) = "Proxy.Group.$name.LocateButton"
+
         fun nodeTest(name: String) = "Proxy.Node.$name.TestButton"
 
         fun group(name: String) = "Proxy.Group.$name"

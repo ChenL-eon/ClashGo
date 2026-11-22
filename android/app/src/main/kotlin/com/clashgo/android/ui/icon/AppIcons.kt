@@ -27,6 +27,7 @@ object AppIcons {
     val Layout: ImageVector get() = MingCuteLayoutTabsLine
     val LibraryBooks: ImageVector get() = MingCuteFolderLine
     val Link: ImageVector get() = MingCuteLinkLine
+    val Locate: ImageVector get() = MingCuteFocusLine
     val More: ImageVector get() = MingCuteMore1Line
     val MoveDown: ImageVector get() = MingCuteDownSmallLine
     val MoveUp: ImageVector get() = MingCuteUpSmallLine

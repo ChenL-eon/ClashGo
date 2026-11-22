@@ -208,6 +208,7 @@
     <string name="proxy_sort_delay">延遲</string>
     <string name="proxy_sort_reverse">反向</string>
     <string name="proxy_test_group_delay">測試延遲</string>
+    <string name="proxy_locate_current_node">定位目前節點</string>
     <string name="proxy_test_node_delay">測試節點延遲</string>
     <string name="proxy_fixed">已固定至此節點</string>
     <string name="proxy_unfix">解除固定，恢復自動選擇</string>
