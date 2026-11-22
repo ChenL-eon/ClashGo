@@ -187,7 +187,7 @@ jobs:
           repository: ${{ github.repository }}
           tag_name: v${{ inputs.version }}
           target_commitish: ${{ github.sha }}
-          name: ClashGo Android v${{ inputs.version }}
+          name: ClashGo v${{ inputs.version }}
           body_path: release-notes/notes.md
           files: artifacts/*.apk
           fail_on_unmatched_files: true
