@@ -1,7 +1,7 @@
 object ProjectConfig {
     const val APP_NAME = "ClashGo"
     const val PACKAGE_NAME = "com.clashgo.android"
-    const val VERSION_NAME = "1.0.8"
+    const val VERSION_NAME = "1.0.0"
 
     object Android {
         const val TARGET_SDK = 37

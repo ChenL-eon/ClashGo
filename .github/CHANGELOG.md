@@ -1,17 +1,19 @@
-- Added separate page choices for app launch and tile long press
-- Added live traffic notifications for ROOT TUN and ROOT TPROXY
-- Added a notification Close button to stop the proxy
-- Changed the notification small icon to the app foreground outline
-- Reduced background overhead and stopped refreshing hidden or disabled notifications
-- Removed section headings from settings
-- Fixed ROOT TPROXY IPv6 connections when the upstream network lacks an IPv6 default route
+- Added the first public Android release with VPN, ROOT TUN, and ROOT TPROXY traffic capture
+- Added subscription import from URL, local file, and QR code with scheduled updates and encrypted configurations
+- Added proxy group selection, latency tests, provider refresh, and configuration editing
+- Added live traffic, connection, log, and DNS query diagnostics
+- Added per-app allowlists and blocklists plus ROOT hotspot handling
+- Added Quick Settings tile, start on boot, and Wi-Fi policies
+- Added backup and restore with WebDAV support
+- Added light and dark themes, dynamic colors, blur effects, and wide-screen layouts
 
 ---
 
-- 新增桌面启动与磁贴长按的独立页面设置
-- 新增 ROOT TUN 和 ROOT TPROXY 实时流量通知
-- 新增通知“关闭”按钮，点击停止代理
-- 通知小图标改为应用前景轮廓
-- 降低后台开销，通知隐藏或禁用后停止刷新
-- 移除设置分组小标题
-- 修复上游缺少 IPv6 默认路由时 ROOT TPROXY 的 IPv6 连接失败
+- 新增首个公开 Android 版本，支持 VPN、ROOT TUN 和 ROOT TPROXY 流量接管
+- 新增订阅 URL、本地文件和二维码导入，并支持定时更新与加密配置
+- 新增代理组选择、延迟测速、Provider 刷新和配置编辑
+- 新增实时流量、连接、日志和 DNS 查询诊断
+- 新增分应用白名单与黑名单，以及 ROOT 热点处理
+- 新增快捷设置磁贴、开机启动和 Wi-Fi 策略
+- 新增备份恢复和 WebDAV 支持
+- 新增浅色/深色主题、动态取色、毛玻璃效果和宽屏布局
