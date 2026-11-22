@@ -308,6 +308,8 @@ class ProxyViewModel(
         if (!isCurrent(current)) return@coroutineScope
 
         groupsResult.onSuccess { groupsResponse ->
+            // 延迟表在测试回调里持续更新，先于切到 Default 做快照，避免后台线程遍历可变 Map。
+            val extraDelays = current.offlineDelays.toMap()
             // 数千节点的延迟/类型映射在主线程要十余毫秒，正好落在切页动画期间；
             // 入参与产物都是不可变结构，搬到 Default 后只有 nodeProviderMap 要回主线程赋值。
             val mapped = withContext(Dispatchers.Default) {
@@ -316,7 +318,7 @@ class ProxyViewModel(
                     proxies = proxiesResult.getOrNull()?.proxies ?: emptyMap(),
                     providers = providersResult.getOrNull()?.providers ?: emptyMap(),
                     mode = mode,
-                    extraDelays = current.offlineDelays.toMap(),
+                    extraDelays = extraDelays,
                     preferExtraDelays = false,
                 )
             }
