@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -17,6 +16,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clashgo.android.R
 import com.clashgo.android.ui.component.AdaptiveTopAppBar
@@ -42,6 +42,7 @@ fun HomeScreen(
     bottomPadding: Dp = 0.dp,
     uiState: HomeUiState = HomeUiState(),
     viewModel: HomeViewModel? = null,
+    isActive: Boolean = true,
     onRestart: () -> Unit = {},
     onStop: () -> Unit = {},
     onReload: () -> Unit = {},
@@ -60,6 +61,11 @@ fun HomeScreen(
     val uptimeSeconds by (viewModel?.uptimeState?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(-1L) })
     val uptime = formatUptime(uptimeSeconds)
 
+    LifecycleStartEffect(viewModel, isActive) {
+        if (isActive) viewModel?.setPageVisible(true)
+        onStopOrDispose { viewModel?.setPageVisible(false) }
+    }
+
     val backdrop = rememberBlurBackdrop()
     val blurActive = backdrop != null
     val barColor = if (blurActive) Color.Transparent else MiuixTheme.colorScheme.surface
@@ -74,10 +80,10 @@ fun HomeScreen(
                 ?: remember { mutableStateOf(null) }
             )
 
-    if (showSpeedDetail) {
-        DisposableEffect(viewModel) {
+    if (showSpeedDetail && isActive) {
+        LifecycleStartEffect(viewModel, isActive) {
             viewModel?.startConnectionRateTracking()
-            onDispose { viewModel?.stopConnectionRateTracking() }
+            onStopOrDispose { viewModel?.stopConnectionRateTracking() }
         }
     }
     LaunchedEffect(uiState.isRunning) {

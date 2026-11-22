@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clashgo.android.R
 import com.clashgo.android.domain.model.ConnectionInfo
@@ -92,9 +92,9 @@ fun ConnectionScreen(
     var showCloseAllDialog by remember { mutableStateOf(false) }
     val density = LocalDensity.current
 
-    DisposableEffect(viewModel) {
+    LifecycleStartEffect(viewModel) {
         viewModel.startObserving()
-        onDispose { viewModel.stopObserving() }
+        onStopOrDispose { viewModel.stopObserving() }
     }
 
     val searchStatusState = rememberSearchScreenStatus(stringResource(R.string.connection_search))

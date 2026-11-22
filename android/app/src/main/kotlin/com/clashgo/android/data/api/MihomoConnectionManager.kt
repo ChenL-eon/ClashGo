@@ -32,6 +32,11 @@ class MihomoConnectionManager(scope: CoroutineScope) {
         }
     }
 
+    // 只停界面侧的内核日志订阅；代理服务、VPN 与内核进程不受影响。
+    fun setUiVisible(visible: Boolean) {
+        coreLogs.setVisible(visible)
+    }
+
     private suspend fun applyStatus(status: ProxyServiceStatus) {
         val next: MihomoRepository? = when (status.state) {
             ProxyState.Running -> buildRepository(status)

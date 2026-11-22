@@ -563,8 +563,8 @@ class HomeViewModel(
         }
     }
 
-    // 这些轮询挂在 ViewModel 的作用域上，不感知界面前后台。不按可见性掐掉，
-    // 就是在后台每天几万次读系统文件和打本地请求。
+    // 这些轮询挂在 ViewModel 的作用域上，不感知首页是否显示。不按页面生命周期掐掉，
+    // 就是在后台或其它 Tab 每天几万次读系统文件、打本地流量与内存请求。
     private fun pollWhileVisible(interval: Duration, block: suspend () -> Unit): Job =
         viewModelScope.launch {
             while (true) {
@@ -574,7 +574,7 @@ class HomeViewModel(
             }
         }
 
-    fun setUiVisible(visible: Boolean) {
+    fun setPageVisible(visible: Boolean) {
         uiVisible.value = visible
     }
 

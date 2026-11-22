@@ -81,6 +81,7 @@ private const val STATE_DEEPLINK_NONCE = "deeplink_nonce"
 class MainActivity : ComponentActivity() {
 
     private lateinit var serviceController: ProxyServiceController
+    private lateinit var connectionManager: MihomoConnectionManager
     private lateinit var homeViewModel: HomeViewModel
     private lateinit var subscriptionViewModel: SubscriptionViewModel
     private lateinit var proxyViewModel: ProxyViewModel
@@ -225,7 +226,7 @@ class MainActivity : ComponentActivity() {
         proxyViewModel = get()
         homeViewModel = get()
 
-        val connectionManager: MihomoConnectionManager = get()
+        connectionManager = get()
         lifecycleScope.launch {
             connectionManager.repository.collect { repo ->
                 proxyViewModel.setRepository(repo)
@@ -484,7 +485,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        homeViewModel.setUiVisible(true)
+        connectionManager.setUiVisible(true)
     }
 
     override fun onDestroy() {
@@ -494,7 +495,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        homeViewModel.setUiVisible(false)
+        connectionManager.setUiVisible(false)
     }
 
     private fun showQrToast(@StringRes resId: Int) {

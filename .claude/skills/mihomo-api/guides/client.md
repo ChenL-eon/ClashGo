@@ -6,7 +6,7 @@
 
 manager 是唯一持有 `close()` 责任的一方：按 bridge state 自动 connect / disconnect，原子地 close 旧实例并新建。它只看状态、不比对 endpoint，attach 重连多一次重建（< 50ms），换来无竞态。ViewModel 的 `setRepository` 只传信号。
 
-首页流量和内存 WS 只在 Activity 可见时收集，后台取消订阅，回前台重新连接；接收帧时核对 repository 身份。通知的流量 WS 独立于页面，仅在动态通知启用、应用和渠道允许通知、本次会话的通知未被划掉时收集。
+首页流量和内存 WS 只在首页可见时收集，切到其它 Tab、进入二级页或退到后台都取消订阅，回首页重新连接；接收帧时核对 repository 身份。连接页与首页速度详情同样按页面生命周期收集 `/connections`，退到后台即停止。通知的流量 WS 独立于页面，仅在动态通知启用、应用和渠道允许通知、本次会话的通知未被划掉时收集。
 
 例外：`SubscriptionProxyResolver` / `RuleLatencyTester` 属于探测场景，可自建短生命周期 client，用 `use{}` 或 try/finally 关闭。订阅 fetch 走 JNI。
 
@@ -26,8 +26,8 @@ Ktor 的 `for (frame in incoming)` 在 graceful close 时静默退出，`MihomoW
 - 消费侧的错误处理留在流内：取消以外的异常都转成重连。
 - `connectionState` 由四条流共享，语义是「任意一条连着」，按引用计数发布：计数与发布一起放在 `@Synchronized` 里；握手失败的那次未计数，`finally` 按实际计数递减。
 - 日志通道用 `Flow<LogEvent>` 同时发布握手成功、断线与日志；页面连接状态只消费该通道的事件，避免被流量等通道的连接状态干扰。
-- `MihomoConnectionManager` 持有 `CoreLogCollector`，运行期间先经 `GET /configs` 读出实际生效的 `log-level` 再订阅 `/logs`：内核推送日志不看 log-level，只按订阅参数过滤；切换 repository 时先取消旧任务，接收帧时在同一把锁内复核实例并写入日志模块。
-- 日志页通过 `LifecycleStartEffect` 控制每 120ms 一次的快照发布；采集与页面生命周期分离，停止代理保留历史。应用与核心日志分别保存，类型切换和等级筛选只影响查看，导出所选类型的整份日志文件，清空只作用于所选类型。
+- `MihomoConnectionManager` 持有 `CoreLogCollector`，仅在应用前台且 repository 非空时先经 `GET /configs` 读出实际生效的 `log-level` 再订阅 `/logs`：内核推送日志不看 log-level，只按订阅参数过滤；`MainActivity.onStart/onStop` 驱动前台状态，退后台取消任务并清除连接标记，回前台重新订阅。切换 repository 时先取消旧任务，接收帧时在同一把锁内复核实例、前台状态并写入日志模块。
+- 日志页通过 `LifecycleStartEffect` 控制每 120ms 一次的快照发布；内核采集只随应用前后台，与具体页面无关，停止代理保留历史。应用与核心日志分别保存，类型切换和等级筛选只影响查看，导出所选类型的整份日志文件，清空只作用于所选类型。
 
 ## Flow.catch 是终结操作
 

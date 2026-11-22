@@ -739,6 +739,7 @@ private fun MainPage(
                         bottomPadding = bottomPadding,
                         uiState = homeUiState,
                         viewModel = homeViewModel,
+                        isActive = navigator.current() is Route.Main && selectedPage == 0,
                         onRestart = { homeViewModel?.restartProxy() },
                         onStop = { homeViewModel?.stopProxy() },
                         onReload = { homeViewModel?.reloadConfig() },
