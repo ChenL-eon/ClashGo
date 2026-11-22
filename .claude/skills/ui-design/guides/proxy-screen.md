@@ -52,6 +52,7 @@
 ## 延迟检测地址
 
 - 「设置 → Clash 特性 → 网络设置」的「统一延迟」上方是延迟检测链接：默认 `http://www.gstatic.com/generate_204`，备选 `http://cp.cloudflare.com/generate_204`，第三项自定义 http(s) 链接。选择存 `PlatformStorage` 的 `DELAY_TEST_URL`，不属于 `override.user.json`，不触发内核重启。
+- 该行与「统一延迟」同为带上下双箭头的 `SingleChoicePreference`；行摘要显式传当前地址，避免默认摘要只显示「自定义链接」。
 - 列表组头、节点、顶栏全量与定时测速都在发起前读取当前偏好，离线会话把同一地址传给 native 拨测。切换后下一次点击立即生效，不允许在 ViewModel 初始化时缓存地址。
 
 ## 两个 mode 值

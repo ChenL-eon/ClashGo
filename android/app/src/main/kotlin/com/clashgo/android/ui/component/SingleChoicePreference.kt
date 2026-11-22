@@ -40,6 +40,7 @@ fun SingleChoicePreference(
     selectedIndex: Int,
     onSelectedIndexChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    summary: String? = null,
     enabled: Boolean = true,
     startAction: @Composable (() -> Unit)? = null,
     optionTestTag: (Int) -> String = TestTags.Settings::option,
@@ -48,7 +49,7 @@ fun SingleChoicePreference(
     var holdDown by remember { mutableStateOf(false) }
     BasicComponent(
         title = title,
-        summary = items[selectedIndex],
+        summary = summary ?: items[selectedIndex],
         modifier = modifier.squircleClip(16.dp),
         startAction = startAction,
         endActions = {

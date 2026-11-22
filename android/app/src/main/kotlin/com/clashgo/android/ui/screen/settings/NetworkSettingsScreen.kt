@@ -2,16 +2,13 @@ package com.clashgo.android.ui.screen.settings
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clashgo.android.R
 import com.clashgo.android.domain.model.DelayTestUrl
 import com.clashgo.android.ui.component.CardItem
 import com.clashgo.android.ui.component.RestartRequiredHint
-import com.clashgo.android.ui.component.SingleChoiceDialog
+import com.clashgo.android.ui.component.SingleChoicePreference
 import com.clashgo.android.ui.component.TriStatePreference
 import com.clashgo.android.ui.component.groupedCardItems
 import com.clashgo.android.viewmodel.ClashFeaturesViewModel
@@ -27,7 +24,6 @@ fun NetworkSettingsScreen(
     val delayTestUrl by viewModel.delayTestUrl.collectAsStateWithLifecycle()
     val editor = rememberOverrideEditorState()
     val sniffer = state.sniffer
-    var showDelayTestUrlDialog by remember { mutableStateOf(false) }
     val delayTestUrlTitle = stringResource(R.string.network_delay_test_url)
     val delayTestUrlOptions = persistentListOf(
         DelayTestUrl.GSTATIC,
@@ -47,10 +43,21 @@ fun NetworkSettingsScreen(
             keyPrefix = "network_options",
             items = listOf(
                 CardItem("delayTestUrl") {
-                    ArrowPreference(
+                    SingleChoicePreference(
                         title = delayTestUrlTitle,
                         summary = delayTestUrl,
-                        onClick = { showDelayTestUrlDialog = true },
+                        items = delayTestUrlOptions,
+                        selectedIndex = delayTestUrlIndex,
+                        onSelectedIndexChange = { index ->
+                            when (index) {
+                                0 -> viewModel.updateDelayTestUrl(DelayTestUrl.GSTATIC)
+                                1 -> viewModel.updateDelayTestUrl(DelayTestUrl.CLOUDFLARE)
+                                else -> editor.editText(
+                                    delayTestUrlTitle,
+                                    delayTestUrl.takeIf(DelayTestUrl::isCustom),
+                                ) { value -> viewModel.updateDelayTestUrl(value) }
+                            }
+                        },
                     )
                 },
                 CardItem("unifiedDelay") {
@@ -153,23 +160,5 @@ fun NetworkSettingsScreen(
         )
     }
 
-    SingleChoiceDialog(
-        show = showDelayTestUrlDialog,
-        title = delayTestUrlTitle,
-        items = delayTestUrlOptions,
-        selectedIndex = delayTestUrlIndex,
-        onSelectedIndexChange = { index ->
-            showDelayTestUrlDialog = false
-            when (index) {
-                0 -> viewModel.updateDelayTestUrl(DelayTestUrl.GSTATIC)
-                1 -> viewModel.updateDelayTestUrl(DelayTestUrl.CLOUDFLARE)
-                else -> editor.editText(
-                    delayTestUrlTitle,
-                    delayTestUrl.takeIf(DelayTestUrl::isCustom),
-                ) { value -> viewModel.updateDelayTestUrl(value) }
-            }
-        },
-        onDismiss = { showDelayTestUrlDialog = false },
-    )
     OverrideEditorDialogs(editor)
 }
