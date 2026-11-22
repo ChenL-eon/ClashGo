@@ -216,7 +216,7 @@ internal fun ProxyGroupHeader(
                 maxLines = 1,
             )
         }
-        if (group.now.isNotEmpty() && group.now in group.all) {
+        if (isExpanded && group.now.isNotEmpty() && group.now in group.all) {
             IconButton(
                 onClick = onLocateCurrent,
                 minWidth = 36.dp,
