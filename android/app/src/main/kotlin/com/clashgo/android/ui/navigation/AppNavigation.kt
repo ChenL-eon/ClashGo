@@ -722,7 +722,8 @@ private fun MainPage(
             state = mainPagerState.pagerState,
             verticalAlignment = Alignment.Top,
             key = { NAV_TABS[it].key },
-            beyondViewportPageCount = 0,
+            // 四个根页始终预组合：跨两页以上的跳转会依次经过中间页，按需组合会在动画中掉帧。
+            beyondViewportPageCount = NAV_TABS.size - 1,
         ) { page ->
             val pageVisible by remember(mainPagerState, page) {
                 derivedStateOf {
