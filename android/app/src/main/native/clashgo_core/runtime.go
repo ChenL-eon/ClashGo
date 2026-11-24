@@ -7,12 +7,15 @@ import "C"
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -102,21 +105,33 @@ func runMihomo() int {
 		log.Fatalln("init config dir: %s", err.Error())
 	}
 
-	configBytes, err := os.ReadFile(configFile)
-	if err != nil {
-		log.Fatalln("read config: %s", err.Error())
-	}
-	// 与 PC 相同：订阅覆写与链式代理先于 override-json 等运行参数生效。
-	if transformPath != "" {
-		if configBytes, err = applyTransformFile(configBytes, transformPath, ageSecretKey); err != nil {
-			log.Fatalln("apply transform: %s", err.Error())
+	loadConfig := func() ([]byte, error) {
+		configBytes, err := os.ReadFile(configFile)
+		if err != nil {
+			return nil, fmt.Errorf("read config: %w", err)
 		}
-	} else if configBytes, err = decryptConfig(configBytes, ageSecretKey); err != nil {
-		log.Fatalln("%s", err.Error())
-	}
-	// 覆写也可能新增 provider，所以按变换后的配置改写路径。
-	if configBytes, err = patchProviderPathsYAML(configBytes, filepath.Join(Const.Path.HomeDir(), "providers")); err != nil {
-		log.Fatalln("patch provider paths: %s", err.Error())
+		// 与 PC 相同：订阅覆写与链式代理先于 override-json 等运行参数生效。
+		// 订阅没有覆写时 Kotlin 会删掉变换文件，但仍把固定路径传给运行时，后续新增覆写才能直接重载。
+		if transformPath != "" {
+			if _, statErr := os.Stat(transformPath); statErr == nil {
+				if configBytes, err = applyTransformFile(configBytes, transformPath, ageSecretKey); err != nil {
+					return nil, fmt.Errorf("apply transform: %w", err)
+				}
+			} else if errors.Is(statErr, os.ErrNotExist) {
+				if configBytes, err = decryptConfig(configBytes, ageSecretKey); err != nil {
+					return nil, err
+				}
+			} else {
+				return nil, fmt.Errorf("stat transform: %w", statErr)
+			}
+		} else if configBytes, err = decryptConfig(configBytes, ageSecretKey); err != nil {
+			return nil, err
+		}
+		// 覆写也可能新增 provider，所以按变换后的配置改写路径。
+		if configBytes, err = patchProviderPathsYAML(configBytes, filepath.Join(Const.Path.HomeDir(), "providers")); err != nil {
+			return nil, fmt.Errorf("patch provider paths: %w", err)
+		}
+		return configBytes, nil
 	}
 
 	var tunEnabled bool
@@ -128,18 +143,63 @@ func runMihomo() int {
 		options = append(options, hub.WithSecret(secret))
 	}
 
-	ready := registerRuntimeProbe()
-	if err := hub.Parse(configBytes, options...); err != nil {
-		log.Fatalln("Parse config: %s", err.Error())
+	var errTunInactive = errors.New("TUN listener is not active")
+	applyConfig := func(configBytes []byte, recreateRoute bool) (error, bool) {
+		if recreateRoute {
+			// 首次启动由 hub.Parse 一并建立 external controller；重载必须跳过 applyRoute，
+			// 否则 route.ReCreateServer 会关闭正在处理本次 POST 的 HTTP 连接。
+			if err := hub.Parse(configBytes, options...); err != nil {
+				return err, true
+			}
+		} else {
+			cfg, err := executor.ParseWithBytes(configBytes)
+			if err != nil {
+				return err, true
+			}
+			for _, option := range options {
+				option(cfg)
+			}
+			executor.ApplyConfig(cfg, true)
+		}
+		if tunEnabled && !listener.GetTunConf().Enable {
+			return errTunInactive, false
+		}
+		return nil, false
+	}
+
+	ready := new(atomic.Bool)
+	var reloadMu sync.Mutex
+	reload := func() (error, bool) {
+		reloadMu.Lock()
+		defer reloadMu.Unlock()
+
+		ready.Store(false)
+		defer ready.Store(true)
+
+		configBytes, err := loadConfig()
+		if err != nil {
+			return err, true
+		}
+		return applyConfig(configBytes, false)
+	}
+
+	configBytes, err := loadConfig()
+	if err != nil {
+		log.Fatalln("%s", err.Error())
+	}
+
+	registerRuntimeProbe(ready, reload)
+	if err, badConfig := applyConfig(configBytes, true); err != nil {
+		if badConfig {
+			log.Fatalln("Parse config: %s", err.Error())
+		}
+		log.Errorln("Start TUN listening error: %s", err.Error())
+		return 1
 	}
 	defer func() {
 		ready.Store(false)
 		executor.Shutdown()
 	}()
-	if tunEnabled && !listener.GetTunConf().Enable {
-		log.Errorln("Start TUN listening error: TUN listener is not active")
-		return 1
-	}
 
 	if updater.GeoAutoUpdate() {
 		updater.RegisterGeoUpdater()
@@ -156,11 +216,9 @@ func runMihomo() int {
 		case <-termSig:
 			return 0
 		case <-hupSig:
-			ready.Store(false)
-			if err := hub.Parse(configBytes, options...); err != nil {
+			if err, _ := reload(); err != nil {
 				log.Errorln("Reload config: %s", err.Error())
 			}
-			ready.Store(true)
 		}
 	}
 }

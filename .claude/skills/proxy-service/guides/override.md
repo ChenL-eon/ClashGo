@@ -2,7 +2,7 @@
 
 用户设置走 `--override-json` CLI flag + JSON 文件，Kotlin 侧只产出 JSON。用户设置经 `OverrideJsonStore.update{}` 写入 `override.user.json`；启动时 `RuntimeOverrideBuilder` 叠加 TUN fd / AppProxy / rootMode 生成 `override.run.json`。`secret` / `external-controller` 走 `--secret` / `--ext-ctl`。`ConfigurationOverride` 全树 `val`，改动一律 `copy()`：store 直接把实例作为 StateFlow 的值发布，就地修改会被相等去重吞掉。
 
-订阅的覆写、链式代理与规则覆写合成 `profile.transform.json`，经 `--transform` 传入，由 `ProfileTransformWriter.writeRuntime` 在每次启动时按当前订阅重写。Go 在解析订阅前依次应用覆写、链式代理、规则覆写，运行参数最后注入；无需变换时清掉旧文件。修改当前订阅使用的覆写、链式代理或规则覆写经 `restartWhenReady` 生效，详细约束见 subscription 的 `guides/overrides.md`、`guides/chains.md` 与 `guides/rules.md`。
+订阅的覆写、链式代理与规则覆写合成 `profile.transform.json`，经 `--transform` 传入，由 `ProfileTransformWriter.writeRuntime` 在每次启动与重载时按当前订阅重写。Go 在解析订阅前依次应用覆写、链式代理、规则覆写，运行参数最后注入；无需变换时文件被删除，但服务仍把固定路径传给运行时，重载按文件不存在处理。订阅更新经 `reloadWhenReady` 生效；修改当前订阅使用的覆写、链式代理或规则覆写目前仍经 `restartWhenReady` 生效，详细约束见 subscription 的 `guides/overrides.md`、`guides/chains.md` 与 `guides/rules.md`。
 
 ## 默认注入（用户未显式设置时）
 

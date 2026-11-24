@@ -8,7 +8,11 @@
 
 ## embed mode 下的配置接口
 
-CMFA embed mode 下 `PATCH/PUT /configs`、`POST /restart`、`POST /configs/geo`、`PUT/PATCH /rules`、`POST /upgrade` 均返回 404。配置修改走 `OverrideJsonStore.update{}` + `serviceController.restart()`，UI 用 `RestartRequiredHint` 提示。
+CMFA embed mode 下 `PATCH/PUT /configs`、`POST /restart`、`POST /configs/geo`、`PUT/PATCH /rules`、`POST /upgrade` 均返回 404。配置修改走 `OverrideJsonStore.update{}` + `serviceController.reloadWhenReady()`（VPN 内核内重载，ROOT 重启），UI 用 `RestartRequiredHint` 提示。
+
+## 自定义 reload 接口
+
+`POST /clashgo/reload` 走 external controller 的同一套鉴权。内核重读 `--f` 配置、`--transform` 与 `--override-json` 后重新 Parse；成功 204，配置解析失败 400，TUN 应用失败 500。reload 不重建 route server，否则会关闭正在处理本次请求的控制连接；同 TUN 配置下只走 `OnReload()`，进程与 `/dev/tun` fd 不变。`GET /clashgo/runtime` 在 reload 期间返回 503，结束后恢复 200。
 
 ## provider 节点的命名空间
 

@@ -31,17 +31,17 @@ debug-call.sh -s <dev> -m subscription.activate -a Probe
 
 与 UI 一致：只有首次导入（列表原本为空）自动激活，其余用 `activate`。导入的订阅默认经内核更新（`UpdateProxyMode = Core`），与添加页默认值一致；`update_proxy` 可改为直连或系统代理。
 
-## 会重启代理的指令
+## 会重载或重启代理的指令
 
-`activate` / `update` / `update_all` / `delete`（删 active 那条时）都会重启整个进程：mihomo 只在启动时读一次 config.yaml，embed mode 又禁用了 `/restart`。`update` / `update_all` 另受 `RESTART_AFTER_PROFILE_UPDATE`（默认开）约束，且只对 active 订阅生效；`update_all` 在整轮结束后重启一次，后续下载全程有网。
+`activate` / `delete`（删 active 那条时）会重启整个进程；`update` / `update_all` 在 VPN 模式下经 `POST /clashgo/reload` 内核内重载，保留 TUN fd，不会改变 PID。`update` / `update_all` 另受 `RESTART_AFTER_PROFILE_UPDATE`（默认开）约束，且只对 active 订阅生效；`update_all` 在整轮结束后只重载一次，后续下载全程有网。
 
-判据是 PID 改变。重启异步进行，需要十几秒：
+判据是 PID 与 TUN 文件描述符：重载前后 `state.get` 的 pid 不变；`/proc/<mihomo-pid>/fdinfo/<tun-fd>` 的 `ino` 与 `iff` 也不变。ROOT 模式仍会重启，判据改回 PID 改变，重启异步进行，需要十几秒：
 
 ```bash
 debug-call.sh -s <dev> -m state.get                       # 记下 pid
 debug-call.sh -s <dev> -m subscription.update -a <名字>
 sleep 20
-debug-call.sh -s <dev> -m state.get                       # pid 应已改变
+debug-call.sh -s <dev> -m state.get                       # VPN 下 pid 应不变；ROOT 下应改变
 ```
 
 删掉最后一条订阅时改为停止代理。

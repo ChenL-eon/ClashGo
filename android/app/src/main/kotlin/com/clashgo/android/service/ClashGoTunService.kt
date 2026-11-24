@@ -8,8 +8,11 @@ import android.system.Os
 import android.system.OsConstants
 import com.clashgo.android.R
 import com.clashgo.android.ClashGoApplication
+import com.clashgo.android.data.api.MihomoApiClient
+import com.clashgo.android.data.api.MihomoApiException
 import com.clashgo.android.data.repository.OverrideJsonStore
 import com.clashgo.android.data.store.ProfileTransformWriter
+import com.clashgo.android.data.store.ProxySelectionStore
 import com.clashgo.android.data.store.SubscriptionStore
 import com.clashgo.android.domain.model.AppProxyMode
 import com.clashgo.android.domain.model.resolveExternalController
@@ -50,9 +53,11 @@ class ClashGoTunService : VpnService() {
     private val overrideStore: OverrideJsonStore by inject()
     private val subscriptionStore: SubscriptionStore by inject()
     private val transformWriter: ProfileTransformWriter by inject()
+    private val proxySelections: ProxySelectionStore by inject()
     private var tunFd: Int = -1
     private var monitorJob: Job? = null
     private var restartJob: Job? = null
+    private var reloadJob: Job? = null
     private var stopJob: Job? = null
     private val cleanupMutex = Mutex()
 
@@ -100,6 +105,11 @@ class ClashGoTunService : VpnService() {
             ACTION_RESTART -> {
                 val subscriptionId = intent.getStringExtra(ProxyServiceController.EXTRA_SUBSCRIPTION_ID)
                 restartProxy(subscriptionId)
+            }
+
+            ACTION_RELOAD -> {
+                val subscriptionId = intent.getStringExtra(ProxyServiceController.EXTRA_SUBSCRIPTION_ID)
+                reloadProxy(subscriptionId)
             }
         }
         return START_STICKY
@@ -334,7 +344,7 @@ class ClashGoTunService : VpnService() {
                 secret = secret,
                 externalController = extCtl,
                 ageSecretKey = subscription?.ageSecretKey.orEmpty(),
-                transformPath = transformWriter.writeRuntime(subscription),
+                transformPath = transformWriter.writeRuntime(subscription) ?: transformWriter.runtimePath(),
             )
             ensureActive()
             if (!success) {
@@ -396,9 +406,86 @@ class ClashGoTunService : VpnService() {
         }
     }
 
+    private fun reloadProxy(subscriptionId: String?) {
+        if (stopJob?.isActive == true || restartJob?.isActive == true) return
+        reloadJob?.cancel()
+        AppLogger.info(TAG, "Reloading proxy...")
+        reloadJob = scope.launch {
+            var fallbackId: String? = null
+            var restoreId: String? = null
+            cleanupMutex.withLock {
+                startJob?.cancelAndJoin()
+                val activeId = subscriptionId ?: runner.activeSubscriptionId
+                if (!runner.isRunning || activeId == null) {
+                    fallbackId = activeId
+                    return@withLock
+                }
+                if (tunFd < 0) {
+                    fallbackId = activeId
+                    return@withLock
+                }
+                val subscription = subscriptionStore.findImported(activeId)
+                if (subscription == null) {
+                    AppLogger.error(TAG, "Cannot reload without an imported subscription: $activeId")
+                    return@withLock
+                }
+
+                val storage = PlatformStorage(this@ClashGoTunService)
+                val userOverride = overrideStore.load()
+                val subMixedPort = ConfigGenerator.readSubscriptionMixedPort(this@ClashGoTunService, activeId)
+                val systemProxy = storage.getString(StorageKeys.VPN_SYSTEM_PROXY, "true") == "true"
+                val mixedPortRequired = systemProxy || subscriptionStore.anyUpdatesViaCore()
+                RuntimeOverrideBuilder.buildAndWriteForRun(
+                    context = this@ClashGoTunService,
+                    userOverride = userOverride,
+                    tunFd = tunFd,
+                    tunMode = TunMode.Vpn,
+                    mixedPortRequired = mixedPortRequired,
+                    subscriptionMixedPort = subMixedPort,
+                )
+                transformWriter.writeRuntime(subscription)
+
+                val result = runner.reload()
+                val error = result.exceptionOrNull()
+                if (error != null) {
+                    val rejected = (error as? MihomoApiException)?.status == 400
+                    if (rejected) {
+                        AppLogger.error(TAG, "Reload rejected by mihomo, keeping the running config", error)
+                    } else {
+                        AppLogger.warn(TAG, "Reload failed, falling back to restart", error)
+                        fallbackId = activeId
+                    }
+                    return@withLock
+                }
+                restoreId = activeId
+                AppLogger.info(TAG, "Proxy reloaded without restarting mihomo")
+            }
+            if (fallbackId != null) {
+                restartProxy(fallbackId)
+            } else if (restoreId != null) {
+                restoreProxySelections(restoreId)
+            }
+        }
+    }
+
+    private suspend fun restoreProxySelections(subscriptionId: String) {
+        val selections = proxySelections.selections(subscriptionId)
+        if (selections.isEmpty()) return
+        val client = MihomoApiClient("http://${runner.externalController}", runner.secret)
+        try {
+            selections.forEach { (group, proxy) ->
+                runCatching { client.selectProxy(group, proxy) }
+                    .onFailure { AppLogger.warn(TAG, "Restore selection failed: $group -> $proxy", it) }
+            }
+        } finally {
+            client.close()
+        }
+    }
+
     private fun restartProxy(subscriptionId: String?) {
         if (stopJob?.isActive == true) return
         restartJob?.cancel()
+        reloadJob?.cancel()
         AppLogger.info(TAG, "Restarting proxy...")
         ProxyServiceBridge.updateState(ProxyServiceStatus(ProxyState.Stopping, tunMode = TunMode.Vpn))
         dynamicNotification.stop()
@@ -417,6 +504,7 @@ class ClashGoTunService : VpnService() {
 
     private fun stopProxy() {
         restartJob?.cancel()
+        reloadJob?.cancel()
         if (stopJob?.isActive == true) return
         AppLogger.info(TAG, "Stopping proxy...")
         ProxyServiceBridge.updateState(ProxyServiceStatus(ProxyState.Stopping, tunMode = TunMode.Vpn))
@@ -478,6 +566,7 @@ class ClashGoTunService : VpnService() {
         const val ACTION_START = "com.clashgo.android.START"
         const val ACTION_STOP = "com.clashgo.android.STOP"
         const val ACTION_RESTART = "com.clashgo.android.RESTART"
+        const val ACTION_RELOAD = "com.clashgo.android.RELOAD"
 
         private const val TUN_SUBNET_PREFIX = 30
         private const val TUN_GATEWAY = "198.18.0.1"

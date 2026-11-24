@@ -3,6 +3,7 @@ package com.clashgo.android.service
 import android.content.Context
 import android.os.SystemClock
 import com.clashgo.android.R
+import com.clashgo.android.data.api.MihomoApiClient
 import com.clashgo.android.domain.model.LogLevel
 import com.clashgo.android.domain.model.LogSource
 import com.clashgo.android.platform.PlatformStorage
@@ -156,6 +157,24 @@ class MihomoRunner(private val context: Context) {
             errorMessage = context.getString(R.string.error_generic_start_failed, e.message ?: "")
             AppLogger.error(TAG, "Failed to start mihomo", e)
             false
+        }
+    }
+
+    suspend fun reload(): Result<Unit> = withContext(Dispatchers.IO) {
+        val pid = childPid
+        if (pid <= 0 || !isRunning) {
+            return@withContext Result.failure(IllegalStateException("mihomo is not running"))
+        }
+        val client = MihomoApiClient("http://$externalController", secret)
+        try {
+            client.reloadConfig()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        } finally {
+            client.close()
         }
     }
 

@@ -9,7 +9,7 @@ user_invocable: true
 1. 所有「启动代理」路径经 `ProxyServiceController.start / restart`：active 订阅与 config.yaml 的校验在这里完成，两个 Service 因此只接受 controller 构造的 Intent。
 2. Service 启动幂等串行：`ACTION_START` 会在数百毫秒内到达两次（自动连接 + BootReceiver 补发），两条协程并发跑 iptables 会互抢锁，ROOT TPROXY 下启动卡死。
 3. 停止态一律走 `markStopped(tunMode)` / `markStoppedUnlessError(tunMode)`，终态带着正确的模式；「用户当前选的模式」走 `setSelectedTunMode`。
-4. 配置变更通过重启整进程生效，决策单点是 `restartWhenReady`：它读 `ProxyServiceBridge`（Starting 窗口内 UI 的 `isRunning` 仍为 false）。
+4. 配置变更的决策单点是 `reloadWhenReady`：VPN 下经 `ACTION_RELOAD` 让内核重读配置并保留 TUN fd；ROOT 与结构性变化回退 `restartWhenReady`。两者都读 `ProxyServiceBridge`（Starting 窗口内 UI 的 `isRunning` 仍为 false）。
 
 ## 指引索引
 

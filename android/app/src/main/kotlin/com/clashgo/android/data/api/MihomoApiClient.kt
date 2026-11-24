@@ -16,6 +16,7 @@ import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.plugins.timeout
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -85,6 +86,13 @@ class MihomoApiClient(
         val response = client.get("$baseUrl/group")
         ensureSuccess(response, "groups")
         return response.body()
+    }
+
+    suspend fun reloadConfig() {
+        val response = client.post("$baseUrl/clashgo/reload") {
+            timeout { requestTimeoutMillis = RELOAD_TIMEOUT_MS }
+        }
+        ensureSuccess(response, "reload config")
     }
 
     suspend fun selectProxy(group: String, name: String) {
@@ -205,7 +213,7 @@ class MihomoApiClient(
         if (response.status.isSuccess()) return
         val detail = runCatching { response.bodyAsText() }.getOrNull().orEmpty()
         val summary = extractErrorMessage(detail) ?: response.status.description
-        throw MihomoApiException("$context: ${response.status.value} $summary")
+        throw MihomoApiException(response.status.value, "$context: ${response.status.value} $summary")
     }
 
     private fun extractErrorMessage(body: String): String? {
@@ -228,6 +236,10 @@ class MihomoApiClient(
             "$wsBase$path"
         }
     }
+
+    private companion object {
+        const val RELOAD_TIMEOUT_MS = 120_000L
+    }
 }
 
-class MihomoApiException(message: String) : Exception(message)
+class MihomoApiException(val status: Int, message: String) : Exception(message)

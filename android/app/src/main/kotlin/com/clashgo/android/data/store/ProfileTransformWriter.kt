@@ -57,6 +57,8 @@ class ProfileTransformWriter(
         return write(subscription, RUNTIME_PATH)
     }
 
+    fun runtimePath(): String = File(fileManager.getMihomoWorkDir(), RUNTIME_PATH).path
+
     companion object {
         const val RUNTIME_PATH = "profile.transform.json"
     }

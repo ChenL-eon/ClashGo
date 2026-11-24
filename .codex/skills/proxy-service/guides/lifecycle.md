@@ -48,12 +48,16 @@ Tun / Root / ProfileWorker 的 onCreate 均 `try { startForeground() } catch (Ex
 
 `DynamicNotificationManager` 在三种模式下统一管理刷新和权限广播。关闭动态通知、应用或渠道禁止通知、划掉通知时取消 `/traffic` 订阅；划掉状态保持到下次启动服务。权限广播与偏好事件驱动重新判断，不轮询通知状态；停止服务时一并取消监听器，通知发布在主线程串行执行。
 
-## 配置变了就重启
+## 配置变了就重载或重启
 
-决策单点是 [ProxyServiceController.restartWhenReady](../../../../android/app/src/main/kotlin/com/clashgo/android/platform/ProxyServiceController.kt)，读 ProxyServiceBridge：`uiState.isRunning` 在 Starting 窗口内仍为 false（同步加载 provider 时可达一分钟），以它为准会漏掉重启。Starting / Stopping 过渡态挂起等待收敛：落到 Running 补一次重启，落到 Stopped / Error 放弃（尊重用户中途的手动停止）。两个调用方：
+决策单点是 [ProxyServiceController.reloadWhenReady](../../../../android/app/src/main/kotlin/com/clashgo/android/platform/ProxyServiceController.kt)，读 ProxyServiceBridge：`uiState.isRunning` 在 Starting 窗口内仍为 false（同步加载 provider 时可达一分钟），以它为准会漏掉重载。Starting / Stopping 过渡态挂起等待收敛：落到 Running 补一次重载，落到 Stopped / Error 放弃（尊重用户中途的手动停止）。
 
-- `onActiveSubscriptionChanged()`：切换或删除 active；删光最后一条时改为 stop + `cancelPendingRestart()`。
-- `restartAfterProfileUpdate(uuid)`：见 `subscription` skill 的 `guides/lifecycle.md`。
+VPN 下 `reloadWhenReady` 发 `ACTION_RELOAD`：服务重写 `override.run.json`（沿用当前 `tunFd`）与 `profile.transform.json`，再 `POST /clashgo/reload`。内核按启动时的 `--transform` 固定路径重读配置，同 TUN 配置下 `ReCreateTun` 只走 `OnReload`，进程与 `/dev/tun` 文件描述符都不换。配置解析失败返回 400，保留旧配置；其他失败或进程不在则回退 `restartWhenReady`。ROOT 直接回退重启。`reloadWhenReady` 的两个调用方：
+
+- `restartAfterProfileUpdate(uuid)`：订阅更新；见 `subscription` skill 的 `guides/lifecycle.md`。
+- `HomeViewModel.reloadConfig()`：首页热重载。
+
+切换或删除 active 仍走 `onActiveSubscriptionChanged()` → `restartWhenReady`；删光最后一条时改为 stop + `cancelPendingRestart()`。
 
 重启是整进程重来：VPN 杀进程并重建 TUN fd；ROOT 另清 `runtime/{uuid}/` 沙箱（provider 缓存保留）与持久化 PID，强制全新启动读取新配置。
 

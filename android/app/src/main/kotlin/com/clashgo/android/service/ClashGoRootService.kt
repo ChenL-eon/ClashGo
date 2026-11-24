@@ -382,7 +382,7 @@ class ClashGoRootService : Service() {
                 secret = secret,
                 externalController = extCtl,
                 ageSecretKey = subscription?.ageSecretKey.orEmpty(),
-                transformPath = transformWriter.writeRuntime(subscription),
+                transformPath = transformWriter.writeRuntime(subscription) ?: transformWriter.runtimePath(),
             )
             ensureActive()
             if (!success) {

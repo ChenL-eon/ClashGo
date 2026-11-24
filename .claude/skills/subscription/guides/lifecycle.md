@@ -4,9 +4,11 @@
 
 `addSubscription` / `addFromFile` 成功后保持当前 active；仅首次导入（提交后列表只有这一条）由 `commitPending` 自动激活。当前订阅存在 `subscriptions/selection_state.json`，经 `SubscriptionStore.currentId()` 读取。
 
-## 更新后自动重启
+## 更新后自动重载
 
-mihomo 只在进程启动时读一次 config.yaml，embed mode 下 `/configs` / `/restart` 返回 404，更新生效只能靠重启进程。由 `RESTART_AFTER_PROFILE_UPDATE`（默认开）控制，手动单条、手动全部与后台 `ProfileUpdateTask` 成功后调用 `restartAfterProfileUpdate(uuid)`；编辑订阅不触发。**active 判定放在 controller 内**（读 `SubscriptionStore`）：前台与后台 Worker 共用这一处判定才能保持一致；非 active 订阅的更新直接忽略。批量更新在整轮结束后只重启一次，后续经 mixed-port 的下载全程有网。
+`RESTART_AFTER_PROFILE_UPDATE`（默认开）控制更新后是否让运行中的代理应用新配置。手动单条、手动全部与后台 `ProfileUpdateTask` 成功后调用 `restartAfterProfileUpdate(uuid)`；编辑订阅不触发。**active 判定放在 controller 内**（读 `SubscriptionStore`）：前台与后台 Worker 共用这一处判定才能保持一致；非 active 订阅的更新直接忽略。批量更新在整轮结束后只触发一次重载，后续经 mixed-port 的下载全程有网。
+
+VPN 下 `restartAfterProfileUpdate` 走 `reloadWhenReady`，保留 TUN fd 重读配置，下载与长连接不断；ROOT 与重载失败回退整进程重启。
 
 ## 仓库单例与流量数据合并
 

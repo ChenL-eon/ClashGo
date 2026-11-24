@@ -682,7 +682,7 @@ class HomeViewModel(
     }
 
     fun reloadConfig() {
-        serviceController.restart(getActiveSubscriptionId())
+        serviceController.reloadWhenReady(getActiveSubscriptionId())
     }
 
     fun testLatency() {

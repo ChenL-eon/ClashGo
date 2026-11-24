@@ -31,6 +31,8 @@ class ProxyServiceController(
 
     @Volatile
     private var pendingRestartJob: Job? = null
+    @Volatile
+    private var pendingReloadJob: Job? = null
 
     val status: StateFlow<ProxyServiceStatus> = ProxyServiceBridge.state
 
@@ -52,6 +54,15 @@ class ProxyServiceController(
         context.startService(intent)
     }
 
+    private fun reload(subscriptionId: String? = null) {
+        val target = resolveStartTarget(subscriptionId) ?: return
+        val mode = activeModeOrStored()
+        val intent = buildServiceIntent(mode, Op.Reload).apply {
+            target.id?.let { putExtra(EXTRA_SUBSCRIPTION_ID, it) }
+        }
+        context.startService(intent)
+    }
+
     fun stop(mode: TunMode = activeModeOrStored()) {
         val intent = buildServiceIntent(mode, Op.Stop)
         context.startService(intent)
@@ -63,6 +74,8 @@ class ProxyServiceController(
     fun restartWhenReady(subscriptionId: String? = null) {
         pendingRestartJob?.cancel()
         pendingRestartJob = null
+        pendingReloadJob?.cancel()
+        pendingReloadJob = null
         when (ProxyServiceBridge.state.value.state) {
             ProxyState.Running -> restart(subscriptionId)
 
@@ -83,9 +96,40 @@ class ProxyServiceController(
     }
 
     @Synchronized
+    fun reloadWhenReady(subscriptionId: String? = null) {
+        if (activeModeOrStored() != TunMode.Vpn) {
+            restartWhenReady(subscriptionId)
+            return
+        }
+        pendingRestartJob?.cancel()
+        pendingRestartJob = null
+        pendingReloadJob?.cancel()
+        pendingReloadJob = null
+        when (ProxyServiceBridge.state.value.state) {
+            ProxyState.Running -> reload(subscriptionId)
+
+            ProxyState.Starting, ProxyState.Stopping -> {
+                pendingReloadJob = scope.launch {
+                    val settled = ProxyServiceBridge.state.first {
+                        it.state != ProxyState.Starting && it.state != ProxyState.Stopping
+                    }
+                    if (settled.state != ProxyState.Running) return@launch
+                    runCatching { reload(subscriptionId) }
+                        .onFailure { AppLogger.error(TAG, "pending reload failed", it) }
+                }
+            }
+
+            ProxyState.Stopped, ProxyState.Error -> {
+            }
+        }
+    }
+
+    @Synchronized
     fun cancelPendingRestart() {
         pendingRestartJob?.cancel()
         pendingRestartJob = null
+        pendingReloadJob?.cancel()
+        pendingReloadJob = null
     }
 
     // 切换或删除当前订阅之后调。删光最后一条时改成停止：没有配置可切，重启只会失败成错误态。
@@ -99,12 +143,12 @@ class ProxyServiceController(
         restartWhenReady(subscriptionStore.currentId())
     }
 
-    // mihomo 只在启动时读一次配置文件，而内嵌模式下热重载接口全被关掉了，重启进程是唯一让新订阅生效的办法。
+    // 订阅配置更新优先走内核内重载；VPN 服务保留 TUN fd，ROOT 暂不支持重载，回退整进程重启。
     // 是否为当前订阅的判断统一收在这里，前台与后台任务不各写一套。
     fun restartAfterProfileUpdate(uuid: String) {
         if (storage.getString(StorageKeys.RESTART_AFTER_PROFILE_UPDATE, "true") != "true") return
         if (uuid != subscriptionStore.currentId()) return
-        restartWhenReady(uuid)
+        reloadWhenReady(uuid)
     }
 
     fun reattachRoot() {
@@ -183,7 +227,7 @@ class ProxyServiceController(
         }
     }
 
-    private enum class Op { Start, Restart, Stop }
+    private enum class Op { Start, Restart, Reload, Stop }
 
     // 类名和各个参数名一律用符号引用，不要写字符串常量：改名时编译器不会报错，
     // 故障表现是「只重连悄悄退化成了全新启动」，正好是最不该发生的那件事。
@@ -192,6 +236,7 @@ class ProxyServiceController(
             when (op) {
                 Op.Start -> ClashGoTunService.ACTION_START
                 Op.Restart -> ClashGoTunService.ACTION_RESTART
+                Op.Reload -> ClashGoTunService.ACTION_RELOAD
                 Op.Stop -> ClashGoTunService.ACTION_STOP
             }
         )
@@ -199,7 +244,7 @@ class ProxyServiceController(
         TunMode.RootTun, TunMode.RootTproxy -> Intent(context, ClashGoRootService::class.java).apply {
             action = when (op) {
                 Op.Start -> ClashGoRootService.ACTION_START
-                Op.Restart -> ClashGoRootService.ACTION_RESTART
+                Op.Restart, Op.Reload -> ClashGoRootService.ACTION_RESTART
                 Op.Stop -> ClashGoRootService.ACTION_STOP
             }
             if (op != Op.Stop) {

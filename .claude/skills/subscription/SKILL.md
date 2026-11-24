@@ -9,7 +9,7 @@ user_invocable: true
 1. 三阶段沙箱按 CREATE → APPLY（snapshot / fetchAndValid / commit）→ RELEASE 进行。`imported/` 一律「先拷后 rename」：update 路径下它是唯一副本。
 2. `ProfileProcessor.processLock` 是 companion 进程级锁：`processing/` 是不带 uuid 的单例目录，前台 VM 与后台 Worker 是不同实例，共用一把锁才能让配置提交到正确的 uuid。
 3. `kotlinx.coroutines.sync.Mutex` 不可重入：`markUpdated` / `commitPending` / `queryImported` / `queryPending` 由外层持锁调用，内部直接执行；`create` / `patch` / `release` / `delete` 直接被 VM 调用，自带锁。
-4. 更新后重启代理：mihomo 只在启动时读一次 config.yaml，embed mode 下 `/restart` 返回 404。五个入口（订阅页单条 / 全部 / 启动时更新 / 后台任务 / 调试指令）都调用 `restartAfterProfileUpdate`。
+4. 更新成功后由 `restartAfterProfileUpdate` 触发 `reloadWhenReady`：VPN 在 mihomo 内核内重读配置并保留 TUN fd，ROOT 回退重启；五个入口（订阅页单条 / 全部 / 启动时更新 / 后台任务 / 调试指令）都调用 `restartAfterProfileUpdate`。
 
 ## 指引索引
 
