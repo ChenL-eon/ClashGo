@@ -8,8 +8,10 @@ import com.clashgo.android.domain.model.TrafficData
 import com.clashgo.android.util.AppLogger
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.client.request.header
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
@@ -51,6 +53,9 @@ class MihomoWebSocket(
             }
         }
         install(WebSockets)
+        defaultRequest {
+            apiClient.authorizationHeader()?.let { header("Authorization", it) }
+        }
     }
 
     private val _connectionState = MutableStateFlow(false)
@@ -71,7 +76,7 @@ class MihomoWebSocket(
     ) { text -> json.decodeFromString<TrafficData>(text) }
 
     fun logsFlow(level: String): Flow<LogEvent> = webSocketFlow(
-        apiClient.getWebSocketUrl("/logs?level=$level"),
+        apiClient.getWebSocketUrl("/logs", mapOf("level" to level)),
         connectedEvent = LogEvent.Connected,
         disconnectedEvent = LogEvent.Disconnected,
     ) { text -> LogEvent.Message(json.decodeFromString<LogMessage>(text)) }

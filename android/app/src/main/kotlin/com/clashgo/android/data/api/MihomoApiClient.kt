@@ -227,15 +227,15 @@ class MihomoApiClient(
         }.getOrNull()
     }
 
-    fun getWebSocketUrl(path: String): String {
+    fun getWebSocketUrl(path: String, parameters: Map<String, String> = emptyMap()): String {
         val wsBase = baseUrl.replace("http://", "ws://").replace("https://", "wss://")
-        return if (secret.isNotEmpty()) {
-            val separator = if ("?" in path) "&" else "?"
-            "$wsBase$path${separator}token=$secret"
-        } else {
-            "$wsBase$path"
-        }
+        return URLBuilder("$wsBase$path").apply {
+            parameters.forEach { (name, value) -> this.parameters.append(name, value) }
+        }.buildString()
     }
+
+    // WS 握手与 REST 共用 Authorization，密钥不再进 URL，& = + 等字符无需转义。
+    fun authorizationHeader(): String? = if (secret.isNotEmpty()) "Bearer $secret" else null
 
     private companion object {
         const val RELOAD_TIMEOUT_MS = 120_000L
