@@ -88,12 +88,10 @@ object ClashGoCoreBridge {
         try {
             val raw = withContext(Dispatchers.IO) {
                 ProfileFileOps.awaitGeodata()
-                nativeSetAgeSecretKey(ageSecretKey)
                 try {
-                    nativeFetchAndValid(workDir, url, force, httpProxy, userAgent, token)
+                    nativeFetchAndValid(workDir, url, force, httpProxy, userAgent, token, ageSecretKey)
                 } finally {
                     nativeDone.set(true)
-                    nativeSetAgeSecretKey("")
                 }
             }
             decodePayload(raw, CoreFetchResult.serializer())
@@ -131,6 +129,7 @@ object ClashGoCoreBridge {
         httpProxy: String?,
         userAgent: String,
         token: Int,
+        ageSecretKey: String,
     ): String?
 
     @JvmStatic
@@ -258,9 +257,6 @@ object ClashGoCoreBridge {
         timeout: Int,
         unifiedDelay: Boolean,
     ): String?
-
-    @JvmStatic
-    private external fun nativeSetAgeSecretKey(key: String)
 
     @JvmStatic
     private external fun nativeGenAgeKeyPair(): String?

@@ -27,6 +27,7 @@ import (
 	"time"
 
 	clashHttp "github.com/metacubex/mihomo/component/http"
+	"github.com/metacubex/mihomo/component/age"
 	"github.com/metacubex/mihomo/config"
 	Const "github.com/metacubex/mihomo/constant"
 )
@@ -60,7 +61,16 @@ func clashgoFetchAndValid(
 	cHttpProxy *C.char,
 	cUserAgent *C.char,
 	token C.int,
+	cAgeSecretKey *C.char,
 ) *C.char {
+	// age 密钥是进程级全局状态。整个 fetch+Parsing 生命周期都持同一把锁，
+	// 避免离线解析或编辑器校验换掉密钥后，正在解密的 provider 读到别人的 key。
+	key := strings.TrimSpace(C.GoString(cAgeSecretKey))
+	offlineParseMu.Lock()
+	defer offlineParseMu.Unlock()
+	age.SetGlobalSecretKeys(key)
+	defer age.SetGlobalSecretKeys()
+
 	return guardString(func() string {
 		workDir := C.GoString(cWorkDir)
 		rawURL := C.GoString(cURL)

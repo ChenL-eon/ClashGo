@@ -71,16 +71,6 @@ func clashgoQueryProgress(token C.int) *C.char {
 	return nil
 }
 
-//export clashgoSetAgeSecretKey
-func clashgoSetAgeSecretKey(cKey *C.char) {
-	key := strings.TrimSpace(C.GoString(cKey))
-	if key == "" {
-		age.SetGlobalSecretKeys()
-	} else {
-		age.SetGlobalSecretKeys(key)
-	}
-}
-
 // PC 保存的是解密后的明文订阅，备份导出时用它解出明文；未加密的内容原样写到 dst。
 //export clashgoDecryptFile
 func clashgoDecryptFile(cSrc, cDst, cKey *C.char) *C.char {

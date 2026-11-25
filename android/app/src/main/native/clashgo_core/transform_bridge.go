@@ -69,7 +69,7 @@ func clashgoValidateTransform(cWorkDir, cTransform, cKey *C.char) *C.char {
 		// 离线代理页会在没有 processLock 时解析配置，同一把锁把两边的 age 全局密钥串起来。
 		offlineParseMu.Lock()
 		defer offlineParseMu.Unlock()
-		age.SetGlobalSecretKeys(C.GoString(cKey))
+		age.SetGlobalSecretKeys(strings.TrimSpace(C.GoString(cKey)))
 		defer age.SetGlobalSecretKeys()
 		out, err := readTransformedConfig(workDir, C.GoString(cTransform), C.GoString(cKey))
 		if err != nil {
@@ -95,7 +95,12 @@ func clashgoValidateTransform(cWorkDir, cTransform, cKey *C.char) *C.char {
 //export clashgoChainProxyContext
 func clashgoChainProxyContext(cWorkDir, cTransform, cKey *C.char) *C.char {
 	return guardString(func() string {
-		out, err := readTransformedConfig(C.GoString(cWorkDir), C.GoString(cTransform), C.GoString(cKey))
+		offlineParseMu.Lock()
+		defer offlineParseMu.Unlock()
+		key := strings.TrimSpace(C.GoString(cKey))
+		age.SetGlobalSecretKeys(key)
+		defer age.SetGlobalSecretKeys()
+		out, err := readTransformedConfig(C.GoString(cWorkDir), C.GoString(cTransform), key)
 		if err != nil {
 			return "error: " + err.Error()
 		}
@@ -116,7 +121,12 @@ func clashgoChainProxyContext(cWorkDir, cTransform, cKey *C.char) *C.char {
 //export clashgoRuleContext
 func clashgoRuleContext(cWorkDir, cTransform, cKey *C.char) *C.char {
 	return guardString(func() string {
-		out, err := readTransformedConfig(C.GoString(cWorkDir), C.GoString(cTransform), C.GoString(cKey))
+		offlineParseMu.Lock()
+		defer offlineParseMu.Unlock()
+		key := strings.TrimSpace(C.GoString(cKey))
+		age.SetGlobalSecretKeys(key)
+		defer age.SetGlobalSecretKeys()
+		out, err := readTransformedConfig(C.GoString(cWorkDir), C.GoString(cTransform), key)
 		if err != nil {
 			return "error: " + err.Error()
 		}

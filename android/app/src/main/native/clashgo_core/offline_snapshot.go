@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,7 +104,7 @@ func clashgoOfflineProxySnapshot(cWorkDir, cTransform, cKey *C.char) *C.char {
 
 		offlineParseMu.Lock()
 		defer offlineParseMu.Unlock()
-		age.SetGlobalSecretKeys(key)
+		age.SetGlobalSecretKeys(strings.TrimSpace(key))
 		defer age.SetGlobalSecretKeys()
 
 		cfg, mode, err := parseOfflineConfig(workDir, transformPath, key)
@@ -141,7 +142,6 @@ func clashgoTestOfflineDelays(cWorkDir, cTransform, cKey, cNames, cURL *C.char, 
 	return guardString(func() string {
 		workDir := C.GoString(cWorkDir)
 		transformPath := C.GoString(cTransform)
-		key := C.GoString(cKey)
 		testURL := C.GoString(cURL)
 		timeout := int(cTimeout)
 		if timeout <= 0 {
@@ -153,18 +153,24 @@ func clashgoTestOfflineDelays(cWorkDir, cTransform, cKey, cNames, cURL *C.char, 
 			return "error: parse names: " + err.Error()
 		}
 
-		offlineParseMu.Lock()
-		age.SetGlobalSecretKeys(key)
-		cfg, _, err := parseOfflineConfig(workDir, transformPath, key)
-		// 离线进程没有 executor.Initial 这条启动路径，unified-delay 不会自己写进全局开关；
-		// 不补这一步，停止态测到的是含 DNS/TCP/TLS 建连的第一次请求，和运行态不可比。
-		if err == nil {
-			adapter.UnifiedDelay.Store(cUnifiedDelay != 0)
-		}
-		age.SetGlobalSecretKeys()
-		offlineParseMu.Unlock()
-		if err != nil {
-			return "error: " + err.Error()
+		var (
+			cfg      *config.Config
+			parseErr error
+		)
+		func() {
+			offlineParseMu.Lock()
+			defer offlineParseMu.Unlock()
+			age.SetGlobalSecretKeys(strings.TrimSpace(C.GoString(cKey)))
+			defer age.SetGlobalSecretKeys()
+			cfg, _, parseErr = parseOfflineConfig(workDir, transformPath, C.GoString(cKey))
+			// 离线进程没有 executor.Initial 这条启动路径，unified-delay 不会自己写进全局开关；
+			// 不补这一步，停止态测到的是含 DNS/TCP/TLS 建连的第一次请求，和运行态不可比。
+			if parseErr == nil {
+				adapter.UnifiedDelay.Store(cUnifiedDelay != 0)
+			}
+		}()
+		if parseErr != nil {
+			return "error: " + parseErr.Error()
 		}
 		defer destroyProviders(cfg)
 
