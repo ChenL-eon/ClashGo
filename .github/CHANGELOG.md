@@ -1,19 +1,25 @@
-- Added the first public Android release with VPN, ROOT TUN, and ROOT TPROXY traffic capture
-- Added subscription import from URL, local file, and QR code with scheduled updates and encrypted configurations
-- Added proxy group selection, latency tests, provider refresh, and configuration editing
-- Added live traffic, connection, log, and DNS query diagnostics
-- Added per-app allowlists and blocklists plus ROOT hotspot handling
-- Added Quick Settings tile, start on boot, and Wi-Fi policies
-- Added backup and restore with WebDAV support
-- Added light and dark themes, dynamic colors, blur effects, and wide-screen layouts
+- Added in-place core reload for VPN profile updates without recreating the TUN interface
+- Added rule overrides and templates to backup export and restore
+- Improved offline delay tests to stop promptly on cancellation and cap concurrent probes at five
+- Improved the profile editor to validate a sandbox copy before replacing the live file
+- Fixed VPN per-app allowlists that could leave no valid apps and ROOT kernel reattachment after restart
+- Fixed WebSocket authentication and log-level URLs with reserved characters
+- Fixed emoji and other supplementary-plane characters in subscription paths, JSON, and node names
+- Fixed age-encrypted subscription handling when updates, offline parsing, and editing overlap
+- Fixed backup restores racing with queued preference writes
+- Fixed canceled latency probes and proxy-port lookups being recorded as failures
+- Reduced release APK size by excluding unused mesh VPN outbounds
 
 ---
 
-- 新增首个公开 Android 版本，支持 VPN、ROOT TUN 和 ROOT TPROXY 流量接管
-- 新增订阅 URL、本地文件和二维码导入，并支持定时更新与加密配置
-- 新增代理组选择、延迟测速、Provider 刷新和配置编辑
-- 新增实时流量、连接、日志和 DNS 查询诊断
-- 新增分应用白名单与黑名单，以及 ROOT 热点处理
-- 新增快捷设置磁贴、开机启动和 Wi-Fi 策略
-- 新增备份恢复和 WebDAV 支持
-- 新增浅色/深色主题、动态取色、毛玻璃效果和宽屏布局
+- 新增 VPN 更新订阅时原位重载内核，不重建 TUN 接口
+- 新增规则覆写与模板的备份导出和恢复
+- 优化离线测速，取消后立即停止，并将并发限制为 5
+- 优化订阅编辑器保存，先在沙箱校验再替换正式文件
+- 修复分应用白名单可能无有效应用，以及重启后 ROOT 内核重连
+- 修复 WebSocket 鉴权和包含保留字符的日志等级地址
+- 修复订阅路径、JSON 和节点名中的 emoji 等扩展平面字符
+- 修复 age 加密订阅在更新、离线解析和编辑同时进行时的问题
+- 修复备份恢复与排队中的设置写入竞态
+- 修复规则探测和代理端口查询把取消记为失败
+- 通过排除未使用的 mesh VPN 出站减小发布 APK 体积
