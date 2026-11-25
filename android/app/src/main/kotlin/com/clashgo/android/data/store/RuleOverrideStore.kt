@@ -53,7 +53,28 @@ class RuleOverrideStore(fileManager: ProfileFileManager, scope: CoroutineScope) 
         file.update { current -> current.copy(templates = current.templates.filterNot { it.id == id }) }
     }
 
-    private companion object {
-        const val PATH = "rules/rule_overrides.json"
+    suspend fun reload() = file.reload()
+
+    internal suspend fun reloadLocked() = file.reloadLocked()
+
+    fun encode(): String = file.encode()
+
+    // 合并恢复只写入实际新增的订阅，并保留本地同 id 的模板与规则。
+    internal suspend fun mergeFromBackup(incoming: RuleOverrideFile, addedSubscriptionIds: Set<String>) {
+        val incomingItems = incoming.items
+            .filter { it.subscriptionId in addedSubscriptionIds }
+        file.update { current ->
+            val localItems = current.items.map { it.subscriptionId }.toSet()
+            val localTemplates = current.templates.map { it.id }.toSet()
+            current.copy(
+                items = current.items + incomingItems.filterNot { it.subscriptionId in localItems },
+                templates = current.templates + incoming.templates.filterNot { it.id in localTemplates },
+            )
+        }
+    }
+
+    companion object {
+        const val DIRECTORY = "rules"
+        const val PATH = "$DIRECTORY/rule_overrides.json"
     }
 }

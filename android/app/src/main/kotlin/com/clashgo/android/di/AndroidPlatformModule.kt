@@ -29,6 +29,7 @@ val androidPlatformModule: Module = module {
             proxySelectionStore = get(),
             overrideStore = get(),
             overrideProfileStore = get(),
+            ruleOverrideStore = get(),
             repository = get(),
             bootStartManager = get(),
         )

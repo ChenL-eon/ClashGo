@@ -13,12 +13,14 @@ const SUBSCRIPTION_SELECTION: &str = "subscriptions/selection_state.json";
 const PROXY_SELECTION: &str = "proxies/selection_state.json";
 const OVERRIDE_LIST: &str = "overrides/overrides_list.json";
 const OVERRIDE_FILE: &str = "override.user.json";
+const RULE_OVERRIDES: &str = "rules/rule_overrides.json";
 
-const ANDROID_FILES: [&str; 4] = [
+const ANDROID_FILES: [&str; 5] = [
     SUBSCRIPTION_PENDING,
     SUBSCRIPTION_SELECTION,
     PROXY_SELECTION,
     OVERRIDE_FILE,
+    RULE_OVERRIDES,
 ];
 
 #[derive(Deserialize)]
@@ -211,6 +213,7 @@ mod tests {
             "android/imported/abc/config.yaml",
             "android/imported/bad.id/config.yaml",
             "android/pending/abc/config.yaml",
+            "android/rules/rule_overrides.json",
             "android/dns.json",
             "dns.json",
             "android/../escape.json",
@@ -233,6 +236,7 @@ mod tests {
                 Value::Null,
                 Value::Null,
                 json!("pending/abc/config.yaml"),
+                json!(RULE_OVERRIDES),
                 Value::Null,
                 Value::Null,
                 Value::Null,

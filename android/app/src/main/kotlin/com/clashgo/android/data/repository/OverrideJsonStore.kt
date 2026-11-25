@@ -1,5 +1,6 @@
 package com.clashgo.android.data.repository
 
+import com.clashgo.android.data.store.MihomoFileLock
 import com.clashgo.android.domain.model.ConfigurationOverride
 import com.clashgo.android.platform.ProfileFileManager
 import com.clashgo.android.util.AppLogger
@@ -47,17 +48,25 @@ class OverrideJsonStore(
     fun encode(override: ConfigurationOverride): String = json.encodeToString(override)
 
     // 备份恢复换入文件后调用；排队中的旧写入会因内存值已变而放弃。
-    fun reload() {
+    suspend fun reload() = MihomoFileLock.withWrite { reloadLocked() }
+
+    // 恢复流程已持有 MihomoFileLock，不能在这里再次获取非重入的全局锁。
+    internal suspend fun reloadLocked() = writeLock.withLock {
         _state.value = readFromDisk()
     }
 
     // 排队写入期间如果已经有更新的内容，这次直接放弃，否则旧内容会盖掉新的。
+    // generation 在投递时记录：恢复流程换入文件前会递增它，所有尚未落盘的旧快照随之失效。
     private fun persist(override: ConfigurationOverride) {
+        val generation = MihomoFileLock.currentGeneration()
         scope.launch(Dispatchers.IO) {
-            writeLock.withLock {
-                if (_state.value !== override) return@withLock
-                runCatching { fileManager.writeMihomoFile(FILE_NAME, json.encodeToString(override)) }
-                    .onFailure { AppLogger.error(TAG, "failed to persist $FILE_NAME", it) }
+            MihomoFileLock.withWrite {
+                if (!MihomoFileLock.isCurrent(generation)) return@withWrite
+                writeLock.withLock {
+                    if (_state.value !== override) return@withLock
+                    runCatching { fileManager.writeMihomoFile(FILE_NAME, json.encodeToString(override)) }
+                        .onFailure { AppLogger.error(TAG, "failed to persist $FILE_NAME", it) }
+                }
             }
         }
     }

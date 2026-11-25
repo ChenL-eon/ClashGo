@@ -100,6 +100,13 @@ class SubscriptionStore(fileManager: ProfileFileManager, scope: CoroutineScope) 
         selectionFile.reload()
     }
 
+    // 备份恢复已持有 MihomoFileLock，直接刷新三个 store，避免重复获取全局锁。
+    internal suspend fun reloadLocked() {
+        importedFile.reloadLocked()
+        pendingFile.reloadLocked()
+        selectionFile.reloadLocked()
+    }
+
     companion object {
         const val DIRECTORY = "subscriptions"
         const val IMPORTED_PATH = "$DIRECTORY/subscriptions_list.json"

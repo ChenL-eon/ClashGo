@@ -92,6 +92,8 @@ class OverrideProfileStore(private val fileManager: ProfileFileManager, scope: C
 
     suspend fun reload() = listFile.reload()
 
+    internal suspend fun reloadLocked() = listFile.reloadLocked()
+
     companion object {
         const val DIRECTORY = "overrides"
         const val LIST_PATH = "$DIRECTORY/overrides_list.json"

@@ -47,6 +47,8 @@ class ProxySelectionStore(fileManager: ProfileFileManager, scope: CoroutineScope
 
     suspend fun reload() = file.reload()
 
+    internal suspend fun reloadLocked() = file.reloadLocked()
+
     companion object {
         const val DIRECTORY = "proxies"
         const val SELECTION_PATH = "$DIRECTORY/selection_state.json"

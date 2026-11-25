@@ -6,10 +6,13 @@ import com.clashgo.android.data.bridge.ClashGoCoreBridge
 import com.clashgo.android.data.repository.OverrideJsonStore
 import com.clashgo.android.data.repository.ProfileProcessor
 import com.clashgo.android.data.repository.SubscriptionRepositoryImpl
+import com.clashgo.android.data.store.MihomoFileLock
 import com.clashgo.android.data.store.OverrideListFile
 import com.clashgo.android.data.store.OverrideProfileStore
 import com.clashgo.android.data.store.ProxySelectionFile
 import com.clashgo.android.data.store.ProxySelectionStore
+import com.clashgo.android.data.store.RuleOverrideFile
+import com.clashgo.android.data.store.RuleOverrideStore
 import com.clashgo.android.data.store.StoreJson
 import com.clashgo.android.data.store.SubscriptionListFile
 import com.clashgo.android.data.store.SubscriptionStore
@@ -60,6 +63,7 @@ class BackupManager(
     private val proxySelectionStore: ProxySelectionStore,
     private val overrideStore: OverrideJsonStore,
     private val overrideProfileStore: OverrideProfileStore,
+    private val ruleOverrideStore: RuleOverrideStore,
     private val repository: SubscriptionRepositoryImpl,
     private val bootStartManager: BootStartManager,
 ) {
@@ -113,6 +117,7 @@ class BackupManager(
                 }
                 imported.forEach { zip.putSubscriptionConfig(it) }
                 zip.putOverrides()
+                zip.putRuleOverrides()
                 zip.putEntry("$ANDROID_DIR/$ENTRY_SNAPSHOT", json.encodeToString(snapshot).toByteArray())
                 zip.putEntry("$ANDROID_DIR/$OVERRIDE_FILE", overrideStore.encode(override).toByteArray())
                 zipDirIfExists(zip, File(mihomoDir, IMPORTED_DIR), "$ANDROID_DIR/$IMPORTED_DIR", skipConfig = true)
@@ -146,6 +151,14 @@ class BackupManager(
             val file = File(mihomoDir, overrideProfileStore.contentPath(profile))
             putFile(overrideProfileStore.contentPath(profile), file)
         }
+    }
+
+    // 新备份总带规则文件；空规则也是一份有效快照，覆盖恢复时才会按备份清空。
+    private fun ZipOutputStream.putRuleOverrides() {
+        putEntry(
+            "$ANDROID_DIR/${RuleOverrideStore.PATH}",
+            ruleOverrideStore.encode().toByteArray(),
+        )
     }
 
     suspend fun <T> withTransferFile(block: suspend (File) -> T): T {
@@ -202,11 +215,14 @@ class BackupManager(
 
         // 换入后立即重新载入，内存里的旧值不能再写回磁盘。
         repository.withProfileLock {
-            swapStagedFiles()
-            subscriptionStore.reload()
-            proxySelectionStore.reload()
-            overrideStore.reload()
-            overrideProfileStore.reload()
+            MihomoFileLock.withRestore {
+                swapStagedFiles()
+                subscriptionStore.reloadLocked()
+                proxySelectionStore.reloadLocked()
+                overrideStore.reloadLocked()
+                overrideProfileStore.reloadLocked()
+                ruleOverrideStore.reloadLocked()
+            }
         }
 
         if (snapshot != null) {
@@ -235,6 +251,7 @@ class BackupManager(
                 ?.subscriptions.orEmpty()
             val selections = readStaged(staging, ProxySelectionStore.SELECTION_PATH, ProxySelectionFile.serializer())
                 ?.subscriptions.orEmpty()
+            val incomingRules = readStaged(staging, RuleOverrideStore.PATH, RuleOverrideFile.serializer())
             mergeOverrides(staging)
             repository.withProfileLock {
                 val known = subscriptionStore.imported().map { it.id }
@@ -246,6 +263,10 @@ class BackupManager(
                     selections[subscription.id]?.forEach { (group, node) ->
                         proxySelectionStore.select(subscription.id, group, node)
                     }
+                }
+                // 规则只跟随真正新增的订阅；本机同 id 的规则与模板优先。
+                if (incomingRules != null) {
+                    ruleOverrideStore.mergeFromBackup(incomingRules, addedIds.toSet())
                 }
             }
         } finally {
@@ -352,6 +373,7 @@ class BackupManager(
                     .getOrElse { throw BackupException("Invalid $ENTRY_SETTINGS: ${it.message}") }
             }
             validateStagedOverrides(staging)
+            validateStagedRules(staging)
             return StagedArchive(snapshot, settings)
         } catch (e: Throwable) {
             staging.deleteRecursively()
@@ -373,9 +395,24 @@ class BackupManager(
         }
     }
 
+    // 规则文件也要在换入前校验，避免坏 id 进入规则列表后无法与订阅对应。
+    private fun validateStagedRules(staging: File) {
+        val rules = readStaged(staging, RuleOverrideStore.PATH, RuleOverrideFile.serializer()) ?: return
+        if (!BackupPolicy.validateIds(rules.items.map { it.subscriptionId })) {
+            throw BackupException("Invalid or duplicate rule subscription id")
+        }
+        if (!BackupPolicy.validateIds(rules.templates.map { it.id })) {
+            throw BackupException("Invalid or duplicate rule template id")
+        }
+    }
+
     private fun swapStagedFiles() {
         val staging = File(mihomoDir, RESTORE_STAGING)
         val old = File(mihomoDir, RESTORE_OLD)
+        // 旧包没有 rules/ 时不能把本机规则换走；其余目标仍按备份覆盖。
+        val targets = RESTORE_TARGETS.filter {
+            it != RuleOverrideStore.DIRECTORY || File(staging, it).exists()
+        }
         // 上一次恢复的旧副本必须已经由启动恢复处理干净；这里再删一次失败时要停下，
         // 否则下面的 rename 会撞上同名目标并触发回滚，反而可能删掉新的正式目录。
         if (old.exists() && !old.deleteRecursively()) {
@@ -385,11 +422,11 @@ class BackupManager(
             throw BackupException("Cannot create restore backup directory")
         }
         try {
-            RESTORE_TARGETS.forEach { swapIn(it, staging, old) }
+            targets.forEach { swapIn(it, staging, old) }
             old.deleteRecursively()
         } catch (e: Throwable) {
             AppLogger.error(TAG, "Restore swap failed, rolling back", e)
-            val restored = RESTORE_TARGETS.map { rollbackFrom(it, old) }.all { it }
+            val restored = targets.map { rollbackFrom(it, old) }.all { it }
             if (restored) {
                 old.deleteRecursively()
             } else {
@@ -465,6 +502,7 @@ class BackupManager(
             SubscriptionStore.DIRECTORY,
             ProxySelectionStore.DIRECTORY,
             OverrideProfileStore.DIRECTORY,
+            RuleOverrideStore.DIRECTORY,
             OVERRIDE_FILE,
         )
 

@@ -50,15 +50,18 @@ class JsonFileStore<T>(
     }
 
     // 先写盘再发布：写盘失败时内存保持原值，异常交给调用方。
-    suspend fun update(transform: (T) -> T): T = writeLock.withLock {
-        withContext(Dispatchers.IO) {
-            val current = _state.value
-            val next = transform(current)
-            if (next != current) {
-                write(next)
-                _state.value = next
+    // 全局锁必须在 store 锁之前拿，恢复流程才能先排空写盘再换文件。
+    suspend fun update(transform: (T) -> T): T = MihomoFileLock.withWrite {
+        writeLock.withLock {
+            withContext(Dispatchers.IO) {
+                val current = _state.value
+                val next = transform(current)
+                if (next != current) {
+                    write(next)
+                    _state.value = next
+                }
+                next
             }
-            next
         }
     }
 
@@ -69,12 +72,17 @@ class JsonFileStore<T>(
         val next = transform(previous)
         if (next == previous) return
         _state.value = next
+        val generation = MihomoFileLock.currentGeneration()
         scope.launch(Dispatchers.IO) {
-            writeLock.withLock {
-                // 排队期间已有更新的值，这份快照直接放弃。
-                if (_state.value !== next) return@withLock
-                runCatching { write(next) }
-                    .onFailure { AppLogger.error(TAG, "failed to persist $relativePath", it) }
+            MihomoFileLock.withWrite {
+                // 恢复备份已经换入新文件，这份排队中的旧快照不能再落盘。
+                if (!MihomoFileLock.isCurrent(generation)) return@withWrite
+                writeLock.withLock {
+                    // 排队期间已有更新的值，这份快照直接放弃。
+                    if (_state.value !== next) return@withLock
+                    runCatching { write(next) }
+                        .onFailure { AppLogger.error(TAG, "failed to persist $relativePath", it) }
+                }
             }
         }
     }
@@ -82,7 +90,10 @@ class JsonFileStore<T>(
     fun encode(value: T = _state.value): String = StoreJson.encodeToString(serializer, value)
 
     // 恢复备份换入文件后调用，丢弃内存中的旧值。
-    suspend fun reload() = writeLock.withLock {
+    suspend fun reload() = MihomoFileLock.withWrite { reloadLocked() }
+
+    // 调用方已经持有 MihomoFileLock 时使用，不能再拿一次非重入的全局锁。
+    internal suspend fun reloadLocked() = writeLock.withLock {
         withContext(Dispatchers.IO) {
             loadFailed = false
             _state.value = read()
