@@ -98,6 +98,9 @@ func runFetchAndValid(
 	httpProxy string,
 	userAgent string,
 ) (*FetchResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(workDir, 0700); err != nil {
 		return nil, fmt.Errorf("create workDir: %w", err)
 	}

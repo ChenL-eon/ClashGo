@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
@@ -80,11 +81,14 @@ object ClashGoCoreBridge {
     ): CoreFetchResult = coroutineScope {
         val token = tokenSeq.getAndIncrement()
         val nativeDone = AtomicBoolean(false)
-        val canceller = launch {
+        val nativeStarted = AtomicBoolean(false)
+        // UNDISPATCHED 保证 watcher 在进入阻塞 JNI 前已经停在 awaitCancellation；
+        // nativeStarted 挡住 JNI 尚未开始的取消，避免在 Go 侧留下没有人消费的早到 token。
+        val canceller = launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 awaitCancellation()
             } finally {
-                if (!nativeDone.get()) runCatching { nativeCancel(token) }
+                if (!nativeDone.get() && nativeStarted.get()) runCatching { nativeCancel(token) }
             }
         }
         val pollerJob = launchProgressPoller(this, token, onProgress)
@@ -92,6 +96,7 @@ object ClashGoCoreBridge {
             val raw = withContext(Dispatchers.IO) {
                 ProfileFileOps.awaitGeodata()
                 currentCoroutineContext().ensureActive()
+                nativeStarted.set(true)
                 try {
                     nativeFetchAndValid(workDir, url, force, httpProxy, userAgent, token, ageSecretKey)
                 } finally {
@@ -218,11 +223,12 @@ object ClashGoCoreBridge {
     ): Map<String, Int> = coroutineScope {
         val token = tokenSeq.getAndIncrement()
         val nativeDone = AtomicBoolean(false)
-        val canceller = launch {
+        val nativeStarted = AtomicBoolean(false)
+        val canceller = launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 awaitCancellation()
             } finally {
-                if (!nativeDone.get()) runCatching { nativeCancel(token) }
+                if (!nativeDone.get() && nativeStarted.get()) runCatching { nativeCancel(token) }
             }
         }
         try {
@@ -230,6 +236,7 @@ object ClashGoCoreBridge {
                 ProfileFileOps.awaitGeodata()
                 currentCoroutineContext().ensureActive()
                 val names = json.encodeToString(ListSerializer(String.serializer()), nodes.toList())
+                nativeStarted.set(true)
                 try {
                     nativeTestOfflineDelays(
                         workDir.path,
