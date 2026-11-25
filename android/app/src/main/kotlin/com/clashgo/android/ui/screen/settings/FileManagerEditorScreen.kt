@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import com.clashgo.android.R
 import com.clashgo.android.data.bridge.ClashGoCoreBridge
 import com.clashgo.android.platform.ProfileFileManager
+import com.clashgo.android.service.ProfileFileOps
 import com.clashgo.android.platform.showToast
 import com.clashgo.android.ui.component.blur.BlurredBar
 import com.clashgo.android.ui.component.blur.rememberBlurBackdrop
@@ -32,6 +33,7 @@ import com.clashgo.android.ui.icon.AppIcons
 import com.clashgo.android.ui.theme.LocalAppDarkMode
 import com.clashgo.android.ui.util.horizontalCutoutPadding
 import com.clashgo.android.viewmodel.SubscriptionViewModel
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -105,6 +107,11 @@ fun FileManagerEditorScreen(
                                     .find { it.id == uuid }
                                     ?.userAgent
                                     .orEmpty()
+                                val ageSecretKey = subscriptionViewModel.uiState.value
+                                    .subscriptions
+                                    .find { it.id == uuid }
+                                    ?.ageSecretKey
+                                    .orEmpty()
                                 isSaving = true
                                 scope.launch {
                                     val err = runCatching {
@@ -114,6 +121,8 @@ fun FileManagerEditorScreen(
                                             relativePath = relativePath,
                                             newContent = newContent,
                                             userAgent = userAgent,
+                                            ageSecretKey = ageSecretKey,
+                                            sandboxRoot = context.cacheDir,
                                         )
                                     }
                                     isSaving = false
@@ -192,27 +201,38 @@ private suspend fun saveWithValidation(
     relativePath: String,
     newContent: String,
     userAgent: String,
+    ageSecretKey: String,
+    sandboxRoot: File,
 ): String? = withContext(Dispatchers.IO) {
     if (!isYamlPath(relativePath)) {
         fileManager.writeImportedFile(uuid, relativePath, newContent)
         return@withContext null
     }
-    val original = fileManager.readImportedFile(uuid, relativePath)
-    fileManager.writeImportedFile(uuid, relativePath, newContent)
-    val workDir = fileManager.getImportedDir(uuid)
-    val err = runCatching {
-        ClashGoCoreBridge.fetchAndValid(
-            workDir = workDir,
-            url = "",
-            force = false,
-            httpProxy = null,
-            userAgent = userAgent,
-            ageSecretKey = "",
-            onProgress = {},
-        )
-    }.exceptionOrNull()?.message
-    if (err != null && original != null) {
-        fileManager.writeImportedFile(uuid, relativePath, original)
+
+    // 先把订阅目录复制到沙箱，在沙箱里写入并校验；正式目录直到最后一步原子换入前都不动。
+    val sandbox = File(sandboxRoot, "editor-validate/${uuid}-${System.nanoTime()}")
+    try {
+        File(fileManager.getImportedDir(uuid)).copyRecursively(sandbox, overwrite = true)
+        val target = File(sandbox, relativePath)
+        target.parentFile?.mkdirs()
+        ProfileFileOps.writeAtomically(target, newContent)
+        val err = runCatching {
+            ClashGoCoreBridge.fetchAndValid(
+                workDir = sandbox.path,
+                url = "",
+                force = false,
+                httpProxy = null,
+                userAgent = userAgent,
+                ageSecretKey = ageSecretKey,
+                onProgress = {},
+            )
+        }.exceptionOrNull()?.message
+        if (err != null) return@withContext err
+
+        // 校验通过才换入正式文件；这次写入本身也是临时文件 + fsync + rename。
+        fileManager.writeImportedFile(uuid, relativePath, newContent)
+        null
+    } finally {
+        sandbox.deleteRecursively()
     }
-    err
 }

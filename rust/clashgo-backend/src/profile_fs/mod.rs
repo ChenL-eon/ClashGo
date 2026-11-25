@@ -1,12 +1,15 @@
 use std::collections::HashSet;
-use std::fs;
-use std::io;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::error::BackendError;
+
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 const IMPORTS: &str = "imported";
 const PENDING: &str = "pending";
@@ -372,11 +375,56 @@ pub fn write_imported_file(payload: &str) -> Result<Value, BackendError> {
         )));
     }
 
-    // 保持原有语义：编辑器保存是普通覆盖写，不走订阅列表那种先写临时文件再 rename。
-    fs::write(&target, request.content.as_bytes())
+    // 编辑器保存必须原子：先写同目录临时文件并刷盘，成功后再 rename 覆盖正式文件。
+    // 进程在写入或校验中途死亡时，正式 config.yaml 始终保持旧内容。
+    write_file_atomically(&target, request.content.as_bytes())
         .map_err(|error| BackendError::io("write imported file", &target, error))?;
     Ok(json!({}))
 }
+
+fn write_file_atomically(target: &Path, content: &[u8]) -> io::Result<()> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "target has no parent"))?;
+    let file_name = target
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "target has no file name"))?
+        .to_string_lossy();
+    let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let tmp = parent.join(format!(".{file_name}.{}.{sequence}.tmp", std::process::id()));
+
+    let permissions = fs::metadata(target).ok().map(|metadata| metadata.permissions());
+    let result = (|| -> io::Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)?;
+        if let Some(permissions) = permissions {
+            file.set_permissions(permissions)?;
+        }
+        file.write_all(content)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&tmp, target)?;
+        sync_parent(parent);
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
+#[cfg(unix)]
+fn sync_parent(parent: &Path) {
+    // rename 的目录项也要落盘，否则掉电后可能只剩临时文件名。
+    if let Ok(dir) = fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+}
+
+#[cfg(not(unix))]
+fn sync_parent(_parent: &Path) {}
 
 pub fn list_imported_files(payload: &str) -> Result<Value, BackendError> {
     let request: UuidRequest = parse(payload, "list_imported_files")?;
