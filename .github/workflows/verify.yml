@@ -27,6 +27,15 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Set up Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      - name: Resolve Rust toolchain version
+        id: rust-toolchain
+        run: echo "version=$(rustc -vV | sed -n 's/^release: //p')" >> "$GITHUB_OUTPUT"
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4.0.4
 
@@ -46,6 +55,25 @@ jobs:
             printf '::error::Tracked files are outside the allowlist:\n%s\n' "$unexpected"
             exit 1
           fi
+
+      - name: Cache Cargo dependencies and compilation
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: rust-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-toolchain.outputs.version }}-${{ hashFiles('rust/Cargo.lock') }}
+          restore-keys: |
+            rust-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-toolchain.outputs.version }}-
+
+      - name: Test Rust backend
+        working-directory: rust
+        run: cargo test --locked
+
+      - name: Lint Rust backend
+        working-directory: rust
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Compute resource cache epoch
         id: resource-cache
