@@ -8,6 +8,7 @@ import io.ktor.client.engine.ProxyBuilder
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import io.ktor.http.Url
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.TimeSource
 
 class RuleLatencyTester(
@@ -22,6 +23,8 @@ class RuleLatencyTester(
             val start = TimeSource.Monotonic.markNow()
             client.get(url)
             start.elapsedNow().inWholeMilliseconds.toInt()
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Throwable) {
             Failed
         } finally {

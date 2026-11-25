@@ -9,6 +9,7 @@ import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.ProxySelector
 import java.net.URI
+import kotlin.coroutines.cancellation.CancellationException
 
 class SubscriptionProxyResolver(
     private val overrideStore: OverrideJsonStore,
@@ -46,6 +47,8 @@ class SubscriptionProxyResolver(
         val client = MihomoApiClient(baseUrl = baseUrl, secret = bridge.secret)
         return try {
             client.getConfig().mixedPort.takeIf { it > 0 }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Throwable) {
             null
         } finally {
