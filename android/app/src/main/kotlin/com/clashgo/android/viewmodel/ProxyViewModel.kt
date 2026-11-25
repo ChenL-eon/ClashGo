@@ -12,6 +12,7 @@ import com.clashgo.android.domain.model.ProxyNode
 import com.clashgo.android.domain.model.TestedDelay
 import com.clashgo.android.domain.repository.MihomoRepository
 import com.clashgo.android.platform.PlatformStorage
+import com.clashgo.android.platform.ProxyServiceBridge
 import com.clashgo.android.platform.StorageKeys
 import com.clashgo.android.util.AppLogger
 import com.clashgo.android.util.describe
@@ -211,6 +212,11 @@ class ProxyViewModel(
     init {
         viewModelScope.launch {
             autoDelayRuns.collect { repo -> if (session?.repository === repo) loadProxies() }
+        }
+        viewModelScope.launch {
+            ProxyServiceBridge.configRevision.drop(1).collect {
+                if (session?.repository != null) loadProxies()
+            }
         }
         // 停止态没有仓库变化可依赖，当前订阅切换时要自己重建离线会话。
         viewModelScope.launch {

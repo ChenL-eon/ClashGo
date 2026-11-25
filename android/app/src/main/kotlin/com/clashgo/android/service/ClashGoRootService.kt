@@ -155,7 +155,7 @@ class ClashGoRootService : Service() {
             // 没有订阅时用内置配置，工作目录就是应用自己的 mihomo 目录、不建沙箱；
             // 带了编号却读不到配置才是错误。
             if (subscriptionId == null) {
-                ConfigGenerator.writeFallbackConfig(this@ClashGoRootService)
+                if (!attachOnly) ConfigGenerator.writeFallbackConfig(this@ClashGoRootService)
             } else if (!ProfileFileOps.hasValidConfig(this@ClashGoRootService, subscriptionId)) {
                 AppLogger.error(TAG, "No valid subscription config (id=$subscriptionId), aborting start")
                 ProxyServiceBridge.updateState(

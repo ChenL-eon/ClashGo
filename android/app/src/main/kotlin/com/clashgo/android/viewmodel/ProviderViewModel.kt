@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.clashgo.android.domain.repository.MihomoRepository
 import com.clashgo.android.R
+import com.clashgo.android.platform.ProxyServiceBridge
 import com.clashgo.android.util.AppLogger
 import com.clashgo.android.util.OperationFeedback
 import kotlinx.coroutines.CancellationException
@@ -17,6 +18,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -54,8 +56,15 @@ class ProviderViewModel : ViewModel() {
     private var loadJob: Job? = null
     private var refreshJob: Job? = null
 
-    fun setRepository(repo: MihomoRepository?) {
-        if (repository === repo) return
+    init {
+        viewModelScope.launch {
+            ProxyServiceBridge.configRevision.drop(1).collect {
+                if (repository != null) loadProviders()
+            }
+        }
+    }
+
+    fun setRepository(repo: MihomoRepository?) {        if (repository === repo) return
         loadJob?.cancel()
         refreshJob?.cancel()
         repository = repo

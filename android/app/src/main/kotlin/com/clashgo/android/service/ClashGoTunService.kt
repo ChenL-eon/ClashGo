@@ -41,6 +41,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
 
+private class NoValidAllowedAppsException : Exception()
+
 @SuppressLint("VpnServicePolicy")
 class ClashGoTunService : VpnService() {
 
@@ -225,15 +227,31 @@ class ClashGoTunService : VpnService() {
                     }
 
                     // 自身包名一律排除，否则子进程的 HTTP 请求会被自己代理住、永久卡死。
-                    // 单个包名添加失败多是用户选中后又卸载了，跳过即可。
+                    // 同 UID 的包无法单独放行，先按 UID 过滤；全部失效时拒绝建立，避免退化成全机接管。
                     when (proxyMode) {
                         AppProxyMode.AllowSelected -> {
-                            val filtered = packages.filter { it != packageName }
-                            if (filtered.isEmpty()) {
+                            if (packages.isEmpty()) {
                                 addDisallowedApplication(packageName)
                             } else {
-                                filtered.forEach { pkg ->
-                                    runCatching { addAllowedApplication(pkg) }
+                                val selfUid = android.os.Process.myUid()
+                                val candidates = packages
+                                    .filter { it != packageName }
+                                    .filter { pkg ->
+                                        runCatching {
+                                            packageManager.getApplicationInfo(pkg, 0).uid != selfUid
+                                        }.getOrDefault(false)
+                                    }
+                                if (candidates.isEmpty()) throw NoValidAllowedAppsException()
+                                var added = 0
+                                candidates.forEach { pkg ->
+                                    if (runCatching { addAllowedApplication(pkg) }.isSuccess) added++
+                                }
+                                if (added == 0) throw NoValidAllowedAppsException()
+                                if (added < candidates.size) {
+                                    AppLogger.warn(
+                                        TAG,
+                                        "AllowSelected: ${candidates.size - added} of ${candidates.size} apps unavailable, using $added",
+                                    )
                                 }
                             }
                         }
@@ -268,6 +286,13 @@ class ClashGoTunService : VpnService() {
                         )
                     }
                 }.establish()?.detachFd()
+            } catch (e: NoValidAllowedAppsException) {
+                AppLogger.error(TAG, "AllowSelected has no usable apps; refusing to start VPN")
+                ProxyServiceBridge.updateState(
+                    ProxyServiceStatus(ProxyState.Error, errorMessage = getString(R.string.error_vpn_no_valid_apps))
+                )
+                stopSelf()
+                return@launch
             } catch (e: Exception) {
                 AppLogger.error(TAG, "Failed to establish VPN", e)
                 ProxyServiceBridge.updateState(
@@ -464,6 +489,7 @@ class ClashGoTunService : VpnService() {
                 restartProxy(fallbackId)
             } else if (restoreId != null) {
                 restoreProxySelections(restoreId)
+                ProxyServiceBridge.notifyConfigReloaded()
             }
         }
     }

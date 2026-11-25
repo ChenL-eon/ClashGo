@@ -49,6 +49,10 @@ object ProxyServiceBridge {
     private val _notificationDismissed = MutableStateFlow(false)
     val notificationDismissed: StateFlow<Boolean> = _notificationDismissed.asStateFlow()
 
+    // 内核内重载后 PID / secret 不变，页面只能靠 revision 知道需要重新拉取代理与 Provider 快照。
+    private val _configRevision = MutableStateFlow(0L)
+    val configRevision: StateFlow<Long> = _configRevision.asStateFlow()
+
     fun updateState(status: ProxyServiceStatus) {
         _state.value = status
         if (status.state == ProxyState.Starting) _notificationDismissed.value = false
@@ -80,6 +84,10 @@ object ProxyServiceBridge {
 
     fun requestNotificationRefresh() {
         _notificationRefresh.tryEmit(Unit)
+    }
+
+    fun notifyConfigReloaded() {
+        _configRevision.update { it + 1 }
     }
 
     fun dismissNotification() {

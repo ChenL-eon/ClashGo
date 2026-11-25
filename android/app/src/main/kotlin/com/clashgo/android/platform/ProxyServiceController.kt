@@ -154,12 +154,11 @@ class ProxyServiceController(
     fun reattachRoot() {
         val mode = getTunMode()
         if (mode != TunMode.RootTun && mode != TunMode.RootTproxy) return
-        val id = subscriptionStore.currentId() ?: run {
-            storage.putString(StorageKeys.SERVICE_WAS_RUNNING, "false")
-            return
-        }
+        // ROOT 内核可在没有订阅时跑内置配置，attach 必须使用它实际运行的订阅 id；
+        // 当前订阅可能已变，持久化的 active id 才是权威来源。
+        val id = storage.getString(StorageKeys.ROOT_ACTIVE_SUBSCRIPTION_ID, "").ifEmpty { null }
         val intent = buildServiceIntent(mode, Op.Start).apply {
-            putExtra(EXTRA_SUBSCRIPTION_ID, id)
+            if (id != null) putExtra(EXTRA_SUBSCRIPTION_ID, id)
             putExtra(ClashGoRootService.EXTRA_ATTACH_ONLY, true)
         }
         context.startForegroundService(intent)
