@@ -4,7 +4,7 @@
 
 - `RuleOverrideStore` 管理 `rules/rule_overrides.json`，格式同 PC：`Items` 按订阅各一项（`CustomRules` / `DisabledBuiltinRuleKeys` / `RuleOrder`），`Templates` 全局共用。自定义规则 Id 为 `custom-{32 位十六进制}`，模板 Id 为 `template-{32 位十六进制}`。
 - 规则键同 PC：类型、内容、目标、选项四段折叠空白并转大写，以 `\u001f` 相连；查重只看类型与内容两段。顺序 Id 为 `builtin:<键>` / `custom:<Id>`。Kotlin `RuleKeys` 与 Go `RuleKey` 必须同一算法，否则禁用与排序会对不上运行时的规则。
-- 某订阅的覆写为空时删除该项；删除订阅时一并清理。规则覆写不进备份包，与 PC 一致。
+- 某订阅的覆写为空时删除该项；删除订阅时一并清理。规则覆写随 Android 备份写入 `android/rules/rule_overrides.json`，恢复覆盖时以备份为准，合并只跟随实际新增的订阅，本地同 Id 的规则与模板不被覆盖。
 
 ## 页面与保存
 

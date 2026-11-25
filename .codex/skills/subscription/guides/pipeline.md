@@ -35,7 +35,7 @@ http provider 的缓存一律放在工作目录的 `providers/` 下（`provider_
 
 per-profile `ageSecretKey` 经 `PendingSnapshot` 传到 `fetchAndValid`。磁盘上保持加密，运行时解密：
 
-- 导入校验：Kotlin 侧 fetch 前 `nativeSetAgeSecretKey`、fetch 后清空（processLock 保证串行），Go 侧在内存中解密校验，config.yaml 与 provider 文件按加密形态写入。
+- 导入校验：`ageSecretKey` 作为 `fetchAndValid` 参数传给 Go，Go 在 `offlineParseMu` 内设置 `age.SetGlobalSecretKeys` 并在返回前清空；fetch、provider 预取与 Parse 全在同一临界区，config.yaml 与 provider 文件按加密形态写入。
 - 运行：Service 从 `SubscriptionStore` 读密钥，经 `MihomoRunner.start(ageSecretKey)` 加 `--age-secret-key`，`runtime.go` 在 `hub.Parse` 前调用 `age.SetGlobalSecretKeys`；ROOT attach 路径的进程已带密钥。
 - 加密订阅对 app 不透明：`ConfigGenerator.readSubscriptionSecret` / `readSubscriptionMixedPort` 的行扫描读不到内容，使用默认值。
 - 备份导出时解密为明文（与 PC 一致），从备份恢复后到下次更新前磁盘上是明文，见 `guides/backup.md`。

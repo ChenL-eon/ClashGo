@@ -12,7 +12,7 @@ libmihomo.so（cgo c-shared，arm64 约 71MB）同时承担 JNI 导出与 `mihom
 
 ## 订阅变换
 
-`clashgoValidateTransform`、`clashgoChainProxyContext`、`clashgoRuleContext` 与运行时 `--transform` 共用 `overrides.Transform`：先按顺序套覆写，再处理链式代理，最后合并规则覆写。JNI 传变换文件路径，文件内容由 Go 读取，避免 `GetStringUTFChars` 的改进 UTF-8 改坏补充平面字符；provider 校验期间设置 age 全局密钥并在返回时清空，调用方持 processLock。校验返回 `{"hasCycle":bool}`，失败仍走 `"error: "` 前缀。
+`clashgoValidateTransform`、`clashgoChainProxyContext`、`clashgoRuleContext` 与运行时 `--transform` 共用 `overrides.Transform`：先按顺序套覆写，再处理链式代理，最后合并规则覆写。JNI 传变换文件路径，文件内容由 Go 读取；age 密文也只由 Go 用标准 UTF-8 路径读取。订阅 fetch、离线解析与校验的 age 密钥统一作为参数传入，Go 侧在 `offlineParseMu` 内设置并在返回前清空，调用方不再另设全局密钥。JNI 的 `jstring` 输入输出走 UTF-16 中转的标准 UTF-8，不用 `GetStringUTFChars` / `NewStringUTF`，补充平面字符不会变成 U+FFFD。校验返回 `{"hasCycle":bool}`，失败仍走 `"error: "` 前缀。
 
 引擎位于 `clashgo_core/overrides/`：链式代理在 `chains.go`、规则覆写在 `rules.go`，规则与 PC 一致，改动时同步核对 PC 实现；YAML 展开别名时检查循环及节点上限；JavaScript 走 goja，执行限时 2 秒、输出上限 1 MiB。Go 模块的 `godebug default=go1.20` 保持 mihomo 运行时默认行为，实际工具链仍由构建脚本选定。
 

@@ -19,7 +19,7 @@ Starting 窗口内的切换先排队，Running 后补一次 restart；关闭功�
 
 ## 自身流量绕过隧道
 
-ClashGo 自身包名始终绕过 TUN / VPN：`ProcessBuilder` 子进程的 HTTP 被代理捕获会永久阻塞。ROOT 三种 AppProxyMode 都把 `packageName` 从 include 剔除或加入 exclude；VPN `AllowSelected` 分支先过滤 self 再 addAllowed，过滤后为空时改用 `addDisallowedApplication(self)`。
+ClashGo 自身包名始终绕过 TUN / VPN：`ProcessBuilder` 子进程的 HTTP 被代理捕获会永久阻塞。ROOT 三种 AppProxyMode 都把 `packageName` 从 include 剔除或加入 exclude；VPN `AllowSelected` 先过滤自身与同 UID 应用，剩余候选逐个 `addAllowedApplication`，全部失效时拒绝建立并提示本地化错误，部分失效只接管成功的应用。显式空名单仍保持 `addDisallowedApplication(self)` 的全机排除自身语义。
 
 ## VPN 专属约束
 
