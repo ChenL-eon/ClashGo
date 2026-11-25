@@ -7,11 +7,14 @@ import com.clashgo.android.service.ProfileFileOps
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -88,6 +91,7 @@ object ClashGoCoreBridge {
         try {
             val raw = withContext(Dispatchers.IO) {
                 ProfileFileOps.awaitGeodata()
+                currentCoroutineContext().ensureActive()
                 try {
                     nativeFetchAndValid(workDir, url, force, httpProxy, userAgent, token, ageSecretKey)
                 } finally {
@@ -203,7 +207,7 @@ object ClashGoCoreBridge {
 
     // 离线测速在进程内直接拨测配置里的节点，与运行时 /proxies/{name}/delay 使用同一个 URLTest。
     // unifiedDelay 必须由调用方传入：离线解析不经过 executor.Initial，不能指望配置自己写进全局开关。
-    fun testOfflineDelays(
+    suspend fun testOfflineDelays(
         workDir: File,
         transform: File?,
         ageSecretKey: String,
@@ -211,21 +215,41 @@ object ClashGoCoreBridge {
         testUrl: String,
         timeout: Int,
         unifiedDelay: Boolean,
-    ): Map<String, Int> {
-        ProfileFileOps.awaitGeodata()
-        val names = json.encodeToString(ListSerializer(String.serializer()), nodes.toList())
-        return decodePayload(
-            nativeTestOfflineDelays(
-                workDir.path,
-                transform?.path.orEmpty(),
-                ageSecretKey,
-                names,
-                testUrl,
-                timeout,
-                unifiedDelay,
-            ),
-            OfflineDelaySnapshot.serializer(),
-        ).delays
+    ): Map<String, Int> = coroutineScope {
+        val token = tokenSeq.getAndIncrement()
+        val nativeDone = AtomicBoolean(false)
+        val canceller = launch {
+            try {
+                awaitCancellation()
+            } finally {
+                if (!nativeDone.get()) runCatching { nativeCancel(token) }
+            }
+        }
+        try {
+            val raw = withContext(Dispatchers.IO) {
+                ProfileFileOps.awaitGeodata()
+                currentCoroutineContext().ensureActive()
+                val names = json.encodeToString(ListSerializer(String.serializer()), nodes.toList())
+                try {
+                    nativeTestOfflineDelays(
+                        workDir.path,
+                        transform?.path.orEmpty(),
+                        ageSecretKey,
+                        names,
+                        testUrl,
+                        timeout,
+                        unifiedDelay,
+                        token,
+                    )
+                } finally {
+                    nativeDone.set(true)
+                }
+            }
+            if (raw == "error: canceled") throw CancellationException("offline delay test canceled")
+            decodePayload(raw, OfflineDelaySnapshot.serializer()).delays
+        } finally {
+            canceller.cancel()
+        }
     }
 
     private fun <T> decodePayload(raw: String?, serializer: KSerializer<T>): T {
@@ -256,6 +280,7 @@ object ClashGoCoreBridge {
         testUrl: String,
         timeout: Int,
         unifiedDelay: Boolean,
+        token: Int,
     ): String?
 
     @JvmStatic

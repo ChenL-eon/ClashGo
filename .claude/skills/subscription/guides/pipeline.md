@@ -8,7 +8,7 @@ fetch + provider prefetch + Parse 三步经 `ClashGoCoreBridge.fetchAndValid` �
 
 外层 `runProcess` 可取消；commit 阶段包 `withContext(NonCancellable)`，文件 swap 与列表更新整体原子；catch 中的 `cleanupProcessing` 同样 NonCancellable。
 
-阻塞的 JNI 调用不响应协程取消，`withContext` 要等它返回才抛 `CancellationException`，那时 Go 侧 defer 已清空 `cancelRegistry`，`nativeCancel` 失效，processLock 会被占到 60s 超时。因此 `fetchAndValid` 在阻塞调用之前挂一条停在 `awaitCancellation()` 的 watcher 协程，取消瞬间即调 `nativeCancel`；`nativeDone` 标记避免正常返回后重复调用，`finally` 里 cancel 掉 watcher，`coroutineScope` 才能返回。watcher 必须先于阻塞调用启动：`invokeOnCompletion` 要等子协程收敛后才触发，时机太晚。`cancelCurrentUpdate` 先同步 `clearProgress()` 让 Dialog 立即消失，再 cancel。
+阻塞的 JNI 调用不响应协程取消，`withContext` 要等它返回才抛 `CancellationException`，那时 Go 侧 defer 已清空 `cancelRegistry`，`nativeCancel` 失效，processLock 会被占到 60s 超时。因此 `fetchAndValid` 在阻塞调用之前挂一条停在 `awaitCancellation()` 的 watcher 协程，取消瞬间即调 `nativeCancel`；`nativeDone` 标记避免正常返回后重复调用，`finally` 里 cancel 掉 watcher，`coroutineScope` 才能返回。watcher 必须先于阻塞调用启动：`invokeOnCompletion` 要等子协程收敛后才触发，时机太晚。取消可能先于 Go 登记 context 到达：`clashgoCancel` 先把 token 记进 `cancelledTokens`，`beginCancelable` 登记时消费并立即 cancel，取消不会丢。provider 预取用固定 5 个 worker 消费队列，不按 provider 数量创建 goroutine；取消后停止取任务，在途请求随同一 context 退出。`cancelCurrentUpdate` 先同步 `clearProgress()` 让 Dialog 立即消失，再 cancel。
 
 ## 协程锁
 

@@ -46,7 +46,7 @@ CMFA embed mode 下 `PATCH/PUT /configs`、`POST /restart`、`POST /configs/geo`
 
 代理未运行时 `ProxyViewModel` 不接受 repository，改走 `OfflineProxyRepository`：把当前订阅的 `config.yaml`、`profile.transform.json` 与 provider 缓存交给 Go 的 `clashgoOfflineProxySnapshot`，用 `config.ParseRawConfig` 解析后导出与 `/proxies`、`/group`、`/providers/proxies` 同形的 JSON。`ParseRawConfig` 不读 provider 缓存，离线导出前必须对 `cfg.Providers` 与 `cfg.RuleProviders` 调用 `Initial()`，否则组里只剩 `COMPATIBLE` 占位。
 
-离线测速走 `clashgoTestOfflineDelays`，在进程内对解析出的 `C.Proxy` 调 `URLTest`，与 `/proxies/{name}/delay`、provider healthcheck 同一路径。离线选节点只写 `ProxySelectionStore`，不碰内核；下次启动由运行态恢复。
+离线测速走 `clashgoTestOfflineDelays`，在进程内对解析出的 `C.Proxy` 调 `URLTest`，与 `/proxies/{name}/delay`、provider healthcheck 同一路径。Go 侧固定 5 个 worker 从队列取节点，不按节点数量创建 goroutine；Kotlin 传入取消 token 并挂 `awaitCancellation()` watcher，取消后 Go 的 context 同时终止排队与进行中的 `URLTest`，返回 `error: canceled`，Kotlin 再抛出 `CancellationException`，未测节点不会写进结果。离线选节点只写 `ProxySelectionStore`，不碰内核；下次启动由运行态恢复。
 
 ## 连接速率自行差分
 

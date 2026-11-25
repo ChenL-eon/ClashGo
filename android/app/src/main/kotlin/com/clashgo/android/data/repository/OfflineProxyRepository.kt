@@ -10,6 +10,7 @@ import com.clashgo.android.service.ProfileFileOps
 import com.clashgo.android.util.AppLogger
 import com.clashgo.android.util.describe
 import java.io.File
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -29,7 +30,7 @@ class OfflineProxyRepository(
 ) {
 
     suspend fun load(uuid: String): Result<OfflineProxyData> = withContext(Dispatchers.IO) {
-        runCatching {
+        runCancellable {
             val subscription = subscriptions.subscriptions.value.firstOrNull { it.id == uuid }
                 ?: error("subscription $uuid not found")
             val workDir = ProfileFileOps.getSubscriptionDir(context, uuid)
@@ -52,7 +53,7 @@ class OfflineProxyRepository(
         testUrl: String = DelayTestUrl.DEFAULT,
         timeout: Int = 5000,
     ): Result<Map<String, Int>> = withContext(Dispatchers.IO) {
-        runCatching {
+        runCancellable {
             // 与运行时一致：unified-delay 默认开，测第二次请求；用户显式关掉时保留冷连接口径。
             val unifiedDelay = overrides.load().unifiedDelay ?: true
             ClashGoCoreBridge.testOfflineDelays(
@@ -67,6 +68,14 @@ class OfflineProxyRepository(
         }.onFailure {
             AppLogger.warn(TAG, "test offline delays failed: ${it.describe()}", it)
         }
+    }
+
+    private suspend inline fun <T> runCancellable(crossinline block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        Result.failure(e)
     }
 
     companion object {

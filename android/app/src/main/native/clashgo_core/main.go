@@ -6,6 +6,7 @@ package main
 import "C"
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -29,10 +30,25 @@ func guardString(fn func() string) (ret *C.char) {
 }
 
 var (
-	cancelRegistry sync.Map
-	progressStore  sync.Map
-	initOnce       sync.Once
+	cancelRegistry  sync.Map
+	cancelledTokens sync.Map
+	progressStore   sync.Map
+	initOnce        sync.Once
 )
+
+// Kotlin 的取消钩子在阻塞 JNI 调用之前就已挂好，取消可能先于 Go 侧的 context 登记到达。
+// 先把 token 记成已取消，登记时立即触发 cancel，避免那次取消被丢掉。
+func beginCancelable(token int32) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelRegistry.Store(token, func() { cancel() })
+	if _, ok := cancelledTokens.LoadAndDelete(token); ok {
+		cancel()
+	}
+	return ctx, func() {
+		cancel()
+		cancelRegistry.Delete(token)
+	}
+}
 
 //export clashgoCoreInit
 func clashgoCoreInit(homeDir *C.char) {
@@ -54,11 +70,14 @@ func clashgoFreeString(s *C.char) {
 
 //export clashgoCancel
 func clashgoCancel(token C.int) {
-	if v, ok := cancelRegistry.Load(int32(token)); ok {
+	key := int32(token)
+	if v, ok := cancelRegistry.Load(key); ok {
 		if cancel, ok := v.(func()); ok {
 			cancel()
 		}
+		return
 	}
+	cancelledTokens.Store(key, struct{}{})
 }
 
 //export clashgoQueryProgress

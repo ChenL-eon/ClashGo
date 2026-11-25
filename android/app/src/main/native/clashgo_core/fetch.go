@@ -26,8 +26,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	clashHttp "github.com/metacubex/mihomo/component/http"
 	"github.com/metacubex/mihomo/component/age"
+	clashHttp "github.com/metacubex/mihomo/component/http"
 	"github.com/metacubex/mihomo/config"
 	Const "github.com/metacubex/mihomo/constant"
 )
@@ -77,9 +77,8 @@ func clashgoFetchAndValid(
 		httpProxy := C.GoString(cHttpProxy)
 		userAgent := C.GoString(cUserAgent)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		cancelRegistry.Store(int32(token), func() { cancel() })
-		defer cancelRegistry.Delete(int32(token))
+		ctx, cleanup := beginCancelable(int32(token))
+		defer cleanup()
 		defer progressStore.Delete(int32(token))
 
 		result, err := runFetchAndValid(ctx, int32(token), workDir, rawURL, force != 0, httpProxy, userAgent)
@@ -323,31 +322,50 @@ func prefetchProviders(ctx context.Context, token int32, cfg *config.RawConfig, 
 	})
 
 	var done atomic.Int32
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, prefetchConcurrency)
-	for _, it := range items {
-		if ctx.Err() != nil {
-			break
-		}
-		wg.Add(1)
-		go func(it item) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			if ctx.Err() != nil {
-				return
-			}
-			if u, err := url.Parse(it.url); err == nil {
-				_ = fetchProvider(ctx, u, it.dest, userAgent, options)
-			}
-			setProgress(token, FetchProgress{
-				Action:      "FetchProviders",
-				Args:        []string{it.key},
-				Progress:    int(done.Add(1)),
-				MaxProgress: total,
-			})
-		}(it)
+	workers := prefetchConcurrency
+	if total < workers {
+		workers = total
 	}
+	jobs := make(chan item)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				if ctx.Err() != nil {
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case it, ok := <-jobs:
+					if !ok {
+						return
+					}
+					if u, err := url.Parse(it.url); err == nil {
+						_ = fetchProvider(ctx, u, it.dest, userAgent, options)
+					}
+					setProgress(token, FetchProgress{
+						Action:      "FetchProviders",
+						Args:        []string{it.key},
+						Progress:    int(done.Add(1)),
+						MaxProgress: total,
+					})
+				}
+			}
+		}()
+	}
+
+feed:
+	for _, it := range items {
+		select {
+		case <-ctx.Done():
+			break feed
+		case jobs <- it:
+		}
+	}
+	close(jobs)
 	wg.Wait()
 }
 

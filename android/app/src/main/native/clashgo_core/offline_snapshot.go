@@ -138,8 +138,11 @@ func clashgoOfflineProxySnapshot(cWorkDir, cTransform, cKey *C.char) *C.char {
 }
 
 //export clashgoTestOfflineDelays
-func clashgoTestOfflineDelays(cWorkDir, cTransform, cKey, cNames, cURL *C.char, cTimeout C.int, cUnifiedDelay C.int) *C.char {
+func clashgoTestOfflineDelays(cWorkDir, cTransform, cKey, cNames, cURL *C.char, cTimeout C.int, cUnifiedDelay C.int, cToken C.int) *C.char {
 	return guardString(func() string {
+		ctx, cleanup := beginCancelable(int32(cToken))
+		defer cleanup()
+
 		workDir := C.GoString(cWorkDir)
 		transformPath := C.GoString(cTransform)
 		testURL := C.GoString(cURL)
@@ -160,6 +163,10 @@ func clashgoTestOfflineDelays(cWorkDir, cTransform, cKey, cNames, cURL *C.char, 
 		func() {
 			offlineParseMu.Lock()
 			defer offlineParseMu.Unlock()
+			if ctx.Err() != nil {
+				parseErr = ctx.Err()
+				return
+			}
 			age.SetGlobalSecretKeys(strings.TrimSpace(C.GoString(cKey)))
 			defer age.SetGlobalSecretKeys()
 			cfg, _, parseErr = parseOfflineConfig(workDir, transformPath, C.GoString(cKey))
@@ -169,6 +176,9 @@ func clashgoTestOfflineDelays(cWorkDir, cTransform, cKey, cNames, cURL *C.char, 
 				adapter.UnifiedDelay.Store(cUnifiedDelay != 0)
 			}
 		}()
+		if ctx.Err() != nil {
+			return "error: canceled"
+		}
 		if parseErr != nil {
 			return "error: " + parseErr.Error()
 		}
@@ -181,41 +191,71 @@ func clashgoTestOfflineDelays(cWorkDir, cTransform, cKey, cNames, cURL *C.char, 
 		}
 
 		results := make(map[string]int, len(names))
-		var (
-			mu    sync.Mutex
-			wg    sync.WaitGroup
-			slots = make(chan struct{}, offlineTestConcurrency)
-		)
+		pending := make([]string, 0, len(names))
 		for _, name := range names {
-			proxy, ok := proxies[name]
-			if !ok {
-				mu.Lock()
+			if _, ok := proxies[name]; ok {
+				pending = append(pending, name)
+			} else {
 				results[name] = -1
-				mu.Unlock()
-				continue
 			}
-			wg.Add(1)
-			go func(name string, proxy constant.Proxy) {
-				defer wg.Done()
-				slots <- struct{}{}
-				defer func() { <-slots }()
-
-				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Millisecond)
-				defer cancel()
-				delay, err := proxy.URLTest(ctx, testURL, expectedStatus)
-				if err != nil || delay == 0 {
-					delay = 0
-				}
-				result := int(delay)
-				if result == 0 {
-					result = -1
-				}
-				mu.Lock()
-				results[name] = result
-				mu.Unlock()
-			}(name, proxy)
 		}
+
+		workers := offlineTestConcurrency
+		if len(pending) < workers {
+			workers = len(pending)
+		}
+		jobs := make(chan string)
+		var (
+			wg sync.WaitGroup
+			mu sync.Mutex
+		)
+		for i := 0; i < workers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					if ctx.Err() != nil {
+						return
+					}
+					select {
+					case <-ctx.Done():
+						return
+					case name, ok := <-jobs:
+						if !ok {
+							return
+						}
+						proxy := proxies[name]
+						testCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Millisecond)
+						delay, err := proxy.URLTest(testCtx, testURL, expectedStatus)
+						cancel()
+						if err != nil || delay == 0 {
+							delay = 0
+						}
+						result := int(delay)
+						if result == 0 {
+							result = -1
+						}
+						mu.Lock()
+						results[name] = result
+						mu.Unlock()
+					}
+				}
+			}()
+		}
+
+	feed:
+		for _, name := range pending {
+			select {
+			case <-ctx.Done():
+				break feed
+			case jobs <- name:
+			}
+		}
+		close(jobs)
 		wg.Wait()
+		if ctx.Err() != nil {
+			return "error: canceled"
+		}
 
 		data, err := json.Marshal(offlineDelaySnapshot{Delays: results})
 		if err != nil {
